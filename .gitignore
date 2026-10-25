@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+*.ckpt.json
+.DS_Store
