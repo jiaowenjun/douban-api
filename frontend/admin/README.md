@@ -19,11 +19,11 @@
 ## 开发
 
 ```bash
-# 1. 启动后端（仓库根目录，默认 127.0.0.1:8080）
-cargo run --bin douban-sync-server
+# 1. 启动后端（backend/ 目录，默认 127.0.0.1:8080）
+cd backend && cargo run --bin douban-sync-server
 
 # 2. 启动前端（另一个终端，Vite 已配置 /api 与 /healthz 代理到 8080）
-cd web && pnpm install && pnpm dev
+cd frontend/admin && pnpm install && pnpm dev
 # 打开 http://localhost:5173
 ```
 
@@ -43,7 +43,7 @@ pnpm build   # tsc 类型检查 + vite 打包到 dist/
 ```
 src/
   api.ts                    # fetch 封装：base/token、错误信封解析、SSE 地址
-  types.ts                  # 与 src/server/service.rs 响应结构一一对应
+  types.ts                  # 与 backend/src/server/service.rs 响应结构一一对应
   labels.tsx                # 状态/维度中文标签、Tag 渲染
   App.tsx                   # ProLayout 布局 + 路由 + 连接设置
   pages/

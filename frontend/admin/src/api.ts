@@ -45,7 +45,7 @@ export function resolveApiUrl(path: string): string {
 export const getUser = () => localStorage.getItem(USER_KEY) || '';
 export const setUser = (v: string) => localStorage.setItem(USER_KEY, v);
 
-/** 与服务端 crawler.rs::parse_uid 一致：接受纯 ID 或个人主页链接，归一化为纯 uid */
+/** 与服务端 backend/src/crawler.rs::parse_uid 一致：接受纯 ID 或个人主页链接，归一化为纯 uid */
 export function parseUserInput(raw: string): string | null {
   const input = raw.trim();
   const isValidId = (s: string) => /^[A-Za-z0-9._-]+$/.test(s);
