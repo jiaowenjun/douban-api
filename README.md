@@ -4,6 +4,8 @@
 
 原理与背景见 [豆瓣API调研报告.md](豆瓣API调研报告.md) 中的"路径②：公开收藏页 HTML 抓取"——豆瓣官方 API 已停止服务，本工具直接抓取公开收藏页（`movie/book/music.douban.com/people/{uid}/...`）并解析，**无需登录、无需 Cookie**。
 
+服务器化改造的接口设计见 [服务器API设计.md](服务器API设计.md)（设计稿，尚未实现）。
+
 Rust 实现（reqwest + scraper + clap），编译为单二进制，无需运行时环境。
 
 ## 使用
