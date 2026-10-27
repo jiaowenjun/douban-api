@@ -56,6 +56,17 @@ curl -H "Authorization: Bearer my-secret" \
 
 内置防护：按 `(uid, category, status)` 维度缓存（TTL 24h，`refresh:true` 强制刷新）、同维度 single-flight、单 worker 串行 + 每次抓取 ≥2s 间隔（全局令牌桶）、403/超时指数退避重试、连续 5 次失败熔断 10 分钟、per-IP 限流。
 
+## 管理后台（web/）
+
+服务器自带一个 Ant Design Pro 风格的管理页面（Vite + React + pnpm），提供概览监控、导出任务的创建/进度/下载、缓存数据浏览：
+
+```bash
+cd web && pnpm install && pnpm dev   # 开发：http://localhost:5173（已代理到 :8080）
+cd web && pnpm build                 # 产物为纯静态 dist/，可同源部署或配合 CORS 跨源部署
+```
+
+详见 [web/README.md](web/README.md)。
+
 ## 参数
 
 | 参数 | 默认 | 说明 |
