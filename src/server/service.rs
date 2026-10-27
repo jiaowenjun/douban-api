@@ -9,6 +9,7 @@ use crate::crawler::{Category, Record, Status, parse_uid};
 
 use super::config::ServerConfig;
 use super::error::{AppError, AppResult};
+use super::fetcher::DoubanFetcher;
 use super::state::AppState;
 
 pub const TERMINAL_STATUSES: [&str; 3] = ["completed", "partial", "failed"];
@@ -51,6 +52,37 @@ pub async fn upsert_records(
         .await?;
     }
     tx.commit().await?;
+    Ok(())
+}
+
+/// refresh 语义：清空该维度旧数据并重置为待全量重抓。
+/// 手动 refresh 任务与订阅全量同步共用（调用前提：维度行已存在且非 queued/running，
+/// 避免与进行中的分页抓取竞态删数据）。
+async fn refresh_dimension(
+    pool: &SqlitePool,
+    uid: &str,
+    category: &str,
+    dim_status: &str,
+    now: i64,
+) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM records WHERE uid=? AND category=? AND dim_status=?")
+        .bind(uid)
+        .bind(category)
+        .bind(dim_status)
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        "UPDATE dimensions SET state='queued', fetched_count=0,
+                total=NULL, next_start=0, fetched_ms=NULL, attempts=0,
+                next_sync_ms=NULL, last_error=NULL, updated_ms=?
+         WHERE uid=? AND category=? AND dim_status=?",
+    )
+    .bind(now)
+    .bind(uid)
+    .bind(category)
+    .bind(dim_status)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -138,6 +170,8 @@ pub struct TaskSummary {
     pub items_count: i64,
     pub created_at: String,
     pub url: String,
+    /// manual = 用户手动创建；auto = 订阅全量同步自动创建
+    pub source: String,
 }
 
 fn ms_to_rfc3339(ms: i64) -> String {
@@ -278,24 +312,7 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
                     .is_some_and(|(s, _, _)| s == "ok");
                 if is_fresh_ok {
                     // refresh：清空旧数据重新全量抓
-                    sqlx::query("DELETE FROM records WHERE uid=? AND category=? AND dim_status=?")
-                        .bind(&uid)
-                        .bind(cat.key())
-                        .bind(st.key())
-                        .execute(&state.pool)
-                        .await?;
-                    sqlx::query(
-                        "UPDATE dimensions SET state='queued', fetched_count=0,
-                                total=NULL, next_start=0, fetched_ms=NULL, attempts=0,
-                                next_sync_ms=NULL, last_error=NULL, updated_ms=?
-                         WHERE uid=? AND category=? AND dim_status=?",
-                    )
-                    .bind(now)
-                    .bind(&uid)
-                    .bind(cat.key())
-                    .bind(st.key())
-                    .execute(&state.pool)
-                    .await?;
+                    refresh_dimension(&state.pool, &uid, cat.key(), st.key(), now).await?;
                 } else {
                     // idle/error：清错误与计数后入队，保留已有 records/next_start 续爬
                     sqlx::query(
@@ -432,15 +449,18 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
 pub struct ListFilter {
     pub user: Option<String>,
     pub status: Option<String>,
+    /// None = 全部；Some("manual")/Some("auto") = 按来源过滤（默认列表只看手动任务）
+    pub source: Option<String>,
     pub limit: i64,
     pub cursor_rowid: Option<i64>,
 }
 
 pub async fn list_tasks(state: &AppState, f: ListFilter) -> AppResult<(Vec<TaskSummary>, Option<i64>)> {
     let rows = sqlx::query(
-        "SELECT rowid, task_id, user, status, items_count, created_ms FROM tasks
+        "SELECT rowid, task_id, user, status, items_count, created_ms, source FROM tasks
          WHERE (? IS NULL OR user = ?)
            AND (? IS NULL OR status = ?)
+           AND (? IS NULL OR source = ?)
            AND (? IS NULL OR rowid < ?)
          ORDER BY rowid DESC
          LIMIT ?",
@@ -449,6 +469,8 @@ pub async fn list_tasks(state: &AppState, f: ListFilter) -> AppResult<(Vec<TaskS
     .bind(&f.user)
     .bind(&f.status)
     .bind(&f.status)
+    .bind(&f.source)
+    .bind(&f.source)
     .bind(f.cursor_rowid)
     .bind(f.cursor_rowid)
     .bind(f.limit + 1)
@@ -471,6 +493,7 @@ pub async fn list_tasks(state: &AppState, f: ListFilter) -> AppResult<(Vec<TaskS
             status: r.get("status"),
             items_count: r.get("items_count"),
             created_at: ms_to_rfc3339(r.get("created_ms")),
+            source: r.get("source"),
         });
         next_cursor = Some(rowid);
     }
@@ -686,6 +709,391 @@ pub async fn read_marks(
         page_size,
         items,
     })
+}
+
+// --------------------------------------------------------------------------- //
+// 订阅同步：RSS 短周期增量 + 长周期全量（auto 任务）
+// --------------------------------------------------------------------------- //
+
+#[derive(Serialize)]
+pub struct SubscriptionView {
+    pub uid: String,
+    pub enabled: bool,
+    pub rss_interval_secs: i64,
+    pub full_interval_secs: i64,
+    pub next_rss_at: Option<String>,
+    pub next_full_at: Option<String>,
+    pub last_rss_at: Option<String>,
+    pub last_full_at: Option<String>,
+    pub last_error: Option<String>,
+    /// 该 uid 已缓存的维度数与记录数
+    pub dimensions: i64,
+    pub records: i64,
+    pub created_at: String,
+}
+
+/// 间隔下限：RSS 轮询不快于 1 分钟；全量不快于 1 小时且不短于 RSS 间隔
+const MIN_RSS_INTERVAL: i64 = 60;
+const MIN_FULL_INTERVAL: i64 = 3_600;
+/// full 因队列满 / single-flight 顺延时的重试间隔
+const FULL_RETRY_SECS: i64 = 300;
+
+pub async fn upsert_subscription(
+    state: &AppState,
+    uid: &str,
+    rss_interval_secs: Option<i64>,
+    full_interval_secs: Option<i64>,
+) -> AppResult<SubscriptionView> {
+    if !crate::crawler::is_valid_id(uid) {
+        return Err(AppError::InvalidArgument(format!("非法豆瓣用户 ID: {uid:?}")));
+    }
+    let rss = rss_interval_secs.unwrap_or(state.config.sub_rss_interval_secs);
+    let full = full_interval_secs.unwrap_or(state.config.sub_full_interval_secs);
+    if rss < MIN_RSS_INTERVAL || full < MIN_FULL_INTERVAL || full < rss {
+        return Err(AppError::InvalidArgument(format!(
+            "间隔不合法：需 rss_interval_secs ≥ {MIN_RSS_INTERVAL}、\
+             full_interval_secs ≥ {MIN_FULL_INTERVAL} 且 full ≥ rss"
+        )));
+    }
+
+    let now = ServerConfig::now_ms();
+    // 重复订阅只改间隔并重新启用，保持既有节奏（next_*_ms 不重置）
+    sqlx::query(
+        "INSERT INTO subscriptions (uid, rss_interval_secs, full_interval_secs,
+                next_rss_ms, next_full_ms, created_ms, updated_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(uid) DO UPDATE SET
+            rss_interval_secs=excluded.rss_interval_secs,
+            full_interval_secs=excluded.full_interval_secs,
+            enabled=1, updated_ms=excluded.updated_ms",
+    )
+    .bind(uid)
+    .bind(rss)
+    .bind(full)
+    .bind(now + rss * 1000)
+    .bind(now + full * 1000)
+    .bind(now)
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    get_subscription(state, uid).await
+}
+
+pub async fn delete_subscription(state: &AppState, uid: &str) -> AppResult<()> {
+    let res = sqlx::query("DELETE FROM subscriptions WHERE uid = ?")
+        .bind(uid)
+        .execute(&state.pool)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::SubscriptionNotFound(uid.to_string()));
+    }
+    Ok(())
+}
+
+pub async fn get_subscription(state: &AppState, uid: &str) -> AppResult<SubscriptionView> {
+    sqlx::query(
+        "SELECT uid, enabled, rss_interval_secs, full_interval_secs,
+                next_rss_ms, next_full_ms, last_rss_ms, last_full_ms, last_error, created_ms,
+                (SELECT COUNT(*) FROM dimensions d WHERE d.uid = s.uid) AS dim_count,
+                (SELECT COUNT(*) FROM records r WHERE r.uid = s.uid) AS rec_count
+         FROM subscriptions s WHERE uid = ?",
+    )
+    .bind(uid)
+    .fetch_optional(&state.pool)
+    .await?
+    .map(sub_row_to_view)
+    .ok_or_else(|| AppError::SubscriptionNotFound(uid.to_string()))
+}
+
+pub async fn list_subscriptions(state: &AppState) -> AppResult<Vec<SubscriptionView>> {
+    let rows = sqlx::query(
+        "SELECT uid, enabled, rss_interval_secs, full_interval_secs,
+                next_rss_ms, next_full_ms, last_rss_ms, last_full_ms, last_error, created_ms,
+                (SELECT COUNT(*) FROM dimensions d WHERE d.uid = s.uid) AS dim_count,
+                (SELECT COUNT(*) FROM records r WHERE r.uid = s.uid) AS rec_count
+         FROM subscriptions s ORDER BY s.created_ms",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(rows.into_iter().map(sub_row_to_view).collect())
+}
+
+fn sub_row_to_view(r: sqlx::sqlite::SqliteRow) -> SubscriptionView {
+    SubscriptionView {
+        uid: r.get("uid"),
+        enabled: r.get::<i64, _>("enabled") != 0,
+        rss_interval_secs: r.get("rss_interval_secs"),
+        full_interval_secs: r.get("full_interval_secs"),
+        next_rss_at: r.get::<Option<i64>, _>("next_rss_ms").map(ms_to_rfc3339),
+        next_full_at: r.get::<Option<i64>, _>("next_full_ms").map(ms_to_rfc3339),
+        last_rss_at: r.get::<Option<i64>, _>("last_rss_ms").map(ms_to_rfc3339),
+        last_full_at: r.get::<Option<i64>, _>("last_full_ms").map(ms_to_rfc3339),
+        last_error: r.get("last_error"),
+        dimensions: r.get("dim_count"),
+        records: r.get("rec_count"),
+        created_at: ms_to_rfc3339(r.get("created_ms")),
+    }
+}
+
+struct DueSubscription {
+    uid: String,
+    rss_interval_secs: i64,
+    full_interval_secs: i64,
+    next_rss_ms: i64,
+    rss_attempts: i64,
+}
+
+/// 处理一个到期订阅（rss / full 谁先到期先做谁）。返回是否处理了订阅；
+/// 供调度循环与测试复用（与 worker::process_next_due 同构）。
+pub async fn subscription_tick<F: DoubanFetcher>(
+    state: &AppState,
+    fetcher: &F,
+) -> anyhow::Result<bool> {
+    let row = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+        "SELECT uid, rss_interval_secs, full_interval_secs, next_rss_ms, rss_attempts
+         FROM subscriptions
+         WHERE enabled = 1 AND (next_rss_ms <= ? OR next_full_ms <= ?)
+         ORDER BY updated_ms ASC, rowid ASC
+         LIMIT 1",
+    )
+    .bind(ServerConfig::now_ms())
+    .bind(ServerConfig::now_ms())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((uid, rss_interval_secs, full_interval_secs, next_rss_ms, rss_attempts)) = row else {
+        return Ok(false);
+    };
+    let sub = DueSubscription {
+        uid,
+        rss_interval_secs,
+        full_interval_secs,
+        next_rss_ms,
+        rss_attempts,
+    };
+    let now = ServerConfig::now_ms();
+    if sub.next_rss_ms <= now {
+        rss_sync(state, fetcher, &sub, now).await?;
+    } else {
+        full_sync(state, &sub, now).await?;
+    }
+    Ok(true)
+}
+
+/// RSS 增量：feed 条目按维度分组写入 records——主键 (uid, cat, st, subject_id)
+/// 冲突即已入库，INSERT OR IGNORE 天然去重，无需显式 guid diff。
+/// 只写本地已有维度：订阅只维护既有维度，新维度由用户手动建任务引入。
+async fn rss_sync<F: DoubanFetcher>(
+    state: &AppState,
+    fetcher: &F,
+    sub: &DueSubscription,
+    now: i64,
+) -> anyhow::Result<()> {
+    match fetcher.fetch_feed(&sub.uid).await {
+        Ok(xml) => {
+            let items = crate::crawler::parse_feed(&xml);
+            let dims: Vec<(String, String)> =
+                sqlx::query_as("SELECT category, dim_status FROM dimensions WHERE uid = ?")
+                    .bind(&sub.uid)
+                    .fetch_all(&state.pool)
+                    .await?;
+            let dim_set: std::collections::HashSet<(String, String)> = dims.into_iter().collect();
+
+            let mut by_dim: std::collections::HashMap<(String, String), Vec<Record>> =
+                Default::default();
+            let mut skipped = 0i64;
+            let newest_guid = items.first().map(|i| i.guid.clone()).unwrap_or_default();
+            let feed_count = items.len();
+            for it in items {
+                let key = (it.record.category.clone(), it.status_key);
+                if dim_set.contains(&key) {
+                    by_dim.entry(key).or_default().push(it.record);
+                } else {
+                    skipped += 1;
+                }
+            }
+            for ((cat, st), recs) in &by_dim {
+                upsert_records(&state.pool, &sub.uid, cat, st, recs).await?;
+                // 重算 fetched_count 保持进度视图一致（total 由下次全量校正）
+                sqlx::query(
+                    "UPDATE dimensions SET fetched_count =
+                            (SELECT COUNT(*) FROM records
+                             WHERE uid=? AND category=? AND dim_status=?), updated_ms=?
+                     WHERE uid=? AND category=? AND dim_status=?",
+                )
+                .bind(&sub.uid)
+                .bind(cat)
+                .bind(st)
+                .bind(now)
+                .bind(&sub.uid)
+                .bind(cat)
+                .bind(st)
+                .execute(&state.pool)
+                .await?;
+            }
+
+            sqlx::query(
+                "UPDATE subscriptions SET last_rss_ms=?, next_rss_ms=?, last_guid=?,
+                        rss_attempts=0, last_error=NULL, updated_ms=?
+                 WHERE uid=?",
+            )
+            .bind(now)
+            .bind(now + sub.rss_interval_secs * 1000)
+            .bind(newest_guid)
+            .bind(now)
+            .bind(&sub.uid)
+            .execute(&state.pool)
+            .await?;
+            tracing::info!(
+                uid = %sub.uid,
+                feed_items = feed_count,
+                dimensions_touched = by_dim.len(),
+                skipped_unknown_dim = skipped,
+                "RSS 增量同步"
+            );
+        }
+        Err(e) => {
+            // 失败退避（1/2/…分钟，封顶 15 分钟）：RSS 是增强层，连续失败不熔断主流程
+            let attempts = sub.rss_attempts + 1;
+            let backoff_ms = (attempts * 60_000).min(900_000);
+            sqlx::query(
+                "UPDATE subscriptions SET rss_attempts=?, next_rss_ms=?, last_error=?, updated_ms=?
+                 WHERE uid=?",
+            )
+            .bind(attempts)
+            .bind(now + backoff_ms)
+            .bind(format!("{}: {e}", e.code()))
+            .bind(now)
+            .bind(&sub.uid)
+            .execute(&state.pool)
+            .await?;
+            tracing::warn!(
+                uid = %sub.uid,
+                attempt = attempts,
+                error = %e,
+                "RSS 增量抓取失败，退避重试"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// 长周期全量：为该 uid 创建 source='auto' 的任务并对其全部已有维度执行 refresh。
+/// 只刷 state 为 ok/error 的维度——正在抓取中的维度 DELETE records 会与其竞态，跳过
+/// 后下次周期自然补上。
+async fn full_sync(state: &AppState, sub: &DueSubscription, now: i64) -> anyhow::Result<()> {
+    let postpone = |secs: i64| {
+        sqlx::query("UPDATE subscriptions SET next_full_ms=?, updated_ms=? WHERE uid=?")
+            .bind(now + secs * 1000)
+            .bind(now)
+            .bind(&sub.uid)
+            .execute(&state.pool)
+    };
+
+    let dims: Vec<(String, String)> = sqlx::query_as(
+        "SELECT category, dim_status FROM dimensions WHERE uid = ? AND state IN ('ok','error')",
+    )
+    .bind(&sub.uid)
+    .fetch_all(&state.pool)
+    .await?;
+
+    if dims.is_empty() {
+        // 从未抓取过（或全部进行中）：无维度可刷，顺延一个完整周期
+        postpone(sub.full_interval_secs).await?;
+        return Ok(());
+    }
+    let active: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM dimensions WHERE state IN ('queued','running')",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    if active + dims.len() as i64 > state.config.queue_limit {
+        tracing::warn!(uid = %sub.uid, "订阅全量因队列上限顺延");
+        postpone(FULL_RETRY_SECS).await?;
+        return Ok(());
+    }
+    // single-flight：该 uid 已有未终态 auto 任务时不重复创建
+    let running_auto: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tasks
+         WHERE user = ? AND source = 'auto' AND status IN ('queued','running')",
+    )
+    .bind(&sub.uid)
+    .fetch_one(&state.pool)
+    .await?;
+    if running_auto > 0 {
+        postpone(FULL_RETRY_SECS).await?;
+        return Ok(());
+    }
+
+    let task_id = new_task_id();
+    let mut categories: Vec<&str> = Vec::new();
+    let mut statuses: Vec<&str> = Vec::new();
+    for (cat, st) in &dims {
+        if !categories.contains(&cat.as_str()) {
+            categories.push(cat);
+        }
+        if !statuses.contains(&st.as_str()) {
+            statuses.push(st);
+        }
+    }
+    let request_json = serde_json::to_string(&json!({
+        "categories": categories,
+        "statuses": statuses,
+        "refresh": true,
+    }))?;
+    sqlx::query(
+        "INSERT INTO tasks (task_id, user, request_json, status, created_ms, source)
+         VALUES (?, ?, ?, 'queued', ?, 'auto')",
+    )
+    .bind(&task_id)
+    .bind(&sub.uid)
+    .bind(&request_json)
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+
+    for (cat, st) in &dims {
+        refresh_dimension(&state.pool, &sub.uid, cat, st, now).await?;
+        sqlx::query(
+            "INSERT INTO task_dims (task_id, uid, category, dim_status, state, items)
+             VALUES (?, ?, ?, ?, 'waiting', 0)",
+        )
+        .bind(&task_id)
+        .bind(&sub.uid)
+        .bind(cat)
+        .bind(st)
+        .execute(&state.pool)
+        .await?;
+    }
+    state.wake_worker();
+
+    sqlx::query("UPDATE subscriptions SET last_full_ms=?, next_full_ms=?, updated_ms=? WHERE uid=?")
+        .bind(now)
+        .bind(now + sub.full_interval_secs * 1000)
+        .bind(now)
+        .bind(&sub.uid)
+        .execute(&state.pool)
+        .await?;
+    tracing::info!(
+        uid = %sub.uid,
+        task_id = %task_id,
+        dimensions = dims.len(),
+        "订阅全量同步已入队（auto 任务）"
+    );
+    Ok(())
+}
+
+/// 订阅调度循环——与 worker/cleanup 同风格：处理到期订阅，空闲时 30s 兜底扫描
+pub async fn run_subscription_loop<F: DoubanFetcher>(state: AppState, fetcher: F) {
+    loop {
+        match subscription_tick(&state, &fetcher).await {
+            Ok(true) => {} // 处理了一个到期订阅，立即取下一个
+            Ok(false) => tokio::time::sleep(std::time::Duration::from_secs(30)).await,
+            Err(e) => {
+                tracing::warn!(error = %e, "subscription tick failed");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        }
+    }
 }
 
 // --------------------------------------------------------------------------- //
@@ -908,6 +1316,13 @@ pub async fn server_info(state: &AppState) -> AppResult<Value> {
         }
     }
     let circuit_remaining = state.circuit_remaining_ms();
+    let sub_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions")
+        .fetch_one(&state.pool)
+        .await?;
+    let sub_enabled: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE enabled = 1")
+            .fetch_one(&state.pool)
+            .await?;
     Ok(json!({
         "name": "douban-export-server",
         "version": env!("CARGO_PKG_VERSION"),
@@ -924,6 +1339,7 @@ pub async fn server_info(state: &AppState) -> AppResult<Value> {
             "ttl_seconds": state.config.cache_ttl_secs,
             "retention_task_days": state.config.task_retention_days,
         },
+        "subscriptions": {"count": sub_count, "enabled": sub_enabled},
         "queue": {"queued": queued, "running": running},
         "auth_enabled": !state.config.token.is_empty(),
         "cookie_enabled": !state.config.douban_cookie.is_empty(),

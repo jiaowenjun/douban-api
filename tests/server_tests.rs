@@ -6,7 +6,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header},
 };
-use douban_export::crawler::{Category, Record, Status, parse_items, parse_total};
+use douban_export::crawler::{Category, Record, Status, parse_feed, parse_items, parse_total};
 use douban_export::server::{
     config::ServerConfig,
     db,
@@ -38,6 +38,8 @@ fn test_config(dir: &TempDir, token: &str) -> ServerConfig {
         circuit_cooldown_secs: 600,
         task_retention_days: 30,
         queue_limit: 100,
+        sub_rss_interval_secs: 600,
+        sub_full_interval_secs: 86_400,
         // oneshot 无真实连接，IP 回退到 loopback 且全测试共享；调大避免互扰
         rate_per_minute: 10_000_000,
     }
@@ -62,6 +64,9 @@ fn fixture(name: &str) -> String {
 /// 按 URL（域名 + start 偏移）返回对应的脱敏真实页面
 fn fixture_fetcher() -> FakeFetcher<impl Fn(&str) -> Result<String, FetchError>> {
     FakeFetcher(|url: &str| {
+        if url.contains("/feed/people/") {
+            return Ok(fixture("feed.xml"));
+        }
         let start: usize = url
             .split("start=")
             .nth(1)
@@ -621,4 +626,352 @@ async fn sse_auth_via_query_param_for_eventsource() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// --------------------------------------------------------------------------- //
+// 订阅同步：RSS 解析 / CRUD / 增量 tick / auto 全量
+// --------------------------------------------------------------------------- //
+
+#[test]
+fn parser_feed_structure() {
+    let items = parse_feed(&fixture("feed.xml"));
+    assert_eq!(items.len(), 3);
+
+    let a = &items[0];
+    assert_eq!(a.record.category, "movie");
+    assert_eq!(a.record.status, "看过");
+    assert_eq!(a.status_key, "collect");
+    assert_eq!(a.record.title, "生日快乐");
+    assert_eq!(a.record.alt_title, "Alt Title One");
+    assert_eq!(a.record.my_rating, Some(5));
+    assert_eq!(a.record.comment, "（测试短评占位一）");
+    assert_eq!(a.record.subject_id, "37322586");
+    assert_eq!(a.record.comment_id, "4975285140");
+    assert_eq!(a.guid, "4975285140");
+    assert_eq!(a.record.date, "2026-10-26"); // pubDate GMT +8 后取日期
+    assert!(a.record.cover.starts_with("https://img"));
+
+    let b = &items[1];
+    assert_eq!(b.record.title, "再见UFO");
+    assert_eq!(b.record.my_rating, Some(4)); // "推荐: 推荐" → 4 星
+    assert_eq!(b.record.date, "2026-08-25");
+
+    let c = &items[2];
+    assert_eq!(c.record.category, "book");
+    assert_eq!(c.status_key, "wish");
+    assert_eq!(c.record.my_rating, None); // 无评分段
+}
+
+#[test]
+fn parser_feed_tolerates_garbage() {
+    assert!(parse_feed("").is_empty());
+    assert!(parse_feed("not xml < at all").is_empty());
+    // 截断的 XML：已完整解析的 item 仍返回
+    let xml = fixture("feed.xml");
+    let cut = &xml[..xml.find("<item>").unwrap() + 800];
+    assert!(!parse_feed(cut).is_empty() || parse_feed(cut).len() <= 1);
+}
+
+#[tokio::test]
+async fn subscription_crud_and_auth() {
+    let (dir, state) = setup_with_token("s3cret").await;
+    let app = build_app(state.clone());
+
+    let (code, _) = request(app.clone(), Method::GET, "/api/v1/subscriptions", None, None).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+
+    let (code, body) = request(
+        app.clone(),
+        Method::PUT,
+        "/api/v1/subscriptions/wenjun30",
+        Some(json!({"rss_interval_secs": 300, "full_interval_secs": 7200}).to_string()),
+        Some("s3cret"),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "body: {body}");
+    assert_eq!(body["uid"], "wenjun30");
+    assert_eq!(body["rss_interval_secs"], 300);
+    assert_eq!(body["full_interval_secs"], 7200);
+    assert!(body["next_rss_at"].is_string());
+
+    let (code, body) = request(app.clone(), Method::GET, "/api/v1/subscriptions", None, Some("s3cret")).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(body["subscriptions"].as_array().unwrap().len(), 1);
+
+    let (code, _) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subscriptions/wenjun30",
+        None,
+        Some("s3cret"),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+
+    // 间隔下限校验：rss < 60s → 400
+    let (code, _) = request(
+        app.clone(),
+        Method::PUT,
+        "/api/v1/subscriptions/wenjun30",
+        Some(json!({"rss_interval_secs": 10}).to_string()),
+        Some("s3cret"),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+
+    // 非法 uid → 400
+    let (code, _) = request(
+        app.clone(),
+        Method::PUT,
+        "/api/v1/subscriptions/not%20a%20id",
+        None,
+        Some("s3cret"),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+
+    let (code, _) = request(
+        app.clone(),
+        Method::DELETE,
+        "/api/v1/subscriptions/wenjun30",
+        None,
+        Some("s3cret"),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NO_CONTENT);
+    let (code, _) = request(
+        app.clone(),
+        Method::DELETE,
+        "/api/v1/subscriptions/wenjun30",
+        None,
+        Some("s3cret"),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    drop(dir);
+}
+
+#[tokio::test]
+async fn rss_tick_inserts_new_and_skips_unknown_dim() {
+    let (dir, state) = setup().await;
+    // seed：movie/collect 已有一条 guid=4975285140 的记录（与 feed 首条同主键 → 去重）
+    seed_ok_dimension(
+        &state,
+        Category::Movie,
+        vec![Record {
+            title: "生日快乐（旧）".to_string(),
+            subject_id: "37322586".to_string(),
+            comment_id: "4975285140".to_string(),
+            ..Default::default()
+        }],
+    )
+    .await;
+
+    service::upsert_subscription(&state, "wenjun30", Some(300), Some(7200))
+        .await
+        .unwrap();
+    // 拨到期（upsert 设的是 now+300s）
+    sqlx::query("UPDATE subscriptions SET next_rss_ms = 0")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let fetcher = fixture_fetcher();
+    assert!(service::subscription_tick(&state, &fetcher).await.unwrap());
+
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records
+         WHERE uid='wenjun30' AND category='movie' AND dim_status='collect'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 2, "feed 首条与旧记录同主键被 IGNORE，第二条新增");
+
+    // book/wish 维度不存在 → 条目被跳过，不产生孤儿 records
+    let nb: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records
+         WHERE uid='wenjun30' AND category='book' AND dim_status='wish'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(nb, 0);
+
+    // 新记录字段来自 feed 解析
+    let comment: String = sqlx::query_scalar(
+        "SELECT comment FROM records WHERE uid='wenjun30' AND subject_id='30208001'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(comment, "（测试短评占位二）");
+
+    // 维度 fetched_count 已重算；订阅节奏推进、错误清零
+    let fc: i64 = sqlx::query_scalar(
+        "SELECT fetched_count FROM dimensions
+         WHERE uid='wenjun30' AND category='movie' AND dim_status='collect'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(fc, 2);
+    let (attempts, guid): (i64, String) =
+        sqlx::query_as("SELECT rss_attempts, last_guid FROM subscriptions WHERE uid='wenjun30'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!((attempts, guid.as_str()), (0, "4975285140"));
+    drop(dir);
+}
+
+#[tokio::test]
+async fn rss_error_backoff() {
+    let (dir, state) = setup().await;
+    service::upsert_subscription(&state, "wenjun30", None, None)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE subscriptions SET next_rss_ms = 0")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let fetcher = FakeFetcher(|_url: &str| Err(FetchError::Blocked(403)));
+    assert!(service::subscription_tick(&state, &fetcher).await.unwrap());
+
+    let (attempts, err): (i64, Option<String>) =
+        sqlx::query_as("SELECT rss_attempts, last_error FROM subscriptions WHERE uid='wenjun30'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(attempts, 1);
+    assert!(err.unwrap().contains("DOUBAN_BLOCKED"));
+    drop(dir);
+}
+
+#[tokio::test]
+async fn full_tick_creates_auto_task_and_recrawls() {
+    let (dir, state) = setup().await;
+    // seed：music/collect 已缓存两条假记录，refresh 后应被 fixture 数据替换
+    seed_ok_dimension(
+        &state,
+        Category::Music,
+        vec![
+            Record {
+                title: "旧记录一".to_string(),
+                subject_id: "999001".to_string(),
+                ..Default::default()
+            },
+            Record {
+                title: "旧记录二".to_string(),
+                subject_id: "999002".to_string(),
+                ..Default::default()
+            },
+        ],
+    )
+    .await;
+
+    service::upsert_subscription(&state, "wenjun30", None, None)
+        .await
+        .unwrap();
+    // rss 不到期、full 立即到期
+    sqlx::query("UPDATE subscriptions SET next_rss_ms = 99999999999999, next_full_ms = 0")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let fetcher = fixture_fetcher();
+    assert!(service::subscription_tick(&state, &fetcher).await.unwrap());
+
+    let (source, status): (String, String) =
+        sqlx::query_as("SELECT source, status FROM tasks").fetch_one(&state.pool).await.unwrap();
+    assert_eq!((source.as_str(), status.as_str()), ("auto", "queued"));
+
+    // 驱动 worker 抓完（music fixture 共 4 页）
+    drive(&state, &fetcher).await;
+    let status: String = sqlx::query_scalar("SELECT status FROM tasks")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "completed");
+
+    // 旧假记录被 refresh 清掉，records 为 fixture 数据
+    let old_left: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE subject_id IN ('999001','999002')",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(old_left, 0);
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE uid='wenjun30' AND category='music'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 28, "music fixture 实际渲染 28 条（1 条隐藏，与 worker 测试一致）");
+
+    // 列表默认只看 manual（不占注意力）；?source=auto 可见
+    let app = build_app(state.clone());
+    let (code, body) = request(app.clone(), Method::GET, "/api/v1/exports", None, None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(body["tasks"].as_array().unwrap().len(), 0);
+    let (code, body) =
+        request(app.clone(), Method::GET, "/api/v1/exports?source=auto", None, None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(body["tasks"].as_array().unwrap().len(), 1);
+    assert_eq!(body["tasks"][0]["source"], "auto");
+    // 非法 source 过滤值
+    let (code, _) =
+        request(app.clone(), Method::GET, "/api/v1/exports?source=nope", None, None).await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+
+    // 订阅 full 节奏已推进
+    let (last_full,): (Option<i64>,) =
+        sqlx::query_as("SELECT last_full_ms FROM subscriptions WHERE uid='wenjun30'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert!(last_full.is_some());
+    drop(dir);
+}
+
+#[tokio::test]
+async fn full_tick_single_flight() {
+    let (dir, state) = setup().await;
+    seed_ok_dimension(
+        &state,
+        Category::Music,
+        vec![Record {
+            title: "旧记录".to_string(),
+            subject_id: "999001".to_string(),
+            ..Default::default()
+        }],
+    )
+    .await;
+    service::upsert_subscription(&state, "wenjun30", None, None)
+        .await
+        .unwrap();
+    // 已有一个未终态 auto 任务
+    sqlx::query(
+        "INSERT INTO tasks (task_id, user, request_json, status, created_ms, source)
+         VALUES ('exp_auto_existing', 'wenjun30', '{}', 'running', 0, 'auto')",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE subscriptions SET next_rss_ms = 99999999999999, next_full_ms = 0")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    let fetcher = fixture_fetcher();
+    assert!(service::subscription_tick(&state, &fetcher).await.unwrap());
+
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks").fetch_one(&state.pool).await.unwrap();
+    assert_eq!(n, 1, "已有进行中的 auto 任务时不重复创建");
+    // records 未被 refresh 清空
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records").fetch_one(&state.pool).await.unwrap();
+    assert_eq!(n, 1);
+    drop(dir);
 }

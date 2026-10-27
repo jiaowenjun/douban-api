@@ -42,6 +42,17 @@ pub trait DoubanFetcher: Send + Sync {
         url: &str,
         referer: &str,
     ) -> impl std::future::Future<Output = Result<String, FetchError>> + Send;
+
+    /// 抓个人书影音动态 RSS。默认实现复用 fetch_page（测试 fake 即走此路径）；
+    /// 生产实现必须覆盖——RSS 仅数 KB，不能套用页面抓取的 >5KB 反爬阈值。
+    fn fetch_feed(
+        &self,
+        uid: &str,
+    ) -> impl std::future::Future<Output = Result<String, FetchError>> + Send {
+        let url = crate::crawler::feed_url(uid);
+        let referer = crate::crawler::referer_for(uid);
+        async move { self.fetch_page(&url, &referer).await }
+    }
 }
 
 pub struct ReqwestFetcher {

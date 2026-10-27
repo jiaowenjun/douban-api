@@ -410,6 +410,200 @@ pub fn parse_items(html: &str, category: Category, status: Status) -> Vec<Record
 }
 
 // --------------------------------------------------------------------------- //
+// RSS 动态解析（订阅增量同步的数据源）
+// --------------------------------------------------------------------------- //
+
+/// 个人书影音动态 RSS（2026-10 实测：免登录、无反爬、仅最新约 10 条）。
+/// 条目 guid 尾段数字与收藏页 data-cid 是同一 ID 空间，可作去重键。
+pub fn feed_url(uid: &str) -> String {
+    format!("https://www.douban.com/feed/people/{uid}/interests")
+}
+
+/// feed 条目：解析后的记录 + 去重 guid
+pub struct FeedItem {
+    pub record: Record,
+    pub guid: String,
+    /// 维度状态键（collect/do/wish）；record.status 存中文标签与页面解析一致
+    pub status_key: String,
+}
+
+/// title 前缀（"看过生日快乐"）给出状态，剩余部分即标题
+const FEED_PREFIXES: [(&str, Status); 9] = [
+    ("想看", Status::Wish),
+    ("在看", Status::Do),
+    ("看过", Status::Collect),
+    ("想读", Status::Wish),
+    ("在读", Status::Do),
+    ("读过", Status::Collect),
+    ("想听", Status::Wish),
+    ("在听", Status::Do),
+    ("听过", Status::Collect),
+];
+
+fn category_from_link(url: &str) -> Option<Category> {
+    Category::ALL
+        .into_iter()
+        .find(|c| url.starts_with(&format!("https://{}/", c.domain())))
+}
+
+/// description 里 "推荐: 力荐" 的文字档 → 星级
+fn rating_from_word(word: &str) -> Option<u8> {
+    match word.trim() {
+        "力荐" => Some(5),
+        "推荐" => Some(4),
+        "还行" => Some(3),
+        "较差" => Some(2),
+        "很差" => Some(1),
+        _ => None,
+    }
+}
+
+/// 解析 description（CDATA 内的 HTML 片段）：封面 / 副标题 / 评分 / 短评
+fn parse_feed_description(html: &str) -> (String, String, Option<u8>, String) {
+    let doc = Html::parse_fragment(html);
+    let s_img = Selector::parse("img").unwrap();
+    let s_a = Selector::parse("a[title]").unwrap();
+    let s_p = Selector::parse("p").unwrap();
+
+    let cover = doc
+        .select(&s_img)
+        .next()
+        .map(|im| attr_or(im, "src"))
+        .unwrap_or_default();
+    let alt_title = doc
+        .select(&s_a)
+        .next()
+        .map(|a| norm_space(&attr_or(a, "title")))
+        .unwrap_or_default();
+
+    let mut rating = None;
+    let mut comment = String::new();
+    for p in doc.select(&s_p) {
+        let t = text_of(p);
+        // 分隔符半角/全角冒号都容忍（实测为 "推荐: 力荐"）
+        if let Some(rest) = t.strip_prefix("推荐") {
+            rating = rating_from_word(rest.trim_start_matches([':', '：', ' ']));
+        } else if let Some(rest) = t.strip_prefix("备注") {
+            comment = rest.trim_start_matches([':', '：', ' ']).trim().to_string();
+        }
+    }
+    (cover, alt_title, rating, comment)
+}
+
+fn feed_field<'a>(fields: &'a [(Vec<u8>, String)], name: &[u8]) -> &'a str {
+    fields
+        .iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("")
+}
+
+fn build_feed_item(fields: &[(Vec<u8>, String)]) -> Option<FeedItem> {
+    let title_raw = feed_field(fields, b"title");
+    let link = feed_field(fields, b"link");
+    let guid_raw = feed_field(fields, b"guid");
+
+    let category = category_from_link(link)?;
+    let (status, title) = FEED_PREFIXES.iter().find_map(|(p, st)| {
+        title_raw
+            .strip_prefix(p)
+            .map(|rest| (*st, rest.to_string()))
+    })?;
+    let (cover, alt_title, my_rating, comment) =
+        parse_feed_description(feed_field(fields, b"description"));
+    // 豆瓣页面日期按北京时间显示，pubDate 是 GMT，转 +08:00 后取日期保持一致
+    let date = chrono::DateTime::parse_from_rfc2822(feed_field(fields, b"pubDate"))
+        .map(|d| {
+            d.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap())
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_default();
+    let comment_id: String = guid_raw
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+
+    Some(FeedItem {
+        record: Record {
+            category: category.key().to_string(),
+            status: category.status_label(status).to_string(),
+            title,
+            alt_title,
+            my_rating,
+            date,
+            comment,
+            subject_url: link.to_string(),
+            subject_id: subject_id_from(link),
+            cover,
+            comment_id: comment_id.clone(),
+            intro: String::new(), // feed 里没有出版/导演信息
+        },
+        guid: comment_id,
+        status_key: status.key().to_string(),
+    })
+}
+
+/// 解析动态 RSS。畸形/截断的 XML 返回已成功解析的前缀部分，不报错——
+/// RSS 是可失败的增强层，最坏退化为纯全量同步。
+pub fn parse_feed(xml: &str) -> Vec<FeedItem> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+
+    let mut items = Vec::new();
+    let mut in_item = false;
+    let mut cur_tag: Vec<u8> = Vec::new();
+    let mut buf = String::new();
+    let mut fields: Vec<(Vec<u8>, String)> = Vec::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                let name = e.name().as_ref().to_vec();
+                if !in_item {
+                    if name == b"item" {
+                        in_item = true;
+                        fields.clear();
+                    }
+                } else if matches!(
+                    name.as_slice(),
+                    b"title" | b"link" | b"description" | b"pubDate" | b"guid"
+                ) {
+                    cur_tag = name;
+                    buf.clear();
+                }
+            }
+            Ok(Event::Text(t)) if in_item && !cur_tag.is_empty() => {
+                buf.push_str(&t.unescape().unwrap_or_default());
+            }
+            Ok(Event::CData(t)) if in_item && !cur_tag.is_empty() => {
+                buf.push_str(&String::from_utf8_lossy(t.as_ref()));
+            }
+            Ok(Event::End(e)) => {
+                let name = e.name().as_ref().to_vec();
+                if in_item && name == cur_tag.as_slice() {
+                    fields.push((std::mem::take(&mut cur_tag), std::mem::take(&mut buf)));
+                } else if name == b"item" {
+                    in_item = false;
+                    if let Some(item) = build_feed_item(&fields) {
+                        items.push(item);
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    items
+}
+
+// --------------------------------------------------------------------------- //
 // 导出（多格式）
 // --------------------------------------------------------------------------- //
 

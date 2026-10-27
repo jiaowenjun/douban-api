@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+
+
+<channel>
+  <title>芝麻 的收藏</title>
+  <link>https://www.douban.com/people/wenjun30/</link>
+  <description><![CDATA[芝麻 的收藏：想看、在看和看过的书和电影，想听、在听和听过的音乐]]></description>
+  <language>zh-cn</language>
+  <copyright>&amp;copy; 2013, douban.com.</copyright>
+  <pubDate>Mon, 26 Oct 2026 13:35:11 GMT</pubDate>
+
+    <item>
+        <title>看过生日快乐</title>
+        <link>https://movie.douban.com/subject/37322586/</link>
+        <description><![CDATA[
+
+    <table><tr>
+    <td width="80px"><a href="https://movie.douban.com/subject/37322586/" title="Alt Title One">
+    <img src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg" alt="Alt Title One"></a></td>
+    <td>
+        <p>推荐: 力荐</p>
+        <p>备注: （测试短评占位一）</p>
+    </td></tr></table>
+]]></description>
+        <dc:creator>芝麻</dc:creator>
+        <pubDate>Mon, 26 Oct 2026 13:35:11 GMT</pubDate>
+        <guid isPermaLink="false">https://www.douban.com/people/wenjun30/interests/4975285140</guid>
+    </item>
+
+    <item>
+        <title>看过再见UFO</title>
+        <link>https://movie.douban.com/subject/30208001/</link>
+        <description><![CDATA[
+
+    <table><tr>
+    <td width="80px"><a href="https://movie.douban.com/subject/30208001/" title="Alt Title Two">
+    <img src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2.jpg" alt="Alt Title Two"></a></td>
+    <td>
+        <p>推荐: 推荐</p>
+        <p>备注: （测试短评占位二）</p>
+    </td></tr></table>
+]]></description>
+        <dc:creator>芝麻</dc:creator>
+        <pubDate>Tue, 25 Aug 2026 08:01:33 GMT</pubDate>
+        <guid isPermaLink="false">https://www.douban.com/people/wenjun30/interests/4929170280</guid>
+    </item>
+
+    <item>
+        <title>想读浮生六记</title>
+        <link>https://book.douban.com/subject/25906082/</link>
+        <description><![CDATA[
+
+    <table><tr>
+    <td width="80px"><a href="https://book.douban.com/subject/25906082/" title="Alt Title Three">
+    <img src="https://img3.doubanio.com/view/photo/s_ratio_poster/public/p3.jpg" alt="Alt Title Three"></a></td>
+    <td>
+        <p>备注: </p>
+    </td></tr></table>
+]]></description>
+        <dc:creator>芝麻</dc:creator>
+        <pubDate>Thu, 28 May 2026 09:21:50 GMT</pubDate>
+        <guid isPermaLink="false">https://www.douban.com/people/wenjun30/interests/4812345678</guid>
+    </item>
+
+</channel>
+</rss>

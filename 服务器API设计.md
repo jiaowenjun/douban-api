@@ -91,13 +91,16 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 |---|---|---|---|
 | 1 | POST | `/exports` | 创建抓取任务（核心入口） |
 | 2 | GET | `/exports/{task_id}` | 查询任务状态与进度 |
-| 3 | GET | `/exports` | 任务列表（过滤、游标分页） |
+| 3 | GET | `/exports` | 任务列表（过滤、游标分页；默认不含 auto 任务） |
 | 4 | DELETE | `/exports/{task_id}` | 删除任务记录（数据保留） |
 | 5 | GET | `/exports/{task_id}/result` | 结果元数据（维度汇总） |
 | 6 | GET | `/users/{uid}/marks` | 读库内数据（JSON，分页） |
 | 7 | GET | `/exports/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
 | 8 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
 | 9 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
+| 10 | GET | `/subscriptions` | 订阅列表 |
+| 11 | PUT | `/subscriptions/{uid}` | 创建/更新订阅（RSS 增量 + 定时全量） |
+| 12 | DELETE | `/subscriptions/{uid}` | 取消订阅 |
 
 ## 4. 接口详细设计
 
@@ -217,9 +220,10 @@ GET /api/v1/exports?user=wenjun30&status=running&limit=20&cursor=exp_01JD...
 ```
 
 | 参数 | 说明 |
-|---|---|
+|---|---|---|
 | `user` | 按用户过滤 |
 | `status` | `queued` / `running` / `completed` / `partial` / `failed` |
+| `source` | 任务来源：`manual`（默认）/ `auto`（订阅全量同步）/ `all`。默认只返回手动任务，auto 任务不占列表注意力，详情仍可按 task_id 直查 |
 | `limit` | 默认 20，上限 100 |
 | `cursor` | 游标（上一页最后一条 task_id），按创建时间倒序 |
 
@@ -362,6 +366,45 @@ GET /healthz    → 200 {"status":"ok"}
 
 不在 `/api/v1` 前缀下、不鉴权，供容器探活。
 
+### 4.10 订阅同步（RSS 增量 + 定时全量）
+
+**模型**：未订阅用户维持现状——手动建任务触发重抓。订阅用户由后端两个周期自动同步：
+
+- **短周期（RSS 增量）**：轮询豆瓣官方动态 feed `www.douban.com/feed/people/{uid}/interests`（免登录、仅最新约 10 条、条目 guid 尾段与页面 `data-cid` 同一 ID 空间）。条目解析入库沿用 `INSERT OR IGNORE`：已存在（主键冲突）忽略，新标记插入。**只写本地已有维度**——订阅只维护既有维度，新维度由用户手动建任务引入。RSS 修改/删除不可感知，由长周期全量兜底收敛。
+- **长周期（定时全量）**：为该 uid 自动创建 `source='auto'` 的任务，对其全部 `ok/error` 维度执行 refresh 语义（DELETE + 全量重抓）。auto 任务不进默认任务列表（`?source=auto` 或按 task_id 可查），SSE/终态/保留期与手动任务一致。
+
+**调度**：独立循环与 worker 同构（30s 空闲兜底扫描，每次处理一个到期订阅）；RSS 失败按 1/2/…分钟退避（封顶 15 分钟）不熔断主流程——RSS 是可失败的增强层，最坏退化为纯长周期。全量创建前做队列上限与 single-flight（该 uid 已有未终态 auto 任务则顺延 5 分钟）检查；`queued/running` 维度跳过本次（避免与进行中抓取竞态删数据）。
+
+```
+PUT /api/v1/subscriptions/{uid}
+    body: {"rss_interval_secs": 600, "full_interval_secs": 86400}   # 两者均可省略取默认
+GET  /api/v1/subscriptions
+DELETE /api/v1/subscriptions/{uid}
+```
+
+约束：`rss_interval_secs ≥ 60`、`full_interval_secs ≥ 3600` 且 `full ≥ rss`（违反返回 400）。重复 PUT 只改间隔并重新启用，不重置既有节奏。默认值由服务端配置 `EXPORT_SUB_RSS_INTERVAL_SECS`（600）/ `EXPORT_SUB_FULL_INTERVAL_SECS`（86400）决定。
+
+PUT 响应 `201` / GET 响应 `200`：
+
+```json
+{
+  "uid": "wenjun30",
+  "enabled": true,
+  "rss_interval_secs": 600,
+  "full_interval_secs": 86400,
+  "next_rss_at": "2026-10-27T09:10:00Z",
+  "next_full_at": "2026-10-28T09:00:00Z",
+  "last_rss_at": "2026-10-27T09:00:00Z",
+  "last_full_at": null,
+  "last_error": null,
+  "dimensions": 6,
+  "records": 291,
+  "created_at": "2026-10-27T09:00:00Z"
+}
+```
+
+**已知边界**：① RSS 仅 10 条窗口，两次轮询间变更超 10 条时旧的漏掉（全量兜底）；② 编辑旧标记是否 bump 到 feed 未验证，不依赖其做修改检测；③ 隐私条目在免登录 RSS 中不可见（配置 Cookie 的全量抓取可补全）；④ feed 结构无官方承诺，解析按容错设计。
+
 ## 5. 数据模型
 
 ### Task
@@ -377,6 +420,7 @@ GET /healthz    → 200 {"status":"ok"}
 | `error` | object? | 终态错误信息 |
 | `created_at` / `started_at` / `finished_at` | timestamp | |
 | `expires_at` | timestamp | 任务记录过期时间（默认 finished_at + 30d；过期仅清任务行，数据保留） |
+| `source` | enum | `manual`（用户创建，默认）/ `auto`（订阅全量同步自动创建） |
 
 ### Dimension（调度与缓存元数据单元）
 
@@ -390,7 +434,19 @@ GET /healthz    → 200 {"status":"ok"}
 
 ### Record（数据本体，`records` 表）
 
-沿用 CLI 的 12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。
+沿用 CLI 的 12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。RSS 增量同步共用同一路径。
+
+### Subscription（订阅，`subscriptions` 表）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `uid` | string | 主键 |
+| `enabled` | bool | 停用后不参与调度 |
+| `rss_interval_secs` / `full_interval_secs` | int | 两个周期（下限 60s / 3600s） |
+| `next_rss_ms` / `next_full_ms` | int | 下次执行时间（调度依据；rss 失败时兼作退避） |
+| `last_rss_ms` / `last_full_ms` | timestamp? | 最近成功执行 |
+| `last_guid` | string | feed 最新条目 guid（观察用游标；去重实际由 records 主键完成） |
+| `rss_attempts` / `last_error` | int / string? | RSS 失败退避计数与最近错误 |
 
 ## 6. 任务状态机
 

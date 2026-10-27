@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Col, Row, Statistic, Table, Tooltip } from 'antd';
+import { Alert, Badge, Button, Card, Col, Input, InputNumber, Popconfirm, Row, Space, Statistic, Table, Tooltip, message } from 'antd';
 import { PageContainer, ProCard } from '@ant-design/pro-components';
-import { ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type { ServerInfo, TaskSummary } from '../types';
+import type { ServerInfo, Subscription, TaskSummary } from '../types';
 import { api, health } from '../api';
 import { TaskStatusTag } from '../labels';
+
+const fmtInterval = (secs: number) =>
+  secs % 86400 === 0 ? `${secs / 86400} 天` : secs % 3600 === 0 ? `${secs / 3600} 小时` : `${Math.round(secs / 60)} 分钟`;
+
+const fmtTime = (v: string | null) =>
+  v ? dayjs(v).format('MM-DD HH:mm') : '—';
 
 export default function Overview() {
   const navigate = useNavigate();
@@ -14,6 +20,12 @@ export default function Overview() {
   const [online, setOnline] = useState<boolean | null>(null);
   const [connError, setConnError] = useState<string | null>(null);
   const [recent, setRecent] = useState<TaskSummary[]>([]);
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [subUid, setSubUid] = useState('');
+  const [subRss, setSubRss] = useState<number | null>(null);
+  const [subFull, setSubFull] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [messageApi, contextHolder] = message.useMessage();
 
   const load = async () => {
     try {
@@ -36,6 +48,12 @@ export default function Overview() {
     } catch {
       setRecent([]);
     }
+    try {
+      const res = await api.listSubscriptions();
+      setSubs(res.subscriptions);
+    } catch {
+      setSubs([]);
+    }
   };
 
   useEffect(() => {
@@ -43,6 +61,40 @@ export default function Overview() {
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, []);
+
+  const addSubscription = async () => {
+    const uid = subUid.trim();
+    if (!uid) {
+      messageApi.warning('请输入豆瓣用户 ID');
+      return;
+    }
+    setAdding(true);
+    try {
+      await api.createSubscription(uid, {
+        ...(subRss != null ? { rss_interval_secs: subRss } : {}),
+        ...(subFull != null ? { full_interval_secs: subFull } : {}),
+      });
+      messageApi.success(`已订阅 ${uid}（增量 10 分钟内生效，全量按周期自动刷新）`);
+      setSubUid('');
+      setSubRss(null);
+      setSubFull(null);
+      await load();
+    } catch (e) {
+      messageApi.error((e as Error).message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const removeSubscription = async (uid: string) => {
+    try {
+      await api.deleteSubscription(uid);
+      messageApi.success(`已取消订阅 ${uid}`);
+      await load();
+    } catch (e) {
+      messageApi.error((e as Error).message);
+    }
+  };
 
   const circuitOpen = info?.crawl.circuit.open ?? false;
   const circuitRemainMin =
@@ -58,6 +110,7 @@ export default function Overview() {
         </Button>,
       ]}
     >
+      {contextHolder}
       {connError && (
         <Alert
           type="error"
@@ -145,6 +198,104 @@ export default function Overview() {
         ) : (
           <div>—</div>
         )}
+      </ProCard>
+
+      <ProCard
+        title="订阅同步"
+        size="small"
+        style={{ marginTop: 16 }}
+        headerBordered
+        extra={
+          <Tooltip title="订阅用户由后端自动同步：短周期抓取豆瓣 RSS 增量补新标记，长周期自动发起全量任务刷新全部维度；未订阅用户仍手动建任务导出">
+            <span style={{ cursor: 'help' }}>RSS 增量 + 定时全量</span>
+          </Tooltip>
+        }
+      >
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Input
+            placeholder="豆瓣用户 ID（如 wenjun30）"
+            style={{ width: 220 }}
+            value={subUid}
+            onChange={(e) => setSubUid(e.target.value)}
+            onPressEnter={addSubscription}
+          />
+          <InputNumber
+            placeholder="增量间隔（秒，默认 600）"
+            style={{ width: 180 }}
+            min={60}
+            value={subRss}
+            onChange={setSubRss}
+          />
+          <InputNumber
+            placeholder="全量间隔（秒，默认 86400）"
+            style={{ width: 190 }}
+            min={3600}
+            value={subFull}
+            onChange={setSubFull}
+          />
+          <Button type="primary" icon={<PlusOutlined />} loading={adding} onClick={addSubscription}>
+            订阅
+          </Button>
+        </Space>
+        <Table<Subscription>
+          size="small"
+          rowKey="uid"
+          pagination={false}
+          dataSource={subs}
+          locale={{ emptyText: '暂无订阅——订阅后该用户的标记变更将自动同步入库' }}
+          columns={[
+            {
+              title: '用户',
+              dataIndex: 'uid',
+              width: 130,
+              render: (_, r) => (
+                <Space size={4}>
+                  <a onClick={() => navigate(`/marks?user=${r.uid}`)}>{r.uid}</a>
+                  {!r.enabled && <Badge status="default" text="停用" />}
+                </Space>
+              ),
+            },
+            {
+              title: '增量 / 全量',
+              width: 150,
+              render: (_, r) => (
+                <span>
+                  {fmtInterval(r.rss_interval_secs)} / {fmtInterval(r.full_interval_secs)}
+                </span>
+              ),
+            },
+            { title: '下次增量', dataIndex: 'next_rss_at', width: 110, render: (_, r) => fmtTime(r.next_rss_at) },
+            { title: '下次全量', dataIndex: 'next_full_at', width: 110, render: (_, r) => fmtTime(r.next_full_at) },
+            { title: '上次增量', dataIndex: 'last_rss_at', width: 110, render: (_, r) => fmtTime(r.last_rss_at) },
+            { title: '上次全量', dataIndex: 'last_full_at', width: 110, render: (_, r) => fmtTime(r.last_full_at) },
+            {
+              title: '缓存',
+              width: 100,
+              render: (_, r) => `${r.dimensions} 维 / ${r.records} 条`,
+            },
+            {
+              title: '状态',
+              ellipsis: true,
+              render: (_, r) =>
+                r.last_error ? (
+                  <Tooltip title={r.last_error}>
+                    <Badge status="error" text={r.last_error} />
+                  </Tooltip>
+                ) : (
+                  <Badge status="success" text="正常" />
+                ),
+            },
+            {
+              title: '操作',
+              width: 70,
+              render: (_, r) => (
+                <Popconfirm title={`取消订阅 ${r.uid}？`} onConfirm={() => removeSubscription(r.uid)}>
+                  <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              ),
+            },
+          ]}
+        />
       </ProCard>
 
       <ProCard

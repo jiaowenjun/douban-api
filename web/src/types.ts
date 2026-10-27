@@ -10,6 +10,8 @@ export interface TaskSummary {
   status: TaskStatus;
   items_count: number;
   created_at: string;
+  /** manual = 手动创建；auto = 订阅全量同步自动创建（默认列表不展示） */
+  source: string;
 }
 
 export interface TaskListResponse {
@@ -124,6 +126,7 @@ export interface ServerInfo {
     retention_task_days: number;
   };
   queue: { queued: number; running: number };
+  subscriptions: { count: number; enabled: number };
   auth_enabled: boolean;
   cookie_enabled: boolean;
 }
@@ -133,4 +136,24 @@ export interface CreateTaskBody {
   categories: string[];
   statuses: string[];
   refresh: boolean;
+}
+
+/** 订阅同步（RSS 短周期增量 + 长周期全量 auto 任务） */
+export interface Subscription {
+  uid: string;
+  enabled: boolean;
+  rss_interval_secs: number;
+  full_interval_secs: number;
+  next_rss_at: string | null;
+  next_full_at: string | null;
+  last_rss_at: string | null;
+  last_full_at: string | null;
+  last_error: string | null;
+  dimensions: number;
+  records: number;
+  created_at: string;
+}
+
+export interface SubscriptionListResponse {
+  subscriptions: Subscription[];
 }

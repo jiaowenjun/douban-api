@@ -27,6 +27,10 @@ pub async fn run_server() -> Result<()> {
         state.clone(),
         fetcher::ReqwestFetcher::with_cookie(&config.douban_cookie),
     ));
+    tokio::spawn(service::run_subscription_loop(
+        state.clone(),
+        fetcher::ReqwestFetcher::with_cookie(&config.douban_cookie),
+    ));
     tokio::spawn(service::run_cleanup_loop(state.clone()));
 
     let app = routes::build_app(state);

@@ -4,6 +4,8 @@ import type {
   MarksResponse,
   ResultView,
   ServerInfo,
+  Subscription,
+  SubscriptionListResponse,
   TaskListResponse,
   TaskView,
 } from './types';
@@ -100,4 +102,16 @@ export const api = {
       `/users/${encodeURIComponent(uid)}/marks?category=${category}&status=${status}` +
         `&page=${page}&page_size=${pageSize}`,
     ),
+
+  listSubscriptions: () =>
+    request<SubscriptionListResponse>('/subscriptions'),
+
+  createSubscription: (uid: string, body: { rss_interval_secs?: number; full_interval_secs?: number }) =>
+    request<Subscription>(`/subscriptions/${encodeURIComponent(uid)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  deleteSubscription: (uid: string) =>
+    request<void>(`/subscriptions/${encodeURIComponent(uid)}`, { method: 'DELETE' }),
 };

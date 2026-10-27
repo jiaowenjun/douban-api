@@ -29,6 +29,11 @@ pub fn build_app(state: AppState) -> Router {
         .route("/exports/{task_id}/result", get(get_result))
         .route("/exports/{task_id}/events", get(get_export_events))
         .route("/users/{uid}/marks", get(get_marks))
+        .route("/subscriptions", get(list_subscriptions))
+        .route(
+            "/subscriptions/{uid}",
+            get(get_subscription_route).put(put_subscription).delete(delete_subscription),
+        )
         .route("/server/info", get(server_info))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
@@ -296,6 +301,8 @@ async fn get_export_events(
 struct ListQuery {
     user: Option<String>,
     status: Option<String>,
+    /// 任务来源过滤：manual（默认）/ auto / all
+    source: Option<String>,
     limit: Option<i64>,
     cursor: Option<i64>,
 }
@@ -309,12 +316,23 @@ async fn list_exports(
             return Err(AppError::InvalidArgument(format!("非法 status 过滤值: {s}")));
         }
     }
+    let source = match q.source.as_deref() {
+        None | Some("manual") => Some("manual".to_string()), // 默认不展示 auto 任务
+        Some("auto") => Some("auto".to_string()),
+        Some("all") => None,
+        Some(other) => {
+            return Err(AppError::InvalidArgument(format!(
+                "非法 source 过滤值: {other}（允许值: manual/auto/all）"
+            )))
+        }
+    };
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
     let (tasks, next_cursor) = service::list_tasks(
         &state,
         service::ListFilter {
             user: q.user,
             status: q.status,
+            source,
             limit,
             cursor_rowid: q.cursor,
         },
@@ -384,4 +402,61 @@ async fn get_marks(
         "page_size": marks.page_size,
         "items": marks.items,
     })))
+}
+
+// --------------------------------------------------------------------------- //
+// /subscriptions
+// --------------------------------------------------------------------------- //
+
+#[derive(serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct SubscriptionReq {
+    #[serde(default)]
+    rss_interval_secs: Option<i64>,
+    #[serde(default)]
+    full_interval_secs: Option<i64>,
+}
+
+/// 创建/更新订阅。body 手动解析以保证错误信封统一（400 而非 422）。
+async fn put_subscription(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+    body: Bytes,
+) -> AppResult<(StatusCode, Json<service::SubscriptionView>)> {
+    let req: SubscriptionReq = if body.is_empty() {
+        SubscriptionReq::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|e| AppError::InvalidArgument(e.to_string()))?
+    };
+    let view = service::upsert_subscription(
+        &state,
+        &uid,
+        req.rss_interval_secs,
+        req.full_interval_secs,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(view)))
+}
+
+async fn get_subscription_route(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+) -> AppResult<Json<service::SubscriptionView>> {
+    Ok(Json(service::get_subscription(&state, &uid).await?))
+}
+
+async fn list_subscriptions(
+    State(state): State<AppState>,
+) -> AppResult<Json<Value>> {
+    let subs = service::list_subscriptions(&state).await?;
+    Ok(Json(json!({ "subscriptions": subs })))
+}
+
+async fn delete_subscription(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+) -> AppResult<StatusCode> {
+    service::delete_subscription(&state, &uid).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
