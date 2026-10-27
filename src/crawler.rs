@@ -1,4 +1,4 @@
-//! 抓取核心库——CLI 与 server 共用的解析、导出与模型逻辑。
+//! 抓取核心库——服务器使用的解析与模型逻辑。
 //!
 //! 原理（调研报告《豆瓣API调研报告.md》中的"路径②：公开收藏页 HTML 抓取"）：
 //! 电影/图书/音乐的收藏页是公开网页，无需登录 Cookie，直接抓取 HTML 解析：
@@ -12,7 +12,6 @@
 //!   图书为新结构 li.subject-item（短评在 p.comment.comment-item）；
 //!   book.douban.com 反爬较严，必须携带浏览器级请求头 + Referer，否则 403。
 
-use clap::ValueEnum;
 use scraper::{ElementRef, Html, Selector, node::Node};
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +32,7 @@ pub const BASE_HEADERS: [(&str, &str); 2] = [
 // 类型定义
 // --------------------------------------------------------------------------- //
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Movie,
@@ -60,14 +59,6 @@ impl Category {
         }
     }
 
-    pub fn kind_label(self) -> &'static str {
-        match self {
-            Category::Movie => "电影·剧集",
-            Category::Book => "图书",
-            Category::Music => "音乐",
-        }
-    }
-
     pub fn status_label(self, status: Status) -> &'static str {
         match (self, status) {
             (Category::Movie, Status::Collect) => "看过",
@@ -87,7 +78,7 @@ impl Category {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Collect,
@@ -111,36 +102,7 @@ impl Status {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Format {
-    Csv,
-    Json,
-    Md,
-    Xlsx,
-}
-
-impl Format {
-    pub fn key(self) -> &'static str {
-        match self {
-            Format::Csv => "csv",
-            Format::Json => "json",
-            Format::Md => "md",
-            Format::Xlsx => "xlsx",
-        }
-    }
-
-    pub fn content_type(self) -> &'static str {
-        match self {
-            Format::Csv => "text/csv; charset=utf-8",
-            Format::Json => "application/json; charset=utf-8",
-            Format::Md => "text/markdown; charset=utf-8",
-            Format::Xlsx => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        }
-    }
-}
-
-/// 一条标记记录（声明顺序即 CSV 列顺序）。
+/// 一条标记记录。
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Record {
     pub category: String,
@@ -156,11 +118,6 @@ pub struct Record {
     pub comment_id: String,
     pub intro: String,
 }
-
-pub const FIELDS: [&str; 12] = [
-    "category", "status", "title", "alt_title", "my_rating", "date", "comment",
-    "subject_url", "subject_id", "cover", "comment_id", "intro",
-];
 
 /// 收藏页 URL（sort=time，从 start 开始）
 pub fn collection_url(category: Category, uid: &str, status: Status, start: usize) -> String {
@@ -601,94 +558,6 @@ pub fn parse_feed(xml: &str) -> Vec<FeedItem> {
         }
     }
     items
-}
-
-// --------------------------------------------------------------------------- //
-// 导出（多格式）
-// --------------------------------------------------------------------------- //
-
-pub fn export_csv(records: &[Record], path: &std::path::Path) -> anyhow::Result<()> {
-    use std::io::Write;
-    let mut f = std::fs::File::create(path)?;
-    f.write_all("\u{FEFF}".as_bytes())?; // BOM，便于 Excel 直接打开
-    // CRLF 行尾（csv 模块的通用约定，Excel 友好）；
-    // serialize 结构体时 csv 库会自动以字段名写表头，无需手动 write_record
-    let mut w = csv::WriterBuilder::new()
-        .terminator(csv::Terminator::CRLF)
-        .from_writer(f);
-    for r in records {
-        w.serialize(r)?;
-    }
-    w.flush()?;
-    Ok(())
-}
-
-pub fn export_json(records: &[Record], path: &std::path::Path) -> anyhow::Result<()> {
-    std::fs::write(path, serde_json::to_string_pretty(records)?)?;
-    Ok(())
-}
-
-fn md_escape(s: &str) -> String {
-    s.replace('|', "\\|").replace('\n', " ")
-}
-
-pub fn export_md(
-    records: &[Record],
-    path: &std::path::Path,
-    title: &str,
-) -> anyhow::Result<()> {
-    let mut lines = vec![
-        format!("# {title}（{} 条）", records.len()),
-        String::new(),
-        "| 标题 | 我的评分 | 日期 | 短评 | 链接 |".to_string(),
-        "|---|---|---|---|---|".to_string(),
-    ];
-    for r in records {
-        let rating = match r.my_rating {
-            Some(n) => "★".repeat(n as usize),
-            None => "—".to_string(),
-        };
-        lines.push(format!(
-            "| {} | {rating} | {} | {} | [条目]({}) |",
-            md_escape(&r.title),
-            r.date,
-            md_escape(&r.comment),
-            r.subject_url
-        ));
-    }
-    std::fs::write(path, lines.join("\n") + "\n")?;
-    Ok(())
-}
-
-pub fn export_xlsx(records: &[Record], path: &std::path::Path) -> anyhow::Result<()> {
-    use rust_xlsxwriter as xw;
-    let mut wb = xw::Workbook::new();
-    let ws = wb.add_worksheet();
-    ws.write_row(0, 0, FIELDS)?;
-    for (i, r) in records.iter().enumerate() {
-        let rating = r.my_rating.map(|n| n.to_string()).unwrap_or_default();
-        let row: [&str; 12] = [
-            &r.category, &r.status, &r.title, &r.alt_title, &rating, &r.date,
-            &r.comment, &r.subject_url, &r.subject_id, &r.cover, &r.comment_id, &r.intro,
-        ];
-        ws.write_row((i + 1) as u32, 0, row)?;
-    }
-    wb.save(path)?;
-    Ok(())
-}
-
-pub fn export_records(
-    fmt: Format,
-    records: &[Record],
-    path: &std::path::Path,
-    md_title: &str,
-) -> anyhow::Result<()> {
-    match fmt {
-        Format::Csv => export_csv(records, path),
-        Format::Json => export_json(records, path),
-        Format::Md => export_md(records, path, md_title),
-        Format::Xlsx => export_xlsx(records, path),
-    }
 }
 
 // --------------------------------------------------------------------------- //

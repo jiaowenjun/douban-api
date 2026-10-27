@@ -81,7 +81,7 @@ export interface ResultView {
   expires_at: string | null;
 }
 
-/** Record 的 12 字段（与 CLI 导出一致） */
+/** Record 的 12 字段 */
 export interface RecordItem {
   category: string;
   status: string;

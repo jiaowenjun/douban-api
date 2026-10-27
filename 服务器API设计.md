@@ -27,7 +27,7 @@
 
 ## 0. 目标与约束
 
-把现有 CLI（`douban-export`）的抓取能力服务化：**免登录同步任意豆瓣用户的公开书影音标记与短评入库**，文件导出仍由 CLI 提供。
+**免登录同步任意豆瓣用户的公开书影音标记与短评入库**，对外提供查询 API。
 
 三条硬约束决定了 API 形态：
 
@@ -58,8 +58,8 @@
 
 - **API 层**：参数校验、鉴权（可选）、客户端限流、路由
 - **任务管理器**：任务队列与状态机；对同一 `uid+category+status` 维度做 single-flight（去重合并）
-- **抓取器**：移植现有 CLI 的抓取/解析/重试/断点逻辑（含 Referer、两代页面结构兼容）
-- **存储**：SQLite 单库——任务/维度调度表 + `records` 正规化数据表（Record 12 字段一行一条，按维度长期保留；不再生成导出文件，文件导出仅 CLI 提供）
+- **抓取器**：抓取/解析/重试/断点逻辑（含 Referer、两代页面结构兼容）
+- **存储**：SQLite 单库——任务/维度调度表 + `records` 正规化数据表（Record 12 字段一行一条，按维度长期保留；不生成导出文件，数据经 API 查询）
 
 ## 2. 核心设计决策与理由
 
@@ -81,7 +81,7 @@
 
 ### D4：豆瓣侧全局节流是服务生存的前提
 
-所有抓取经过**单一全局令牌桶**（默认 ≥2s/请求）+ 同 uid 串行 + 连续失败熔断（详见第 8 节）。对外服务再大的并发，到豆瓣侧也恒定为低速串行流。这也是把"服务器"与"CLI 直接抓"区分开的核心价值：共享缓存、保护出口 IP。
+所有抓取经过**单一全局令牌桶**（默认 ≥2s/请求）+ 同 uid 串行 + 连续失败熔断（详见第 8 节）。对外服务再大的并发，到豆瓣侧也恒定为低速串行流。这也是"集中式同步服务"的核心价值：共享缓存、保护出口 IP。
 
 ## 3. API 一览
 
@@ -125,13 +125,13 @@ Content-Type: application/json
 
 | 字段 | 类型 | 默认 | 校验 |
 |---|---|---|---|
-| `user` | string | 必填 | 豆瓣用户 ID 或 `/people/{id}/` URL；复用 CLI 的 ID 规则（`[A-Za-z0-9._-]+`） |
+| `user` | string | 必填 | 豆瓣用户 ID 或 `/people/{id}/` URL；ID 规则（`[A-Za-z0-9._-]+`） |
 | `categories` | string[] | `["movie","book","music"]` | 枚举 |
 | `statuses` | string[] | `["collect"]` | `collect` / `do` / `wish` |
 | `refresh` | bool | `false` | `true` 时忽略未过期缓存，强制回源（清空该维度旧数据后重抓） |
 | `wait_timeout` | int(秒) | `0` | `0`–`30`；>0 时服务端最多等待该时长，完成即返回 `completed` |
 
-> 注：数据直接入 SQLite，不再有 `formats` 参数（传入未知字段将返回 400）；文件导出能力由 CLI 提供。
+> 注：数据直接入 SQLite，不再有 `formats` 参数（传入未知字段将返回 400）。
 
 响应 `202 Accepted`：
 
@@ -434,7 +434,7 @@ PUT 响应 `201` / GET 响应 `200`：
 
 ### Record（数据本体，`records` 表）
 
-沿用 CLI 的 12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。RSS 增量同步共用同一路径。
+12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。RSS 增量同步共用同一路径。
 
 ### Subscription（订阅，`subscriptions` 表）
 
@@ -490,10 +490,10 @@ PUT 响应 `201` / GET 响应 `200`：
 
 1. **客户端限流**：per-IP 令牌桶，默认 60 req/min（`429 TOO_MANY_REQUESTS`）
 2. **任务并发上限**：全局运行中任务 ≤ 8，队列长度 ≤ 100（`429 TOO_MANY_TASKS`）
-3. **豆瓣侧全局令牌桶**：所有维度共享，默认 ≥2.0s/请求 + 0–1s 抖动（与 CLI 一致）；同 uid 的维度严格串行，不同 uid 交错执行
+3. **豆瓣侧全局令牌桶**：所有维度共享，默认 ≥2.0s/请求 + 0–1s 抖动；同 uid 的维度严格串行，不同 uid 交错执行
 4. **熔断器**：连续 5 次维度失败（豆瓣 403/超时）→ 全局暂停抓取 10 分钟，期间新任务入队但 `queued`，`server/info` 可见熔断状态
 
-重试策略沿用 CLI：403/418/5xx 指数退避（20s×n + 抖动，最多 5 次）；404 快速失败（维度标记 `error`，不重试）。
+重试策略：403/418/5xx 指数退避（20s×n + 抖动，最多 5 次）；404 快速失败（维度标记 `error`，不重试）。
 
 ## 9. 错误响应规范
 
@@ -544,8 +544,8 @@ PUT 响应 `201` / GET 响应 `200`：
 2. **缓存 TTL 24h 是否合适？** 重度用户标记频率高于此；可考虑"TTL + 手动 refresh"双轨（当前设计已支持）
 3. **`/users/{uid}/marks` 是否允许自动触发抓取**（`?fetch=async`）？当前设计为"只读缓存 + 404 引导"，避免该接口变成免费抓取入口（建议维持）
 4. **公网部署时的鉴权默认值**：是否改为"默认必须配置 token 才能启动"？（建议：默认不强制，README 明示公网风险）
-5. **断点续爬的 checkpoint 存放位置**：并入 Dimension 表（当前设计）vs 独立文件（CLI 兼容）？（建议：并入表，CLI 的 ckpt 文件仅本地用）
+5. ~~**断点续爬的 checkpoint 存放位置**~~ 已决：并入 Dimension 表（next_start 列）
 
 ---
 
-*附：实现建议（非约束）——axum + tokio 做异步框架，SQLite（rusqlite/sqlx）存任务与缓存，tower 中间件做限流；抓取器把现有 `parse_items`/`fetch_html` 逻辑原样移植为库模块，CLI 与 server 共用同一 crate 内的 lib。*
+*附：实现——axum + tokio 异步框架，sqlx/SQLite 存任务与数据，tower 中间件做限流；抓取解析逻辑在库模块 `crawler`，服务器为唯一二进制形态。*
