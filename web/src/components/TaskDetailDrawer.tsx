@@ -11,8 +11,9 @@ const TERMINAL = ['completed', 'partial', 'failed'];
 function DimProgress({ dim }: { dim: ProgressEntry }) {
   const done = dim.state === 'done';
   const failed = dim.state === 'error';
+  // page = 已完成的页数（next_start/15）；running 时正在抓第 page+1 页
   const pageInfo = dim.pages_total
-    ? ` · 第 ${Math.max(dim.page, 1)}/${dim.pages_total} 页`
+    ? ` · 第 ${dim.state === 'running' ? dim.page + 1 : dim.page}/${dim.pages_total} 页`
     : dim.page > 0
       ? ` · 第 ${dim.page} 页`
       : '';
@@ -50,7 +51,8 @@ export default function TaskDetailDrawer({
   const [result, setResult] = useState<ResultView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // 打开期间轮询：未终态每 2s 刷新，终态后停并拉取结果元数据
+  // 打开期间：先拉一次快照；未终态则订阅 SSE 推流（进度变更即达），
+  // 连接失败（代理不支持流式/网络中断）自动降级为 2s 轮询；终态后拉取结果元数据
   useEffect(() => {
     if (!taskId) {
       setTask(null);
@@ -60,35 +62,81 @@ export default function TaskDetailDrawer({
     }
     let stopped = false;
     let timer: number | undefined;
+    let es: EventSource | undefined;
 
-    const tick = async () => {
+    const fetchResult = async () => {
       try {
-        const t = await api.getTask(taskId);
-        if (stopped) return;
-        setTask(t);
-        setLoadError(null);
-        if (TERMINAL.includes(t.status)) {
-          try {
-            setResult(await api.getResult(taskId));
-          } catch (e) {
-            if (!stopped) setLoadError(`结果加载失败：${(e as Error).message}`);
-          }
-          return;
-        }
-        timer = window.setTimeout(tick, 2000);
+        setResult(await api.getResult(taskId));
       } catch (e) {
-        if (stopped) return;
-        setLoadError((e as Error).message);
-        timer = window.setTimeout(tick, 5000);
+        if (!stopped) setLoadError(`结果加载失败：${(e as Error).message}`);
       }
     };
 
-    setTask(null);
-    setResult(null);
-    setLoadError(null);
-    tick();
+    /** 应用任务视图；返回是否终态 */
+    const applyTask = (t: TaskView): boolean => {
+      if (stopped) return true;
+      setTask(t);
+      setLoadError(null);
+      if (TERMINAL.includes(t.status)) {
+        void fetchResult();
+        return true;
+      }
+      return false;
+    };
+
+    const startPolling = () => {
+      const tick = async () => {
+        let terminal = false;
+        try {
+          terminal = applyTask(await api.getTask(taskId));
+        } catch (e) {
+          if (!stopped) setLoadError((e as Error).message);
+        }
+        if (!terminal && !stopped) timer = window.setTimeout(tick, 2000);
+      };
+      void tick();
+    };
+
+    (async () => {
+      try {
+        if (applyTask(await api.getTask(taskId))) return; // 打开时已是终态
+      } catch (e) {
+        if (stopped) return;
+        setLoadError((e as Error).message);
+        timer = window.setTimeout(startPolling, 3000);
+        return;
+      }
+
+      es = new EventSource(api.taskEventsUrl(taskId));
+      const onDelta = (ev: Event) => {
+        try {
+          applyTask(JSON.parse((ev as MessageEvent).data) as TaskView);
+        } catch {
+          /* 忽略无法解析的数据帧 */
+        }
+      };
+      es.addEventListener('progress', onDelta);
+      es.addEventListener('done', (ev) => {
+        onDelta(ev);
+        es?.close();
+      });
+      es.addEventListener('error', (ev) => {
+        // 两类 error 事件：业务终态失败（有 data）与连接错误（无 data，EventSource 会自动重连）
+        if ((ev as MessageEvent).data != null) {
+          onDelta(ev);
+          es?.close();
+          return;
+        }
+        // 连接不可用：关闭并降级轮询，避免 EventSource 无限重连
+        es?.close();
+        es = undefined;
+        if (!stopped) startPolling();
+      });
+    })();
+
     return () => {
       stopped = true;
+      es?.close();
       if (timer) clearTimeout(timer);
     };
   }, [taskId]);

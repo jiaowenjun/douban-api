@@ -81,6 +81,13 @@ export const api = {
 
   getTask: (taskId: string) => request<TaskView>(`/exports/${taskId}`),
 
+  /** SSE 订阅地址（EventSource 无法设置 Header，token 经 ?token= 查询参数传递） */
+  taskEventsUrl: (taskId: string) => {
+    const token = getToken();
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${getApiBase()}/exports/${encodeURIComponent(taskId)}/events${q}`;
+  },
+
   createTask: (body: CreateTaskBody) =>
     request<CreateTaskResponse>('/exports', { method: 'POST', body: JSON.stringify(body) }),
 
