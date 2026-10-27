@@ -6,16 +6,20 @@ use axum::{
     extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
     routing::get,
 };
 use serde_json::{Value, json};
+use std::convert::Infallible;
 use std::net::SocketAddr;
 
 use crate::crawler::{Category, Format, Status};
 
 use super::error::{AppError, AppResult};
-use super::service::{self, CreateTaskInput, TERMINAL_STATUSES};
+use super::service::{self, CreateTaskInput, TERMINAL_STATUSES, TaskView};
 use super::state::AppState;
 
 pub fn build_app(state: AppState) -> Router {
@@ -24,6 +28,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/exports/{task_id}", get(get_export).delete(delete_export))
         .route("/exports/{task_id}/result", get(get_result))
         .route("/exports/{task_id}/result/{file_name}", get(get_result_file))
+        .route("/exports/{task_id}/events", get(get_export_events))
         .route("/users/{uid}/marks", get(get_marks))
         .route("/server/info", get(server_info))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
@@ -44,25 +49,69 @@ async fn auth_middleware(
 ) -> Result<Response, AppError> {
     if !state.config.token.is_empty() {
         let expected = format!("Bearer {}", state.config.token);
-        let ok = req
+        let header_ok = req
             .headers()
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v == expected);
-        if !ok {
-            return Err(AppError::Unauthorized("缺少或错误的 Bearer Token".to_string()));
+        // 浏览器 EventSource 无法设置自定义 Header，允许 ?token= 查询参数兜底
+        let query_ok = !header_ok
+            && req
+                .uri()
+                .query()
+                .is_some_and(|q| {
+                    q.split('&').any(|kv| {
+                        kv.split_once('=').is_some_and(|(k, v)| {
+                            k == "token" && urldecode(v) == state.config.token
+                        })
+                    })
+                });
+        if !header_ok && !query_ok {
+            return Err(AppError::Unauthorized(
+                "缺少或错误的 Bearer Token（支持 Authorization 头或 ?token= 参数）".to_string(),
+            ));
         }
     }
     Ok(next.run(req).await)
 }
 
+/// 极简百分号解码（token 一般为 URL 安全字符，覆盖 %+XX 即可）
+fn urldecode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let decoded = bytes
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (bytes[i], decoded) {
+            (b'%', Some(b)) => {
+                out.push(b);
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 async fn rate_limit_middleware(
     State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     req: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, AppError> {
-    if !state.rate_allow(addr.ip()) {
+    // ConnectInfo 由 into_make_service_with_connect_info 注入请求扩展；
+    // 缺失时（如测试 oneshot）回退 loopback
+    let ip = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.ip())
+        .unwrap_or(std::net::IpAddr::from([127, 0, 0, 1]));
+    if !state.rate_allow(ip) {
         return Err(AppError::TooManyRequests);
     }
     Ok(next.run(req).await)
@@ -193,6 +242,59 @@ async fn get_export(
     Path(task_id): Path<String>,
 ) -> AppResult<Json<service::TaskView>> {
     Ok(Json(service::get_task(&state, &task_id).await?))
+}
+
+// --------------------------------------------------------------------------- //
+// SSE 进度推流（设计文档 4.8）
+// --------------------------------------------------------------------------- //
+
+fn task_event(name: &str, view: &TaskView) -> Result<Event, Infallible> {
+    let data = serde_json::to_string(view).unwrap_or_else(|_| "{}".to_string());
+    Ok(Event::default().event(name).data(data))
+}
+
+/// SSE 流：先推当前快照（progress），随后仅在进度变更时推送；
+/// 终态推 done（partial 也归 done，内容里带 error）/ error 后关流。
+/// worker 侧经 AppState 的 broadcast 通道通知（state.notify_progress）。
+async fn get_export_events(
+    State(state): State<AppState>,
+    Path(task_id): Path<String>,
+) -> AppResult<
+    Sse<axum::response::sse::KeepAliveStream<
+        tokio_stream::wrappers::ReceiverStream<Result<Event, Infallible>>,
+    >>,
+> {
+    // 校验任务存在（404 快速失败）；订阅必须发生在 spawn 之前，
+    // 保证响应返回时已建立订阅，连接期间的通知不会丢失
+    service::get_task(&state, &task_id).await?;
+    let mut notify = state.subscribe_progress();
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
+    tokio::spawn(async move {
+        loop {
+            let Ok(view) = service::get_task(&state, &task_id).await else { return };
+            if TERMINAL_STATUSES.contains(&view.status.as_str()) {
+                let name = if view.status == "failed" { "error" } else { "done" };
+                let _ = tx.send(task_event(name, &view)).await;
+                return;
+            }
+            if tx.send(task_event("progress", &view)).await.is_err() {
+                return; // 客户端断开
+            }
+            // 等待下一次该任务的进度通知
+            loop {
+                match notify.recv().await {
+                    Ok(id) if id == task_id => break,
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => return,
+                }
+            }
+        }
+    });
+
+    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::default()))
 }
 
 #[derive(serde::Deserialize, Default)]

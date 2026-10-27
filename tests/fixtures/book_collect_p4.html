@@ -1,0 +1,1437 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-cmn-Hans" class="ua-mac ua-webkit book-new-nav">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>
+  芝麻读过的书(55)
+</title>
+  <script>
+!function(doc){
+
+var setCookie = function(dict, days, path) {
+  var date = new Date(), expires, key;
+  days = days || 30;
+  path = path || '/';
+  date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+  expires = '; expires=' + date.toGMTString();
+  for (key in dict){
+    doc.cookie = key + '=' + dict[key] + expires + '; path=' + path;
+  }
+},
+
+getCookie = function(name) {
+  var na = name + '=', c, i, len, ca = doc.cookie.split(';');
+  for (i = 0, len = ca.length; i < len; i++) {
+    c = ca[i].replace(/^\s+|\s+$/g, '');
+    if (c.indexOf(na) == 0) {
+      return c.substring(na.length, c.length).replace(/\"/g, '');
+    }
+  }
+  return null;
+},
+
+origWrite = doc.write,
+
+whiteList = {
+  'douban.com': 1,
+  'douban.fm': 1,
+  'google.com': 1,
+  'google.cn': 1,
+  'googleapis.com': 1,
+  'gmaptiles.co.kr': 1,
+  'gstatic.com': 1,
+  'gstatic.cn': 1,
+  'google-analytics.com': 1,
+  'googleadservices.com': 1
+},
+
+report = function(reason, env) {
+  var img = new Image();
+  img.onload = function(){};
+  img.src = 'https://www.douban.com/j/except_report?kind=ra022&reason='
+    + encodeURIComponent(reason)
+    + '&environment=' + encodeURIComponent(env);
+},
+
+write = function(value) {
+  try {
+    origWrite.call(doc, value);
+  } catch (_e) {
+    origWrite(value);
+  }
+},
+
+_RE_SCRIPTS = /<script.*?src\=["']?([^"'\s>]+)/ig,
+_RE_DOMAIN = /http:\/\/(.+?)\.([^\/]+).+/i;
+
+doc.writeln = doc.write = function(value) {
+  var fileUrl = _RE_SCRIPTS.exec(value), fileDomain;
+
+  // 若不是打印script跳过
+  if (!fileUrl) {
+    write(value);
+    return;
+  }
+
+  // 若是本地地址跳过
+  fileDomain = _RE_DOMAIN.exec(fileUrl[1]);
+  if (!fileDomain) {
+    write(value);
+    return;
+  }
+
+  // 白名单域下文件跳过
+  if (whiteList[fileDomain[2]]) {
+    write(value);
+    return;
+  }
+
+  if (getCookie('hj') === 'tqs') {
+    return;
+  }
+
+  // 被劫持状态
+  report(fileUrl[1], location.href);
+
+  // 保存状态并自动刷新页面
+  setCookie({'hj': 'tqs'}, 1);
+  setTimeout(function() {
+    location.replace(location.href);
+  }, 50);
+};
+
+}(document);
+</script>
+
+  
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="Sun, 6 Mar 2005 01:00:00 GMT">
+  <meta name="referrer" content="always">
+  <meta name="renderer" content="webkit">
+  
+  <script>var _head_start = new Date();</script>
+  
+  <link href="https://img3.doubanio.com/f/vendors/fae7e145bf16b2f427ba0fe7ef3d47c04af3a6c0/css/douban.css" rel="stylesheet" type="text/css">
+  <link href="https://asset.doubanio.com/cuphead/book-static/common/master.6198c.css" rel="stylesheet" type="text/css">
+
+  <link href="https://asset.doubanio.com/cuphead/book-static/base/init.e399f.css" rel="stylesheet">
+  <style type="text/css">
+  
+</style>
+  <script src="https://img3.doubanio.com/f/vendors/0511abe9863c2ea7084efa7e24d1d86c5b3974f1/js/jquery-1.10.2.min.js"></script>
+  <script src="https://img3.doubanio.com/f/vendors/e258329ca4b2122b4efe53fddc418967441e0e7f/js/douban.js"></script>
+  <script src="https://asset.doubanio.com/cuphead/book-static/common/master.3c0a3.js"></script>
+  
+
+  
+  <link rel="stylesheet" href="https://img3.doubanio.com/f/vendors/37e1cfca2d0e2d0a9a4bf05cc05072d69d27c975/css/ui/mypage.css">
+  
+  
+  
+  
+    
+    
+    <link rel="stylesheet" href="https://asset.doubanio.com/cuphead/book-static/people/index.3de5b.css" type="text/css" />
+  
+
+
+
+
+  <script>  </script>
+  <!-- COLLECTED CSS -->
+
+  <link rel="shortcut icon" href="https://img3.doubanio.com/favicon.ico" type="image/x-icon">
+</head>
+<body>
+  
+    <script>var _body_start = new Date();</script>
+    
+  
+
+
+
+    <link href="//asset.doubanio.com/cuphead/nav/2.0.0/shire/bundle.css" rel="stylesheet" type="text/css">
+
+
+
+<div id="db-global-nav" class="global-nav">
+  <div class="bd">
+    
+<div class="top-nav-info">
+  <a href="https://accounts.douban.com/passport/login?source=book" class="nav-login" rel="nofollow">登录/注册</a>
+</div>
+
+
+    <div class="top-nav-doubanapp">
+  <a href="https://www.douban.com/doubanapp/app?channel=top-nav" class="lnk-doubanapp">下载豆瓣客户端</a>
+  <div id="doubanapp-tip">
+    <a href="https://www.douban.com/doubanapp/app?channel=qipao" class="tip-link">豆瓣 <span class="version">6.0</span> 全新发布</a>
+    <a href="javascript: void 0;" class="tip-close">×</a>
+  </div>
+  <div id="top-nav-appintro" class="more-items">
+    <p class="appintro-title">豆瓣</p>
+    <p class="qrcode">扫码直接下载</p>
+    <div class="download">
+      <a href="https://www.douban.com/doubanapp/redirect?channel=top-nav&direct_dl=1&download=iOS">iPhone</a>
+      <span>·</span>
+      <a href="https://www.douban.com/doubanapp/redirect?channel=top-nav&direct_dl=1&download=Android" class="download-android">Android</a>
+    </div>
+  </div>
+</div>
+
+    
+
+
+<div class="global-nav-items">
+  <ul>
+    <li class="">
+      <a href="https://www.douban.com" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-main&quot;,&quot;uid&quot;:&quot;0&quot;}">豆瓣</a>
+    </li>
+    <li class="on">
+      <a href="https://book.douban.com"  data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-book&quot;,&quot;uid&quot;:&quot;0&quot;}">读书</a>
+    </li>
+    <li class="">
+      <a href="https://movie.douban.com" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-movie&quot;,&quot;uid&quot;:&quot;0&quot;}">电影</a>
+    </li>
+    <li class="">
+      <a href="https://music.douban.com" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-music&quot;,&quot;uid&quot;:&quot;0&quot;}">音乐</a>
+    </li>
+    <li class="">
+      <a href="https://www.douban.com/podcast/" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-podcast&quot;,&quot;uid&quot;:&quot;0&quot;}">播客</a>
+    </li>
+    <li class="">
+      <a href="https://www.douban.com/location" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-location&quot;,&quot;uid&quot;:&quot;0&quot;}">同城</a>
+    </li>
+    <li class="">
+      <a href="https://www.douban.com/group" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-group&quot;,&quot;uid&quot;:&quot;0&quot;}">小组</a>
+    </li>
+    <li class="">
+      <a href="https://read.douban.com&#47;?dcs=top-nav&amp;dcm=douban" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-read&quot;,&quot;uid&quot;:&quot;0&quot;}">阅读</a>
+    </li>
+    <li class="">
+      <a href="https://fm.douban.com&#47;?from_=shire_top_nav" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-fm&quot;,&quot;uid&quot;:&quot;0&quot;}">FM</a>
+    </li>
+    <li class="">
+      <a href="https://time.douban.com&#47;?dt_time_source=douban-web_top_nav" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-time&quot;,&quot;uid&quot;:&quot;0&quot;}">时间</a>
+    </li>
+    <li class="">
+      <a href="https://market.douban.com&#47;?utm_campaign=douban_top_nav&amp;utm_source=douban&amp;utm_medium=pc_web" target="_blank" data-moreurl-dict="{&quot;from&quot;:&quot;top-nav-click-market&quot;,&quot;uid&quot;:&quot;0&quot;}">豆品</a>
+    </li>
+  </ul>
+</div>
+
+  </div>
+</div>
+<script>
+  ;window._GLOBAL_NAV = {
+    DOUBAN_URL: "https://www.douban.com",
+    N_NEW_NOTIS: 0,
+    N_NEW_DOUMAIL: 0
+  };
+</script>
+
+
+
+    <script src="//asset.doubanio.com/cuphead/nav/2.0.0/shire/bundle.js" defer="defer"></script>
+
+
+
+
+  
+
+
+    <link href="//asset.doubanio.com/cuphead/nav/2.0.0/book/bundle.css" rel="stylesheet" type="text/css">
+
+
+
+
+<div id="db-nav-book" class="nav">
+  <div class="nav-wrap">
+  <div class="nav-primary">
+    <div class="nav-logo">
+      <a href="https:&#47;&#47;book.douban.com">豆瓣读书</a>
+    </div>
+    <div class="nav-search">
+      <form action="https:&#47;&#47;search.douban.com&#47;book/subject_search" method="get">
+        <fieldset>
+          <legend>搜索：</legend>
+          <label for="inp-query">
+          </label>
+          <div class="inp"><input id="inp-query" name="search_text" size="22" maxlength="60" placeholder="书名、作者、ISBN" value=""></div>
+          <div class="inp-btn"><input type="submit" value="搜索"></div>
+          <input type="hidden" name="cat" value="1001" />
+        </fieldset>
+      </form>
+    </div>
+  </div>
+  </div>
+  <div class="nav-secondary">
+    
+
+<div class="nav-items">
+  <ul>
+    <li    ><a href="https://book.douban.com/cart/"
+     >购书单</a>
+    </li>
+    <li    ><a href="https://read.douban.com/ebooks/?dcs=book-nav&dcm=douban"
+            target="_blank"
+     >电子图书</a>
+    </li>
+    <li    ><a href="https://book.douban.com/annual/2025/?fullscreen=1&dt_from=navigation"
+            target="_blank"
+     >2025年度榜单</a>
+    </li>
+    <li    ><a href="https://c9.douban.com/app/standbyme-2025/?autorotate=false&fullscreen=true&hidenav=true&monitor_screenshot=true&dt_from=web_navigation"
+            target="_blank"
+     >2025年度报告</a>
+    </li>
+  </ul>
+</div>
+
+    <a href="https://book.douban.com/annual/2025/?fullscreen=1&&dt_from=book_navigation" class="bookannual"></a>
+  </div>
+</div>
+
+<script id="suggResult" type="text/x-jquery-tmpl">
+  <li data-link="{{= url}}">
+            <a href="{{= url}}" onclick="moreurl(this, {from:'book_search_sugg', query:'{{= keyword }}', subject_id:'{{= id}}', i: '{{= index}}', type: '{{= type}}'})">
+            <img src="{{= pic}}" width="40" />
+            <div>
+                <em>{{= title}}</em>
+                {{if year}}
+                    <span>{{= year}}</span>
+                {{/if}}
+                <p>
+                {{if type == "b"}}
+                    {{= author_name}}
+                {{else type == "a" }}
+                    {{if en_name}}
+                        {{= en_name}}
+                    {{/if}}
+                {{/if}}
+                 </p>
+            </div>
+        </a>
+        </li>
+  </script>
+
+
+
+
+    <script src="//asset.doubanio.com/cuphead/nav/2.0.0/book/bundle.js" defer="defer"></script>
+
+
+
+
+    <div id="wrapper">
+        
+        
+  <div id="content">
+    
+  
+    
+  
+  <div class="user-profile-nav" id="db-usr-profile">
+    <div class="pic">
+        <a href="/people/wenjun30/">
+          <img height="48" width="48"
+            alt="芝麻" src="https://img2.doubanio.com/icon/u189180823-11.jpg" />
+        </a>
+    </div>
+    <div class="info">
+      <h1> 芝麻读过的书(55) </h1>
+      <ul class="nav-list">
+          
+            <li><a href="/people/wenjun30/">读书主页</a></li>
+          
+            <li><a href="/people/wenjun30/reviews">书评</a></li>
+          
+            <li><a href="/people/wenjun30/annotation/">笔记</a></li>
+          
+            <li><a href="/people/wenjun30/do">在读</a></li>
+          
+            <li><a href="/people/wenjun30/wish">想读</a></li>
+          
+            <li class="user-profile-nav-activated">读过</li>
+          
+            <li><a href="/people/wenjun30/authors">作者</a></li>
+          
+            <li><a href="https://www.douban.com/people/wenjun30/doulists">豆列</a></li>
+          
+            <li><a href="https://www.douban.com/people/wenjun30/subject_doulists/book">书单</a></li>
+        <li class="user-profile-nav-splitter">|</li>
+        <li><a href="https://www.douban.com/people/wenjun30/">豆瓣主页</a></li>
+      </ul>
+    </div>
+  </div>
+
+
+
+    <div class="grid-16-8 clearfix">
+      
+      <div class="article">
+
+  
+
+<div class="opt-bar clearfix">
+    <div class="sort">
+          按时间排序
+          <span class="gray-dot">·</span>
+          
+          <a href="/people/wenjun30/collect?sort=rating&amp;start=45&amp;mode=grid&amp;tags_sort=count">
+            按评价排序
+          </a>
+          <span class="gray-dot">·</span>
+          
+          <a href="/people/wenjun30/collect?sort=title&amp;start=45&amp;mode=grid&amp;tags_sort=count">
+            按标题排序
+          </a>
+    </div>
+    <div class="mode">
+        <span class="subject-num">
+            46-55&nbsp;/&nbsp;55
+        </span>
+        <ul class="grid-list-bar">
+            
+                <li class="grid-on">grid</li>
+                <li class="list">
+                    <a href="/people/wenjun30/collect?sort=time&amp;start=45&amp;filter=all&amp;mode=list&amp;tags_sort=count">list</a>
+                </li>
+        </ul>
+    </div>
+</div>
+
+
+    
+  <link rel="stylesheet" href="https://asset.doubanio.com/cuphead/book-static/common/subject_list.624f4.css">
+  <ul class="interest-list">
+    
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/24736899/" 
+  onclick="moreurl(this,{i:'0',query:'',subject_id:'24736899',from:'book_subject_search'})">
+        <img src="https://img2.doubanio.com/view/subject/s/public/s27018761.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/24736899/" title="雪国" 
+  onclick="moreurl(this,{i:'0',query:'',subject_id:'24736899',from:'book_subject_search'})">
+
+    雪国
+
+
+    
+      <span style="font-size:12px;"> : 川端康成作品01 </span>
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  [日本] 川端康成 / 叶渭渠、唐月梅 / 南海出版公司 / 2013-9-15 / CNY 32.00
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-11-13
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="2039276485">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+    <span class="buy-info">
+      <a href="https://book.douban.com/subject/24736899/buylinks">
+        纸质版 13.48元
+      </a>
+    </span>
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/1000407/" 
+  onclick="moreurl(this,{i:'1',query:'',subject_id:'1000407',from:'book_subject_search'})">
+        <img src="https://img3.doubanio.com/view/subject/s/public/s1056997.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/1000407/" title="竹林的故事" 
+  onclick="moreurl(this,{i:'1',query:'',subject_id:'1000407',from:'book_subject_search'})">
+
+    竹林的故事
+
+
+    
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  废名 / 广西师范大学出版社 / 2003-03 / 26.80
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-10-20
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1966522506">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/26423766/" 
+  onclick="moreurl(this,{i:'2',query:'',subject_id:'26423766',from:'book_subject_search'})">
+        <img src="https://img9.doubanio.com/view/subject/s/public/s34316415.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/26423766/" title="洛书河图（修订本）" 
+  onclick="moreurl(this,{i:'2',query:'',subject_id:'26423766',from:'book_subject_search'})">
+
+    洛书河图（修订本）
+
+
+    
+      <span style="font-size:12px;"> : 文明的造型探源 </span>
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  阿城 / 中华书局 / 2015-6 / 136.00元
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-10-11
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1994436815">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/3633461/" 
+  onclick="moreurl(this,{i:'3',query:'',subject_id:'3633461',from:'book_subject_search'})">
+        <img src="https://img3.doubanio.com/view/subject/s/public/s6916838.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/3633461/" title="一句顶一万句" 
+  onclick="moreurl(this,{i:'3',query:'',subject_id:'3633461',from:'book_subject_search'})">
+
+    一句顶一万句
+
+
+    
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  刘震云 / 长江文艺出版社 / 2009-3 / 29.80
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-09-20
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1961609622">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+    <span class="buy-info">
+      <a href="https://book.douban.com/subject/3633461/buylinks">
+        纸质版 94.98元
+      </a>
+    </span>
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/33413711/" 
+  onclick="moreurl(this,{i:'4',query:'',subject_id:'33413711',from:'book_subject_search'})">
+        <img src="https://img3.doubanio.com/view/subject/s/public/s35005252.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/33413711/" title="長沙簡牘博物館藏長沙走馬樓吳簡書法研究" 
+  onclick="moreurl(this,{i:'4',query:'',subject_id:'33413711',from:'book_subject_search'})">
+
+    長沙簡牘博物館藏長沙走馬樓吳簡書法研究
+
+
+    
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  長沙簡牘博物館 / 西泠印社出版社 / 2019-1 / 820.00
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-08-20
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1909611672">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+    <span class="buy-info">
+      <a href="https://book.douban.com/subject/33413711/buylinks">
+        纸质版 478.26元
+      </a>
+    </span>
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/4912671/" 
+  onclick="moreurl(this,{i:'5',query:'',subject_id:'4912671',from:'book_subject_search'})">
+        <img src="https://img3.doubanio.com/view/subject/s/public/s6224649.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/4912671/" title="尚书易解" 
+  onclick="moreurl(this,{i:'5',query:'',subject_id:'4912671',from:'book_subject_search'})">
+
+    尚书易解
+
+
+    
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  周秉钧 / 华东师范大学出版社 / 2010 / 30.00元
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating4-t"></span>
+
+    <span class="date">2019-08-18
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1914912653">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+    <span class="buy-info">
+      <a href="https://book.douban.com/subject/4912671/buylinks">
+        纸质版 109.12元
+      </a>
+    </span>
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/2377241/" 
+  onclick="moreurl(this,{i:'6',query:'',subject_id:'2377241',from:'book_subject_search'})">
+        <img src="https://img3.doubanio.com/view/subject/s/public/s29800482.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/2377241/" title="世說新語箋疏" 
+  onclick="moreurl(this,{i:'6',query:'',subject_id:'2377241',from:'book_subject_search'})">
+
+    世說新語箋疏
+
+
+    
+      <span style="font-size:12px;"> : 全三冊 </span>
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  (南朝宋)劉義慶 著 / 周祖谟、余淑宜、周士琦 / 中华书局 / 2007-10 / 98.00元
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-08-15
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1908345191">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/27175874/" 
+  onclick="moreurl(this,{i:'7',query:'',subject_id:'27175874',from:'book_subject_search'})">
+        <img src="https://img2.doubanio.com/view/subject/s/public/s33549131.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/27175874/" title="陶渊明集笺注" 
+  onclick="moreurl(this,{i:'7',query:'',subject_id:'27175874',from:'book_subject_search'})">
+
+    陶渊明集笺注
+
+
+    
+      <span style="font-size:12px;"> : 附诗文句索引（上下册） </span>
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  [晉] 陶潛 撰、袁行霈 笺注 / 中华书局 / 2017-12 / 98.00元
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-03-02
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1700088715">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/1442239/" 
+  onclick="moreurl(this,{i:'8',query:'',subject_id:'1442239',from:'book_subject_search'})">
+        <img src="https://img9.doubanio.com/view/subject/s/public/s10343354.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/1442239/" title="启功给你讲书法" 
+  onclick="moreurl(this,{i:'8',query:'',subject_id:'1442239',from:'book_subject_search'})">
+
+    启功给你讲书法
+
+
+    
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  启功 / 中华书局 / 2005-10 / 16.00元
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2019-02-15
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1676260501">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+    <span class="buy-info">
+      <a href="https://book.douban.com/subject/1442239/buylinks">
+        纸质版 19.20元
+      </a>
+    </span>
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+      
+        
+  
+  <li class="subject-item">
+    <div class="pic">
+      <a class="nbg" href="https://book.douban.com/subject/10743575/" 
+  onclick="moreurl(this,{i:'9',query:'',subject_id:'10743575',from:'book_subject_search'})">
+        <img src="https://img3.doubanio.com/view/subject/s/public/s9129263.jpg"
+          width="90">
+      </a>
+    </div>
+    <div class="info">
+      <h2>
+        
+  
+  <a href="https://book.douban.com/subject/10743575/" title="古文字学简论" 
+  onclick="moreurl(this,{i:'9',query:'',subject_id:'10743575',from:'book_subject_search'})">
+
+    古文字学简论
+
+
+    
+
+  </a>
+
+      </h2>
+      <div class="pub">
+        
+  
+  林沄 / 中华书局 / 2012-4 / 15.00元
+
+      </div>
+        <div class="short-note">
+
+        
+  <div>
+      <span class="rating5-t"></span>
+
+    <span class="date">2018-12-26
+      读过</span>
+
+    
+
+  </div>
+
+
+
+
+        
+  <p class="comment comment-item" data-cid="1592386804">（测试短评占位文本）</p>
+
+
+        
+
+
+        </div>
+
+      <div class="ft">
+
+          <div class="cart-actions">
+            
+                
+  
+
+    <span class="buy-info">
+      <a href="https://book.douban.com/subject/10743575/buylinks">
+        纸质版 21.35元
+      </a>
+    </span>
+
+          </div>
+
+            
+            
+  
+
+      </div>
+
+    </div>
+  </li>
+
+  </ul>
+  
+
+
+  
+    
+    
+    
+        <div class="paginator">
+        <span class="prev">
+            <link rel="prev" href="/people/wenjun30/collect?start=30&amp;sort=time&amp;rating=all&amp;filter=all&amp;mode=grid"/>
+            <a href="/people/wenjun30/collect?start=30&amp;sort=time&amp;rating=all&amp;filter=all&amp;mode=grid" >&lt;前页</a>
+        </span>
+        
+        
+
+                
+            <a href="/people/wenjun30/collect?start=0&amp;sort=time&amp;rating=all&amp;filter=all&amp;mode=grid" >1</a>
+        
+                
+            <a href="/people/wenjun30/collect?start=15&amp;sort=time&amp;rating=all&amp;filter=all&amp;mode=grid" >2</a>
+        
+                
+            <a href="/people/wenjun30/collect?start=30&amp;sort=time&amp;rating=all&amp;filter=all&amp;mode=grid" >3</a>
+        
+                <span class="thispage">4</span>
+        <span class="next">
+            后页&gt;
+        </span>
+
+        </div>
+
+
+</div>
+      <div class="aside">
+        
+
+  
+  <div class="mod">
+    <p class="pl2 m0">
+        &gt;
+        <a href="/people/wenjun30/">
+          芝麻的读书主页
+        </a>
+    </p>
+  </div>
+
+
+
+      </div>
+      <div class="extra">
+        
+      </div>
+    </div>
+  </div>
+
+        
+  <div id="footer">
+    
+<span id="icp" class="fleft gray-link">
+    &copy; 2005－2026 douban.com, all rights reserved 北京豆网科技有限公司
+</span>
+
+<a href="https://www.douban.com/hnypt/variformcyst.py" style="display: none;"></a>
+
+<span class="fright">
+    <a href="https://www.douban.com/about">关于豆瓣</a>
+    · <a href="https://www.douban.com/jobs">在豆瓣工作</a>
+    · <a href="https://www.douban.com/about?topic=contactus">联系我们</a>
+    · <a href="https://www.douban.com/about/legal">法律声明</a>
+    
+    · <a href="https://help.douban.com/?app=book" target="_blank">帮助中心</a>
+    · <a href="https://book.douban.com/library_invitation">图书馆合作</a>
+    · <a href="https://www.douban.com/doubanapp/">移动应用</a>
+</span>
+
+  </div>
+
+    </div>
+      
+
+    <script type="text/javascript">
+    $(function() {
+      $('.d_link').click(function() {
+        var item = $(this).closest(".subject-item");
+        $.post_withck("/j/mine/j_cat_ui", {sid: this.rel},
+          function(sjson) {
+            var ret = eval("(" + sjson + ")");
+            if (!ret.result) {
+              alert("出错了，请稍后重试!");
+            } else {
+              item.slideUp();
+            }
+        });
+      });
+    })
+  </script>
+    <!-- mako -->
+    
+    
+  
+
+<script type="text/javascript">
+  var _paq = _paq || [];
+  _paq.push(['trackPageView']);
+  _paq.push(['enableLinkTracking']);
+  (function() {
+    var p=(('https:' == document.location.protocol) ? 'https' : 'http'), u=p+'://fundin.douban.com/';
+    _paq.push(['setTrackerUrl', u+'piwik']);
+    _paq.push(['setSiteId', '100001']);
+    var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
+    g.type='text/javascript';
+    g.defer=true;
+    g.async=true;
+    g.src=p+'://s.doubanio.com/dae/fundin/piwik.js';
+    s.parentNode.insertBefore(g,s);
+  })();
+</script>
+
+<script type="text/javascript">
+var setMethodWithNs = function(namespace) {
+  var ns = namespace ? namespace + '.' : ''
+    , fn = function(string) {
+        if(!ns) {return string}
+        return ns + string
+      }
+  return fn
+}
+
+var gaWithNamespace = function(fn, namespace) {
+  var method = setMethodWithNs(namespace)
+  fn.call(this, method)
+}
+
+var _gaq = _gaq || []
+  , accounts = [
+      { id: 'UA-7019765-1', namespace: 'douban' }
+    , { id: 'UA-7019765-16', namespace: '' }
+    ]
+  , gaInit = function(account) {
+      gaWithNamespace(function(method) {
+        gaInitFn.call(this, method, account)
+      }, account.namespace)
+    }
+  , gaInitFn = function(method, account) {
+      _gaq.push([method('_setAccount'), account.id])
+
+      
+  _gaq.push([method('_addOrganic'), 'google', 'q'])
+  _gaq.push([method('_addOrganic'), 'baidu', 'wd'])
+  _gaq.push([method('_addOrganic'), 'soso', 'w'])
+  _gaq.push([method('_addOrganic'), 'youdao', 'q'])
+  _gaq.push([method('_addOrganic'), 'so.360.cn', 'q'])
+  _gaq.push([method('_addOrganic'), 'sogou', 'query'])
+  if (account.namespace) {
+    _gaq.push([method('_addIgnoredOrganic'), '豆瓣'])
+    _gaq.push([method('_addIgnoredOrganic'), 'douban'])
+    _gaq.push([method('_addIgnoredOrganic'), '豆瓣网'])
+    _gaq.push([method('_addIgnoredOrganic'), 'www.douban.com'])
+  }
+
+      if (account.namespace === 'douban') {
+        _gaq.push([method('_setDomainName'), '.douban.com'])
+      }
+
+        _gaq.push([method('_setCustomVar'), 1, 'responsive_view_mode', 'desktop', 3])
+
+        _gaq.push([method('_setCustomVar'), 2, 'login_status', '0', 2]);
+
+      _gaq.push([method('_trackPageview')])
+    }
+
+for(var i = 0, l = accounts.length; i < l; i++) {
+  var account = accounts[i]
+  gaInit(account)
+}
+
+
+;(function() {
+    var ga = document.createElement('script');
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    ga.setAttribute('async', 'true');
+    document.documentElement.firstChild.appendChild(ga);
+})()
+</script>
+
+
+
+
+
+
+
+
+    <!-- dae-web-book--default-86586fdccf-vmsvt-->
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

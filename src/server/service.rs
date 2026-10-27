@@ -46,6 +46,12 @@ pub struct ProgressEntry {
     pub total: Option<i64>,
     /// 维度进度百分比（0-100）；done 恒为 100，error/未知总数为 null，进行中封顶 99
     pub percent: Option<u32>,
+    /// 下一个待抓分页偏移（= 已抓页数 × 15），queued 尚未开始时为 0
+    pub next_start: i64,
+    /// 正在抓第几页（从 1 起，0 表示尚未开始）；pages_total 已知时可组合显示"第 X/Y 页"
+    pub page: i64,
+    /// 总页数（由 total 向上取整；总数未知为 null）
+    pub pages_total: Option<i64>,
 }
 
 /// 维度百分比：done 恒 100；未知总数或 total=0 且未完成为 null；进行中封顶 99
@@ -320,7 +326,7 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
 
     let progress_rows = sqlx::query(
         "SELECT td.category, td.dim_status, td.state AS td_state, td.items,
-                d.state AS dim_state, d.fetched_count, d.total
+                d.state AS dim_state, d.fetched_count, d.total, d.next_start
          FROM task_dims td
          LEFT JOIN dimensions d
            ON d.uid = td.uid AND d.category = td.category AND d.dim_status = td.dim_status
@@ -344,6 +350,10 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
             let fetched = r.get::<Option<i64>, _>("fetched_count").unwrap_or(0);
             let total: Option<i64> = r.get("total");
             let percent = dim_percent(&state, fetched, total);
+            let next_start = r.get::<Option<i64>, _>("next_start").unwrap_or(0).max(0);
+            let page_size = crate::crawler::PAGE_SIZE as i64;
+            let page = next_start / page_size;
+            let pages_total = total.map(|t| (t + page_size - 1) / page_size);
             ProgressEntry {
                 category: r.get("category"),
                 status: r.get("dim_status"),
@@ -351,6 +361,9 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
                 fetched,
                 total,
                 percent,
+                next_start,
+                page,
+                pages_total,
             }
         })
         .collect();

@@ -39,15 +39,9 @@ pub async fn run_worker<F: DoubanFetcher>(state: AppState, fetcher: F) {
             continue;
         }
 
-        match pick_due_dimension(&state.pool).await {
-            Ok(Some(dim)) => {
-                if let Err(e) = process_dimension(&state, &fetcher, &dim).await {
-                    // DB 层面的异常：短暂退避，避免死循环打满日志
-                    warn!(error = %e, "dimension processing error");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
-            }
-            Ok(None) => {
+        match process_next_due(&state, &fetcher).await {
+            Ok(true) => {} // 处理了一个维度，立即取下一个
+            Ok(false) => {
                 tokio::select! {
                     changed = wakeup.changed() => {
                         if changed.is_err() {
@@ -59,10 +53,22 @@ pub async fn run_worker<F: DoubanFetcher>(state: AppState, fetcher: F) {
                 }
             }
             Err(e) => {
-                warn!(error = %e, "pick due dimension failed");
+                warn!(error = %e, "worker tick failed");
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
+    }
+}
+
+/// 处理一个到期维度（一页抓取 + 状态推进）。返回是否处理了维度；
+/// 供 run_worker 循环与测试复用（测试可直接驱动而无需起后台 worker）。
+pub async fn process_next_due<F: DoubanFetcher>(state: &AppState, fetcher: &F) -> Result<bool> {
+    match pick_due_dimension(&state.pool).await? {
+        Some(dim) => {
+            process_dimension(state, fetcher, &dim).await?;
+            Ok(true)
+        }
+        None => Ok(false),
     }
 }
 
@@ -200,6 +206,21 @@ async fn process_dimension<F: DoubanFetcher>(
             }
         }
         Err(e) => handle_fetch_error(state, dim, e).await?,
+    }
+
+    // 通知该维度关联的所有任务（SSE 进度推流；无订阅者时为空操作）
+    let linked: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT task_id FROM task_dims
+         WHERE uid = ? AND category = ? AND dim_status = ?",
+    )
+    .bind(&dim.uid)
+    .bind(&dim.category)
+    .bind(&dim.dim_status)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+    for task_id in linked {
+        state.notify_progress(&task_id);
     }
     Ok(())
 }

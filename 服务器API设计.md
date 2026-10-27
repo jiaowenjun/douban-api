@@ -1,6 +1,6 @@
 # 豆瓣导出服务器 API 设计（v1）
 
-> 状态：**已实现**（v0.2.0，SSE 按 §13 建议 v1 未做轮询）
+> 状态：**已实现**（v0.2.0，含 SSE 推流、页级进度、16 个 oneshot 集成测试）
 > 日期：2026-10-27
 > 前置阅读：[豆瓣API调研报告.md](豆瓣API调研报告.md)（路径②：免登录公开页抓取）、[README.md](README.md)（现有 CLI 能力）
 
@@ -96,7 +96,7 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 | 5 | GET | `/exports/{task_id}/result` | 结果元数据（文件清单 + 汇总） |
 | 6 | GET | `/exports/{task_id}/result/{category}_{status}.{ext}` | 下载单个导出文件 |
 | 7 | GET | `/users/{uid}/marks` | 直接读缓存数据（JSON，分页） |
-| 8 | GET | `/exports/{task_id}/events` | 任务进度 SSE 推流（可选实现） |
+| 8 | GET | `/exports/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
 | 9 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
 | 10 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
 
@@ -171,11 +171,14 @@ GET /api/v1/exports/{task_id}
                "formats": ["csv","json"], "refresh": false },
   "progress": [
     { "category": "movie", "status": "collect", "state": "running",
-      "fetched": 45, "total": 209, "percent": 21 },
+      "fetched": 45, "total": 209, "percent": 21,
+      "next_start": 45, "page": 3, "pages_total": 14 },
     { "category": "book",  "status": "collect", "state": "done",
-      "fetched": 55, "total": 55, "percent": 100 },
+      "fetched": 55, "total": 55, "percent": 100,
+      "next_start": 60, "page": 4, "pages_total": 4 },
     { "category": "music", "status": "collect", "state": "queued",
-      "fetched": 0,  "total": null, "percent": null }
+      "fetched": 0,  "total": null, "percent": null,
+      "next_start": 0, "page": 0, "pages_total": null }
   ],
   "items_count": 100,
   "error": null,
@@ -195,6 +198,7 @@ GET /api/v1/exports/{task_id}
 - **进度百分比**（服务端直接算好，前端免计算）：
   - 维度级 `progress[].percent`：`done` 恒为 `100`；`error` 或总数未知（`total` 为 `null`）时为 `null`；进行中按 `fetched/total` 向下取整，**封顶 99**（避免显示 100 而实际未完成）
   - 任务级 `percent`：`completed` 恒为 `100`；否则对 `total` 已知的维度求 `Σfetched/Σtotal` 向下取整并封顶 99；全部维度总数未知时为 `null`。注意：未抓到首页的维度不计入分母，某维度总数揭晓时百分比可能回落（如 51% → 35%），属正常现象
+- **页级进度**：`next_start`（下一个待抓分页偏移，= 已抓页数 × 15）、`page`（= next_start/15，0 表示未开始）、`pages_total`（由 total 向上取整，未知为 null）——条数百分比在两次翻页之间（约 2~3s）静止，前端可用"第 {page+1}/{pages_total} 页"提供持续反馈
 - 错误信息（如有）：
 
 ```json
@@ -322,18 +326,18 @@ GET /api/v1/users/{uid}/marks?category=movie&status=collect&page=1&page_size=50
   "hint": "POST /api/v1/exports {\"user\":\"wenjun30\",\"categories\":[\"movie\"],\"statuses\":[\"collect\"]}" } }
 ```
 
-### 4.8 任务进度 SSE（可选实现）
+### 4.8 任务进度 SSE（已实现）
 
 ```
 GET /api/v1/exports/{task_id}/events
 Accept: text/event-stream
 ```
 
-事件格式（与 4.2 的 progress 同构，轮询的替代方案）：
+事件格式（与 4.2 的 progress 同构，轮询的替代方案；连接建立即推一次当前快照）：
 
 ```
 event: progress
-data: {"task_id":"exp_...","status":"running","progress":[...],"items_count":100}
+data: {"task_id":"exp_...","status":"running","progress":[...],"percent":38,"items_count":100}
 
 event: done
 data: {"task_id":"exp_...","status":"completed","result_url":"..."}
@@ -342,7 +346,11 @@ event: error
 data: {"task_id":"exp_...","status":"failed","error":{...}}
 ```
 
-任务进入终态后发送 `done`/`error` 并关闭流。
+- 连接建立时先推当前快照（`progress`），此后仅在进度变更时推送（worker 经进程内 broadcast 通道通知，无轮询开销）
+- 任务进入终态后发送 `done`（`partial` 也归 `done`，数据里带 error 字段）/ `error`（仅 `failed`）并关闭流
+- 带 15s keep-alive 心跳；客户端断开即释放
+- **鉴权注意**：浏览器 `EventSource` 无法设置自定义 Header，启用 token 时本端点支持 `?token=<token>` 查询参数兜底（其余端点仍要求 Authorization 头）
+- data 为完整的 4.2 任务视图 JSON（含 percent/page 等全部字段）
 
 ### 4.9 服务元信息
 
@@ -491,7 +499,7 @@ GET /healthz    → 200 {"status":"ok"}
 
 ## 13. 开放问题（实现前需拍板）
 
-1. **SSE 是否进 v1？** 轮询已满足需求，SSE 可砍掉减复杂度（建议：v1 只轮询，`events` 接口留占位）
+1. ~~**SSE 是否进 v1？**~~ 已决：SSE 已实现（broadcast 通知 + 快照 + `?token=` 兜底鉴权），轮询与推流并存
 2. **缓存 TTL 24h 是否合适？** 重度用户标记频率高于此；可考虑"TTL + 手动 refresh"双轨（当前设计已支持）
 3. **`/users/{uid}/marks` 是否允许自动触发抓取**（`?fetch=async`）？当前设计为"只读缓存 + 404 引导"，避免该接口变成免费抓取入口（建议维持）
 4. **公网部署时的鉴权默认值**：是否改为"默认必须配置 token 才能启动"？（建议：默认不强制，README 明示公网风险）

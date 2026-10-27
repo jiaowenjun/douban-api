@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use super::config::ServerConfig;
 
@@ -14,6 +14,8 @@ pub struct AppState {
     pub config: ServerConfig,
     pub pool: SqlitePool,
     worker_wakeup_tx: watch::Sender<u64>,
+    /// 维度进度变更通知（载荷为 task_id），SSE 订阅端按 task_id 过滤
+    progress_tx: broadcast::Sender<String>,
     /// 连续失败次数（豆瓣侧）——Arc 以便各 clone 共享熔断状态
     consecutive_failures: Arc<AtomicU32>,
     /// 熔断截止时间（epoch ms）
@@ -24,11 +26,13 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: ServerConfig, pool: SqlitePool) -> Self {
         let (worker_wakeup_tx, _rx) = watch::channel(0);
+        let (progress_tx, _) = broadcast::channel(256);
         static RATE_TABLE: OnceLock<Mutex<HashMap<IpAddr, (u64, u32)>>> = OnceLock::new();
         Self {
             config,
             pool,
             worker_wakeup_tx,
+            progress_tx,
             consecutive_failures: Arc::new(AtomicU32::new(0)),
             blocked_until_ms: Arc::new(AtomicI64::new(0)),
             rate_table: RATE_TABLE.get_or_init(|| Mutex::new(HashMap::new())),
@@ -42,6 +46,15 @@ impl AppState {
     pub fn wake_worker(&self) {
         self.worker_wakeup_tx
             .send_modify(|v| *v = v.wrapping_add(1));
+    }
+
+    /// 广播某任务进度有更新（无订阅者时发送被忽略，无副作用）
+    pub fn notify_progress(&self, task_id: &str) {
+        let _ = self.progress_tx.send(task_id.to_string());
+    }
+
+    pub fn subscribe_progress(&self) -> broadcast::Receiver<String> {
+        self.progress_tx.subscribe()
     }
 
     // ---- 熔断 ----
