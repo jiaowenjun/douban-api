@@ -177,9 +177,15 @@ async fn get_task_view(state: &AppState, task_id: &str) -> Value {
 fn parser_music_old_structure() {
     let items = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
     assert_eq!(items.len(), 15);
-    // 音乐短评在无 class 的 <li> 里（脱敏后为占位文本）
-    assert_eq!(items.iter().filter(|r| !r.comment.is_empty()).count(), 9);
+    // 音乐短评在无 class 的 <li> 里；被点过「有用」的短评 li 内含
+    // <span class="color_gray">N 有用</span>，正文取 li 的直接文本子节点
+    assert_eq!(items.iter().filter(|r| !r.comment.is_empty()).count(), 15);
     assert!(items.iter().all(|r| r.comment.is_empty() || r.comment.contains("测试短评")));
+    assert!(items.iter().all(|r| !r.comment.contains("有用")));
+    let bb = items.iter().find(|r| r.title == "Beethoven Blues").unwrap();
+    assert_eq!(bb.comment, "（测试短评占位文本）");
+    let tt = items.iter().find(|r| r.title == "Tony Takitani").unwrap();
+    assert_eq!(tt.comment, "（测试短评占位文本）");
     let first = &items[0];
     assert_eq!(first.title, "歌之女");
     assert_eq!(first.my_rating, Some(5));
@@ -229,7 +235,7 @@ async fn cached_dimension_creates_completed_task_instantly() {
         request(app, Method::GET, &format!("/api/v1/exports/{task_id}/result"), None, None).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(result["summary"]["total"], 15);
-    assert_eq!(result["summary"]["with_comment"], 9);
+    assert_eq!(result["summary"]["with_comment"], 15);
     let dims = result["dimensions"].as_array().unwrap();
     assert_eq!(dims.len(), 1);
     assert_eq!(dims[0]["category"], "music");

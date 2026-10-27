@@ -13,7 +13,7 @@
 //!   book.douban.com 反爬较严，必须携带浏览器级请求头 + Referer，否则 403。
 
 use clap::ValueEnum;
-use scraper::{ElementRef, Html, Selector};
+use scraper::{ElementRef, Html, Selector, node::Node};
 use serde::{Deserialize, Serialize};
 
 pub const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
@@ -290,7 +290,10 @@ pub fn parse_items(html: &str, category: Category, status: Status) -> Vec<Record
             .map(|el| first_token(&text_of(el)))
             .unwrap_or_default();
 
-        // 短评：电影在 span.comment；音乐在无 class 且无 span 子节点的 <li> 里
+        // 短评：电影在 span.comment；音乐在无 class 的 <li> 里。
+        // 被点过「有用」的短评 li 内会多出 <span class="color_gray">N 有用</span>，
+        // 因此只取 li 的直接文本子节点：星级/日期与「N 有用」都在 span 里，
+        // 取出为空即自然跳过
         let mut comment = item
             .select(&s_comment)
             .next()
@@ -302,10 +305,17 @@ pub fn parse_items(html: &str, category: Category, status: Status) -> Vec<Record
                     .value()
                     .attr("class")
                     .is_some_and(|c| !c.trim().is_empty());
-                if has_class || li.select(&s_span).next().is_some() {
-                    continue; // 跳过 title/intro/评分日期行
+                if has_class {
+                    continue; // 跳过 title/intro 行
                 }
-                let t = text_of(li);
+                let t = norm_space(
+                    &li.children()
+                        .filter_map(|n| match n.value() {
+                            Node::Text(tx) => Some(tx.to_string()),
+                            _ => None,
+                        })
+                        .collect::<String>(),
+                );
                 if !t.is_empty() {
                     comment = t;
                     break;
