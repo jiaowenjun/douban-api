@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Col, Input, InputNumber, Popconfirm, Row, Space, Statistic, Table, Tooltip, message } from 'antd';
+import { Alert, Badge, Button, Card, Col, InputNumber, Popconfirm, Row, Space, Statistic, Table, Tooltip, message } from 'antd';
 import { PageContainer, ProCard } from '@ant-design/pro-components';
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { ServerInfo, Subscription, TaskSummary } from '../types';
-import { api, health } from '../api';
+import { api, getUser, health } from '../api';
 import { TaskStatusTag } from '../labels';
 
 const fmtInterval = (secs: number) =>
@@ -21,7 +21,6 @@ export default function Overview() {
   const [connError, setConnError] = useState<string | null>(null);
   const [recent, setRecent] = useState<TaskSummary[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
-  const [subUid, setSubUid] = useState('');
   const [subRss, setSubRss] = useState<number | null>(null);
   const [subFull, setSubFull] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
@@ -43,7 +42,7 @@ export default function Overview() {
       /* healthz 通而 API 报错时在卡片里显示空值即可 */
     }
     try {
-      const res = await api.listTasks({ limit: 5 });
+      const res = await api.listTasks({ user: getUser() || undefined, limit: 5 });
       setRecent(res.tasks);
     } catch {
       setRecent([]);
@@ -63,9 +62,9 @@ export default function Overview() {
   }, []);
 
   const addSubscription = async () => {
-    const uid = subUid.trim();
+    const uid = getUser();
     if (!uid) {
-      messageApi.warning('请输入豆瓣用户 ID');
+      messageApi.warning('请先点击右上角「连接」设置豆瓣用户 ID');
       return;
     }
     setAdding(true);
@@ -75,7 +74,6 @@ export default function Overview() {
         ...(subFull != null ? { full_interval_secs: subFull } : {}),
       });
       messageApi.success(`已订阅 ${uid}（增量 10 分钟内生效，全量按周期自动刷新）`);
-      setSubUid('');
       setSubRss(null);
       setSubFull(null);
       await load();
@@ -212,13 +210,7 @@ export default function Overview() {
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
-          <Input
-            placeholder="豆瓣用户 ID（如 wenjun30）"
-            style={{ width: 220 }}
-            value={subUid}
-            onChange={(e) => setSubUid(e.target.value)}
-            onPressEnter={addSubscription}
-          />
+          <span>订阅用户 {getUser() ? `@${getUser()}` : '（未设置，点右上角「连接」填写）'}</span>
           <InputNumber
             placeholder="增量间隔（秒，默认 600）"
             style={{ width: 180 }}
@@ -317,7 +309,6 @@ export default function Overview() {
           onRow={(r) => ({ onClick: () => navigate(`/tasks?task=${r.task_id}`), style: { cursor: 'pointer' } })}
           columns={[
             { title: '任务 ID', dataIndex: 'task_id', ellipsis: true },
-            { title: '用户', dataIndex: 'user', width: 120 },
             { title: '状态', dataIndex: 'status', width: 100, render: (_, r) => <TaskStatusTag status={r.status} /> },
             { title: '条目', dataIndex: 'items_count', width: 80 },
             {

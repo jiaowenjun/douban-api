@@ -14,11 +14,28 @@ import type {
 // 也可填完整地址（如 http://192.168.1.10:8080/api/v1，需服务器开 CORS）
 const BASE_KEY = 'douban-admin:api-base';
 const TOKEN_KEY = 'douban-admin:token';
+const USER_KEY = 'douban-admin:user';
 
 export const getApiBase = () => localStorage.getItem(BASE_KEY) || '/api/v1';
 export const setApiBase = (v: string) => localStorage.setItem(BASE_KEY, v);
 export const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
 export const setToken = (v: string) => localStorage.setItem(TOKEN_KEY, v);
+
+/** 单用户站点的用户身份：在「连接」弹框设置一次，全站复用 */
+export const getUser = () => localStorage.getItem(USER_KEY) || '';
+export const setUser = (v: string) => localStorage.setItem(USER_KEY, v);
+
+/** 与服务端 crawler.rs::parse_uid 一致：接受纯 ID 或个人主页链接，归一化为纯 uid */
+export function parseUserInput(raw: string): string | null {
+  const input = raw.trim();
+  const isValidId = (s: string) => /^[A-Za-z0-9._-]+$/.test(s);
+  const i = input.indexOf('/people/');
+  if (i >= 0) {
+    const id = input.slice(i + 8).split(/[/?#]/)[0];
+    if (isValidId(id)) return id;
+  }
+  return isValidId(input) ? input : null;
+}
 
 export class ApiError extends Error {
   code: string;

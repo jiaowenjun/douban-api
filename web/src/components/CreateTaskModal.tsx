@@ -1,14 +1,14 @@
-import { App as AntApp, Button } from 'antd';
+import { App as AntApp, Button, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { ModalForm, ProFormSelect, ProFormSwitch, ProFormText } from '@ant-design/pro-components';
-import { api } from '../api';
+import { ModalForm, ProFormSelect, ProFormSwitch } from '@ant-design/pro-components';
+import { api, getUser } from '../api';
 import { CATEGORY_OPTIONS, STATUS_OPTIONS } from '../labels';
 
 export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: string) => void }) {
   const { message } = AntApp.useApp();
   return (
     <ModalForm
-      title="新建同步任务"
+      title={`新建同步任务${getUser() ? ` · @${getUser()}` : ''}`}
       width={520}
       trigger={
         <Button type="primary" icon={<PlusOutlined />}>
@@ -22,9 +22,14 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
         refresh: false,
       }}
       onFinish={async (values) => {
+        const user = getUser();
+        if (!user) {
+          message.error('请先点击右上角「连接」设置豆瓣用户 ID');
+          return false;
+        }
         try {
           const res = await api.createTask({
-            user: values.user.trim(),
+            user,
             categories: values.categories,
             statuses: values.statuses,
             refresh: values.refresh ?? false,
@@ -40,13 +45,9 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
         }
       }}
     >
-      <ProFormText
-        name="user"
-        label="豆瓣用户"
-        rules={[{ required: true, message: '请输入用户 ID 或个人主页链接' }]}
-        placeholder="如 wenjun30 或 https://www.douban.com/people/wenjun30/"
-        extra="同步约需 1–3 分钟（受豆瓣限速约束），完成后数据入库并可在数据浏览页查看"
-      />
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+        同步约需 1–3 分钟（受豆瓣限速约束），完成后数据入库并可在数据浏览页查看
+      </Typography.Text>
       <ProFormSelect
         name="categories"
         label="类别"

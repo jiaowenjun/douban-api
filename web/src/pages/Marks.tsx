@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   Form,
-  Input,
   Rate,
   Select,
   Space,
@@ -21,7 +20,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { MarksResponse, RecordItem } from '../types';
-import { api, type ApiError } from '../api';
+import { api, getUser, type ApiError } from '../api';
 import { CATEGORY_OPTIONS, STATUS_OPTIONS, dimLabel } from '../labels';
 
 const PAGE_SIZE = 20;
@@ -36,7 +35,7 @@ export default function Marks() {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const { token } = theme.useToken();
-  const [form] = Form.useForm<Query>();
+  const [form] = Form.useForm<{ category: string; status: string }>();
   const [query, setQuery] = useState<Query | null>(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<MarksResponse | null>(null);
@@ -44,16 +43,17 @@ export default function Marks() {
   const [loading, setLoading] = useState(false);
   const [searchParams] = useSearchParams();
 
-  // 支持从任务详情跳转预填：/marks?uid=xxx&category=music&status=collect
+  // 挂载或深链变化时确定目标用户：/marks?uid= 深链优先，否则用「连接」设置的单用户，
+  // 确定后立即自动查询（从任务详情「浏览数据」跳转也走这里）
   useEffect(() => {
-    const uid = searchParams.get('uid');
+    const uid = searchParams.get('uid') || getUser();
     if (!uid) return;
     const q: Query = {
       uid,
       category: searchParams.get('category') ?? 'movie',
       status: searchParams.get('status') ?? 'collect',
     };
-    form.setFieldsValue(q);
+    form.setFieldsValue({ category: q.category, status: q.status });
     setPage(1);
     setQuery(q);
   }, [searchParams, form]);
@@ -76,22 +76,29 @@ export default function Marks() {
     load();
   }, [load]);
 
-  const onSearch = (v: Query) => {
-    if (!v.uid?.trim()) {
-      message.warning('请输入用户 ID');
+  const onSearch = (v: { category: string; status: string }) => {
+    const uid = query?.uid ?? getUser();
+    if (!uid) {
+      message.warning('请先点击右上角「连接」设置豆瓣用户 ID');
       return;
     }
     setPage(1);
-    setQuery({ uid: v.uid.trim(), category: v.category, status: v.status });
+    setQuery({ uid, category: v.category, status: v.status });
   };
 
   return (
     <PageContainer title="数据浏览" subTitle="直接读取服务器缓存的书影音标记数据，不触发抓取">
+      {!getUser() && !searchParams.get('uid') && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="尚未设置豆瓣用户"
+          description="点击右上角「连接」填写豆瓣用户 ID，保存后本页将自动加载该用户的标记数据。"
+        />
+      )}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Form form={form} layout="inline" onFinish={onSearch} initialValues={{ category: 'movie', status: 'collect' }}>
-          <Form.Item name="uid" rules={[{ required: true, message: '请输入用户 ID' }]}>
-            <Input placeholder="豆瓣用户 ID，如 wenjun30" style={{ width: 220 }} />
-          </Form.Item>
           <Form.Item name="category">
             <Select options={CATEGORY_OPTIONS} style={{ width: 100 }} />
           </Form.Item>

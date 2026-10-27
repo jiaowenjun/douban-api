@@ -4,7 +4,7 @@ import { App as AntApp, Popconfirm, theme } from 'antd';
 import { ActionType, PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
 import dayjs from 'dayjs';
 import type { TaskSummary } from '../types';
-import { api } from '../api';
+import { api, getUser } from '../api';
 import { TASK_STATUS_META, TaskStatusTag } from '../labels';
 import CreateTaskModal from '../components/CreateTaskModal';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
@@ -34,7 +34,6 @@ export default function Tasks() {
       width: 230,
       search: false,
     },
-    { title: '用户', dataIndex: 'user', width: 130 },
     {
       title: '状态',
       dataIndex: 'status',
@@ -99,7 +98,8 @@ export default function Tasks() {
           // 游标按创建时间倒序翻页：每次拉满 100 条，直到覆盖当前页所需
           while (tasks.length < need) {
             const res = await api.listTasks({
-              user: params.user?.trim() || undefined,
+              // 单用户站点：只看「连接」里设置的用户的任务（未设置时过渡展示全部）
+              user: getUser() || undefined,
               status: params.status || undefined,
               limit: 100,
               cursor,
