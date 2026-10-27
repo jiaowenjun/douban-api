@@ -62,7 +62,7 @@ export default function Tasks() {
         </a>,
         <Popconfirm
           key="delete"
-          title="删除任务及其导出文件？"
+          title="删除任务记录？已入库数据不受影响"
           description="缓存数据不受影响；运行中任务会先取消"
           onConfirm={async () => {
             try {
@@ -81,7 +81,7 @@ export default function Tasks() {
   ];
 
   return (
-    <PageContainer title="导出任务">
+    <PageContainer title="同步任务">
       <ProTable<TaskSummary>
         rowKey="task_id"
         actionRef={actionRef}
@@ -89,7 +89,7 @@ export default function Tasks() {
         search={{ labelWidth: 'auto' }}
         polling={hasActive ? 2000 : undefined}
         options={{ reload: true, density: false, setting: false }}
-        locale={{ emptyText: '暂无任务，点击右上角「新建导出」创建' }}
+        locale={{ emptyText: '暂无任务，点击右上角「新建同步」创建' }}
         request={async (params) => {
           const pageSize = params.pageSize ?? 20;
           const need = (params.current ?? 1) * pageSize;

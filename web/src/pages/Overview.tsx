@@ -116,7 +116,7 @@ export default function Overview() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message="无法连接导出服务器"
+          message="无法连接同步服务器"
           description={`请确认服务器已启动（默认 127.0.0.1:8080），或点击右上角「连接」修改 API 地址。错误：${connError}`}
         />
       )}
@@ -206,7 +206,7 @@ export default function Overview() {
         style={{ marginTop: 16 }}
         headerBordered
         extra={
-          <Tooltip title="订阅用户由后端自动同步：短周期抓取豆瓣 RSS 增量补新标记，长周期自动发起全量任务刷新全部维度；未订阅用户仍手动建任务导出">
+          <Tooltip title="订阅用户由后端自动同步：短周期抓取豆瓣 RSS 增量补新标记，长周期自动发起全量任务刷新全部维度；未订阅用户仍手动建任务同步">
             <span style={{ cursor: 'help' }}>RSS 增量 + 定时全量</span>
           </Tooltip>
         }

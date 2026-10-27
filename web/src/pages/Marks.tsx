@@ -114,7 +114,7 @@ export default function Marks() {
           message={error.message}
           description={
             error.code === 'DIMENSION_NOT_CACHED'
-              ? '该维度暂无缓存数据，请先创建导出任务，完成后即可在此浏览。'
+              ? '该维度暂无缓存数据，请先创建同步任务，完成后即可在此浏览。'
               : undefined
           }
           action={

@@ -2,7 +2,7 @@
 name = "douban-export"
 version = "0.2.0"
 edition = "2021"
-description = "免登录导出豆瓣用户的公开书影音标记与短评（CLI + 服务器）"
+description = "免登录豆瓣书影音标记与短评：CLI 本地导出 + 服务器同步入库"
 
 [lib]
 name = "douban_export"
@@ -13,7 +13,7 @@ name = "douban-export"
 path = "src/bin/export.rs"
 
 [[bin]]
-name = "douban-export-server"
+name = "douban-sync-server"
 path = "src/bin/server.rs"
 
 [dependencies]

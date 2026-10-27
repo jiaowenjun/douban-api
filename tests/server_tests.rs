@@ -109,12 +109,12 @@ async fn drive(state: &AppState, fetcher: &impl DoubanFetcher) {
     }
 }
 
-async fn post_export(state: &AppState, body: Value) -> (StatusCode, Value) {
+async fn post_sync(state: &AppState, body: Value) -> (StatusCode, Value) {
     let app = build_app(state.clone());
     request(
         app,
         Method::POST,
-        "/api/v1/exports",
+        "/api/v1/syncs",
         Some(body.to_string()),
         None,
     )
@@ -221,7 +221,7 @@ async fn cached_dimension_creates_completed_task_instantly() {
     let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
     seed_ok_dimension(&state, Category::Music, records).await;
 
-    let (code, v) = post_export(
+    let (code, v) = post_sync(
         &state,
         json!({"user": "wenjun30", "categories": ["music"], "wait_timeout": 10}),
     )
@@ -237,7 +237,7 @@ async fn cached_dimension_creates_completed_task_instantly() {
     let task_id = v["task_id"].as_str().unwrap().to_string();
     let app = build_app(state.clone());
     let (code, result) =
-        request(app, Method::GET, &format!("/api/v1/exports/{task_id}/result"), None, None).await;
+        request(app, Method::GET, &format!("/api/v1/syncs/{task_id}/result"), None, None).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(result["summary"]["total"], 15);
     assert_eq!(result["summary"]["with_comment"], 15);
@@ -250,7 +250,7 @@ async fn cached_dimension_creates_completed_task_instantly() {
 #[tokio::test]
 async fn worker_crawls_book_dimension_to_completion() {
     let (_dir, state) = setup().await;
-    let (code, v) = post_export(
+    let (code, v) = post_sync(
         &state,
         json!({"user": "wenjun30", "categories": ["book"]}),
     )
@@ -287,7 +287,7 @@ async fn worker_crawls_book_dimension_to_completion() {
 #[tokio::test]
 async fn worker_crawls_music_with_dedup_and_percent_progress() {
     let (_dir, state) = setup().await;
-    let (_, v) = post_export(
+    let (_, v) = post_sync(
         &state,
         json!({"user": "wenjun30", "categories": ["music"]}),
     )
@@ -316,8 +316,8 @@ async fn worker_crawls_music_with_dedup_and_percent_progress() {
 #[tokio::test]
 async fn single_flight_links_two_tasks_to_same_dimension() {
     let (_dir, state) = setup().await;
-    let (_, a) = post_export(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
-    let (_, b) = post_export(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    let (_, a) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    let (_, b) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let a_id = a["task_id"].as_str().unwrap().to_string();
     let b_id = b["task_id"].as_str().unwrap().to_string();
 
@@ -335,7 +335,7 @@ async fn single_flight_links_two_tasks_to_same_dimension() {
 async fn not_found_marks_task_failed() {
     let (_dir, state) = setup().await;
     let fetcher = FakeFetcher(|_url: &str| Err(FetchError::NotFound));
-    let (_, v) = post_export(&state, json!({"user": "wenjun30", "categories": ["movie"]})).await;
+    let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["movie"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     drive(&state, &fetcher).await;
@@ -351,7 +351,7 @@ async fn not_found_marks_task_failed() {
 async fn retry_exhaustion_fails_dimension_and_trips_circuit() {
     let (_dir, state) = setup().await;
     let fetcher = FakeFetcher(|_url: &str| Err(FetchError::Blocked(403)));
-    let (_, v) = post_export(&state, json!({"user": "wenjun30", "categories": ["movie"]})).await;
+    let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["movie"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     // 重试带退避（next_sync_ms 推后），测试中强制置为到期以驱动下一次尝试
@@ -410,16 +410,16 @@ async fn auth_required_when_token_configured() {
 #[tokio::test]
 async fn invalid_arguments_return_400_envelope() {
     let (_dir, state) = setup().await;
-    let (code, v) = post_export(&state, json!({"user": "wenjun30", "categories": ["game"]})).await;
+    let (code, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["game"]})).await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
     assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
 
-    let (code, v) = post_export(&state, json!({"user": "wenjun30", "wait_timeout": 99})).await;
+    let (code, v) = post_sync(&state, json!({"user": "wenjun30", "wait_timeout": 99})).await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
     assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
 
     // formats 已随文件导出移除，出现未知字段应 400
-    let (code, v) = post_export(
+    let (code, v) = post_sync(
         &state,
         json!({"user": "wenjun30", "categories": ["music"], "formats": ["csv"]}),
     )
@@ -429,7 +429,7 @@ async fn invalid_arguments_return_400_envelope() {
 
     // 非法 JSON body
     let app = build_app(state.clone());
-    let (code, v) = request(app, Method::POST, "/api/v1/exports", Some("{bad json".into()), None).await;
+    let (code, v) = request(app, Method::POST, "/api/v1/syncs", Some("{bad json".into()), None).await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
     assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
 }
@@ -477,16 +477,16 @@ async fn delete_task_keeps_records_and_returns_404() {
     let (_dir, state) = setup().await;
     let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
     seed_ok_dimension(&state, Category::Music, records).await;
-    let (_, v) = post_export(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     let app = build_app(state.clone());
     let (code, _) =
-        request(app.clone(), Method::DELETE, &format!("/api/v1/exports/{task_id}"), None, None).await;
+        request(app.clone(), Method::DELETE, &format!("/api/v1/syncs/{task_id}"), None, None).await;
     assert_eq!(code, StatusCode::NO_CONTENT);
 
     let (code, v) =
-        request(app.clone(), Method::GET, &format!("/api/v1/exports/{task_id}"), None, None).await;
+        request(app.clone(), Method::GET, &format!("/api/v1/syncs/{task_id}"), None, None).await;
     assert_eq!(code, StatusCode::NOT_FOUND);
     assert_eq!(v["error"]["code"], "TASK_NOT_FOUND");
 
@@ -526,14 +526,14 @@ async fn sse_emits_done_for_terminal_task() {
     let (_dir, state) = setup().await;
     let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
     seed_ok_dimension(&state, Category::Music, records).await;
-    let (_, v) = post_export(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     let app = build_app(state.clone());
     let resp = app
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/exports/{task_id}/events"))
+                .uri(format!("/api/v1/syncs/{task_id}/events"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -554,7 +554,7 @@ async fn sse_emits_done_for_terminal_task() {
 #[tokio::test]
 async fn sse_follows_crawl_to_completion() {
     let (_dir, state) = setup().await;
-    let (_, v) = post_export(
+    let (_, v) = post_sync(
         &state,
         json!({"user": "wenjun30", "categories": ["music"]}),
     )
@@ -567,7 +567,7 @@ async fn sse_follows_crawl_to_completion() {
     let resp = app
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/exports/{task_id}/events"))
+                .uri(format!("/api/v1/syncs/{task_id}/events"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -594,7 +594,7 @@ async fn sse_auth_via_query_param_for_eventsource() {
     let (code, v) = request(
         app.clone(),
         Method::POST,
-        "/api/v1/exports",
+        "/api/v1/syncs",
         Some(json!({"user": "wenjun30", "categories": ["music"]}).to_string()),
         Some("s3cret"),
     )
@@ -607,7 +607,7 @@ async fn sse_auth_via_query_param_for_eventsource() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/exports/{task_id}/events?token=s3cret"))
+                .uri(format!("/api/v1/syncs/{task_id}/events?token=s3cret"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -619,7 +619,7 @@ async fn sse_auth_via_query_param_for_eventsource() {
     let resp = app
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/exports/{task_id}/events?token=wrong"))
+                .uri(format!("/api/v1/syncs/{task_id}/events?token=wrong"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -913,17 +913,17 @@ async fn full_tick_creates_auto_task_and_recrawls() {
 
     // 列表默认只看 manual（不占注意力）；?source=auto 可见
     let app = build_app(state.clone());
-    let (code, body) = request(app.clone(), Method::GET, "/api/v1/exports", None, None).await;
+    let (code, body) = request(app.clone(), Method::GET, "/api/v1/syncs", None, None).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body["tasks"].as_array().unwrap().len(), 0);
     let (code, body) =
-        request(app.clone(), Method::GET, "/api/v1/exports?source=auto", None, None).await;
+        request(app.clone(), Method::GET, "/api/v1/syncs?source=auto", None, None).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body["tasks"].as_array().unwrap().len(), 1);
     assert_eq!(body["tasks"][0]["source"], "auto");
     // 非法 source 过滤值
     let (code, _) =
-        request(app.clone(), Method::GET, "/api/v1/exports?source=nope", None, None).await;
+        request(app.clone(), Method::GET, "/api/v1/syncs?source=nope", None, None).await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
 
     // 订阅 full 节奏已推进

@@ -78,24 +78,24 @@ export const api = {
     if (query.status) qs.set('status', query.status);
     qs.set('limit', String(query.limit ?? 100));
     if (query.cursor != null) qs.set('cursor', String(query.cursor));
-    return request<TaskListResponse>(`/exports?${qs.toString()}`);
+    return request<TaskListResponse>(`/syncs?${qs.toString()}`);
   },
 
-  getTask: (taskId: string) => request<TaskView>(`/exports/${taskId}`),
+  getTask: (taskId: string) => request<TaskView>(`/syncs/${taskId}`),
 
   /** SSE 订阅地址（EventSource 无法设置 Header，token 经 ?token= 查询参数传递） */
   taskEventsUrl: (taskId: string) => {
     const token = getToken();
     const q = token ? `?token=${encodeURIComponent(token)}` : '';
-    return `${getApiBase()}/exports/${encodeURIComponent(taskId)}/events${q}`;
+    return `${getApiBase()}/syncs/${encodeURIComponent(taskId)}/events${q}`;
   },
 
   createTask: (body: CreateTaskBody) =>
-    request<CreateTaskResponse>('/exports', { method: 'POST', body: JSON.stringify(body) }),
+    request<CreateTaskResponse>('/syncs', { method: 'POST', body: JSON.stringify(body) }),
 
-  deleteTask: (taskId: string) => request<void>(`/exports/${taskId}`, { method: 'DELETE' }),
+  deleteTask: (taskId: string) => request<void>(`/syncs/${taskId}`, { method: 'DELETE' }),
 
-  getResult: (taskId: string) => request<ResultView>(`/exports/${taskId}/result`),
+  getResult: (taskId: string) => request<ResultView>(`/syncs/${taskId}/result`),
 
   getMarks: (uid: string, category: string, status: string, page: number, pageSize: number) =>
     request<MarksResponse>(

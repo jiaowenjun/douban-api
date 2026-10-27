@@ -1,4 +1,4 @@
-# 豆瓣导出服务器 API 设计（v1）
+# 豆瓣数据同步服务器 API 设计（v1）
 
 > 状态：**已实现**（v0.2.0，含 SSE 推流、页级进度、16 个 oneshot 集成测试）
 > 日期：2026-10-27
@@ -27,7 +27,7 @@
 
 ## 0. 目标与约束
 
-把现有 CLI（`douban-export`）的能力服务化：**免登录导出任意豆瓣用户的公开书影音标记与短评**。
+把现有 CLI（`douban-export`）的抓取能力服务化：**免登录同步任意豆瓣用户的公开书影音标记与短评入库**，文件导出仍由 CLI 提供。
 
 三条硬约束决定了 API 形态：
 
@@ -65,7 +65,7 @@
 
 ### D1：异步任务模型（而非同步等待）
 
-全量抓取 ≥1 分钟，超出任何合理的 HTTP 超时。`POST /exports` 创建任务后立即返回 `202`，客户端轮询（或 SSE）拿进度，完成后经 `/users/{uid}/marks` 浏览库内数据。
+全量抓取 ≥1 分钟，超出任何合理的 HTTP 超时。`POST /syncs` 创建任务后立即返回 `202`，客户端轮询（或 SSE）拿进度，完成后经 `/users/{uid}/marks` 浏览库内数据。
 
 对极小数据量提供**有限同步等待**逃生门：`?wait_timeout=N`（N ≤ 30s），超时未完成仍返回任务 ID，不阻塞。
 
@@ -77,7 +77,7 @@
 
 ### D3：single-flight——同维度并发请求合并
 
-同一 `(uid, category, status)` 已有运行中任务时，`POST /exports` 不新建任务，直接返回已有 task（幂等）。防止多个客户端同时触发对同一用户的重复抓取。
+同一 `(uid, category, status)` 已有运行中任务时，`POST /syncs` 不新建任务，直接返回已有 task（幂等）。防止多个客户端同时触发对同一用户的重复抓取。
 
 ### D4：豆瓣侧全局节流是服务生存的前提
 
@@ -89,13 +89,13 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 
 | # | 方法 | 路径 | 用途 |
 |---|---|---|---|
-| 1 | POST | `/exports` | 创建抓取任务（核心入口） |
-| 2 | GET | `/exports/{task_id}` | 查询任务状态与进度 |
-| 3 | GET | `/exports` | 任务列表（过滤、游标分页；默认不含 auto 任务） |
-| 4 | DELETE | `/exports/{task_id}` | 删除任务记录（数据保留） |
-| 5 | GET | `/exports/{task_id}/result` | 结果元数据（维度汇总） |
+| 1 | POST | `/syncs` | 创建同步任务（核心入口） |
+| 2 | GET | `/syncs/{task_id}` | 查询任务状态与进度 |
+| 3 | GET | `/syncs` | 任务列表（过滤、游标分页；默认不含 auto 任务） |
+| 4 | DELETE | `/syncs/{task_id}` | 删除任务记录（数据保留） |
+| 5 | GET | `/syncs/{task_id}/result` | 结果元数据（维度汇总） |
 | 6 | GET | `/users/{uid}/marks` | 读库内数据（JSON，分页） |
-| 7 | GET | `/exports/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
+| 7 | GET | `/syncs/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
 | 8 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
 | 9 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
 | 10 | GET | `/subscriptions` | 订阅列表 |
@@ -104,10 +104,10 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 
 ## 4. 接口详细设计
 
-### 4.1 创建抓取任务
+### 4.1 创建同步任务
 
 ```
-POST /api/v1/exports
+POST /api/v1/syncs
 Content-Type: application/json
 ```
 
@@ -137,13 +137,13 @@ Content-Type: application/json
 
 ```json
 {
-  "task_id": "exp_01JD6Z8W4R9TQK5M2VX3YB7C8D",
+  "task_id": "sync_01JD6Z8W4R9TQK5M2VX3YB7C8D",
   "user": "wenjun30",
   "status": "queued",
   "cached_dimensions": 1,
   "created_dimensions": 2,
   "created_at": "2026-10-27T10:00:00+08:00",
-  "url": "/api/v1/exports/exp_01JD6Z8W4R9TQK5M2VX3YB7C8D"
+  "url": "/api/v1/syncs/sync_01JD6Z8W4R9TQK5M2VX3YB7C8D"
 }
 ```
 
@@ -159,14 +159,14 @@ Content-Type: application/json
 ### 4.2 查询任务
 
 ```
-GET /api/v1/exports/{task_id}
+GET /api/v1/syncs/{task_id}
 ```
 
 响应 `200`：
 
 ```json
 {
-  "task_id": "exp_01JD6Z8W4R9TQK5M2VX3YB7C8D",
+  "task_id": "sync_01JD6Z8W4R9TQK5M2VX3YB7C8D",
   "user": "wenjun30",
   "status": "running",
   "request": { "categories": ["movie","book","music"], "statuses": ["collect"],
@@ -187,7 +187,7 @@ GET /api/v1/exports/{task_id}
   "percent": 38,
   "created_at": "2026-10-27T10:00:00+08:00",
   "finished_at": null,
-  "result_url": "/api/v1/exports/exp_01JD6Z8W4R9TQK5M2VX3YB7C8D/result",
+  "result_url": "/api/v1/syncs/sync_01JD6Z8W4R9TQK5M2VX3YB7C8D/result",
   "expires_at": "2026-11-03T10:00:00+08:00"
 }
 ```
@@ -216,7 +216,7 @@ GET /api/v1/exports/{task_id}
 ### 4.3 任务列表
 
 ```
-GET /api/v1/exports?user=wenjun30&status=running&limit=20&cursor=exp_01JD...
+GET /api/v1/syncs?user=wenjun30&status=running&limit=20&cursor=sync_01JD...
 ```
 
 | 参数 | 说明 |
@@ -232,7 +232,7 @@ GET /api/v1/exports?user=wenjun30&status=running&limit=20&cursor=exp_01JD...
 ```json
 {
   "tasks": [ { ...同 4.2 摘要字段... } ],
-  "next_cursor": "exp_01JD6A...",
+  "next_cursor": "sync_01JD6A...",
   "has_more": true
 }
 ```
@@ -240,7 +240,7 @@ GET /api/v1/exports?user=wenjun30&status=running&limit=20&cursor=exp_01JD...
 ### 4.4 删除任务
 
 ```
-DELETE /api/v1/exports/{task_id}
+DELETE /api/v1/syncs/{task_id}
 ```
 
 - `204 No Content`：删除任务记录（任务/维度关联/task_dims 行）
@@ -251,14 +251,14 @@ DELETE /api/v1/exports/{task_id}
 ### 4.5 结果元数据
 
 ```
-GET /api/v1/exports/{task_id}/result
+GET /api/v1/syncs/{task_id}/result
 ```
 
 响应 `200`：
 
 ```json
 {
-  "task_id": "exp_01JD6Z8W4R9TQK5M2VX3YB7C8D",
+  "task_id": "sync_01JD6Z8W4R9TQK5M2VX3YB7C8D",
   "user": "wenjun30",
   "summary": {
     "total": 291,
@@ -311,14 +311,14 @@ GET /api/v1/users/{uid}/marks?category=movie&status=collect&page=1&page_size=50
 
 ```json
 { "error": { "code": "DIMENSION_NOT_CACHED",
-  "message": "该维度无缓存，请先创建抓取任务",
-  "hint": "POST /api/v1/exports {\"user\":\"wenjun30\",\"categories\":[\"movie\"],\"statuses\":[\"collect\"]}" } }
+  "message": "该维度无缓存，请先创建同步任务",
+  "hint": "POST /api/v1/syncs {\"user\":\"wenjun30\",\"categories\":[\"movie\"],\"statuses\":[\"collect\"]}" } }
 ```
 
 ### 4.7 任务进度 SSE（已实现）
 
 ```
-GET /api/v1/exports/{task_id}/events
+GET /api/v1/syncs/{task_id}/events
 Accept: text/event-stream
 ```
 
@@ -326,13 +326,13 @@ Accept: text/event-stream
 
 ```
 event: progress
-data: {"task_id":"exp_...","status":"running","progress":[...],"percent":38,"items_count":100}
+data: {"task_id":"sync_...","status":"running","progress":[...],"percent":38,"items_count":100}
 
 event: done
-data: {"task_id":"exp_...","status":"completed","result_url":"..."}
+data: {"task_id":"sync_...","status":"completed","result_url":"..."}
 
 event: error
-data: {"task_id":"exp_...","status":"failed","error":{...}}
+data: {"task_id":"sync_...","status":"failed","error":{...}}
 ```
 
 - 连接建立时先推当前快照（`progress`），此后仅在进度变更时推送（worker 经进程内 broadcast 通道通知，无轮询开销）
@@ -349,7 +349,7 @@ GET /api/v1/server/info
 
 ```json
 {
-  "name": "douban-export-server",
+  "name": "douban-sync-server",
   "version": "0.3.0",
   "crawl": { "min_interval_seconds": 2.0, "max_concurrent_users": 2,
              "circuit_breaker": { "threshold": 5, "cooldown_seconds": 600 } },
@@ -382,7 +382,7 @@ GET  /api/v1/subscriptions
 DELETE /api/v1/subscriptions/{uid}
 ```
 
-约束：`rss_interval_secs ≥ 60`、`full_interval_secs ≥ 3600` 且 `full ≥ rss`（违反返回 400）。重复 PUT 只改间隔并重新启用，不重置既有节奏。默认值由服务端配置 `EXPORT_SUB_RSS_INTERVAL_SECS`（600）/ `EXPORT_SUB_FULL_INTERVAL_SECS`（86400）决定。
+约束：`rss_interval_secs ≥ 60`、`full_interval_secs ≥ 3600` 且 `full ≥ rss`（违反返回 400）。重复 PUT 只改间隔并重新启用，不重置既有节奏。默认值由服务端配置 `SYNC_SUB_RSS_INTERVAL_SECS`（600）/ `SYNC_SUB_FULL_INTERVAL_SECS`（86400）决定。
 
 PUT 响应 `201` / GET 响应 `200`：
 
@@ -411,7 +411,7 @@ PUT 响应 `201` / GET 响应 `200`：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `task_id` | string | `exp_` + ULID，创建时间有序、URL 安全 |
+| `task_id` | string | `sync_` + ULID，创建时间有序、URL 安全 |
 | `user` | string | 归一化后的豆瓣 uid |
 | `request` | object | 原始请求参数快照 |
 | `status` | enum | 见状态机 |
@@ -452,7 +452,7 @@ PUT 响应 `201` / GET 响应 `200`：
 
 ```
                  ┌────────────┐
-   POST /exports │  queued    │────全部维度命中缓存────▶ completed（直接）
+   POST /syncs │  queued    │────全部维度命中缓存────▶ completed（直接）
                  └─────┬──────┘
                        │ 取出调度（同 uid 串行）
                  ┌─────▼──────┐
@@ -500,7 +500,7 @@ PUT 响应 `201` / GET 响应 `200`：
 统一信封：
 
 ```json
-{ "error": { "code": "TASK_NOT_FOUND", "message": "任务不存在或已过期", "task_id": "exp_..." } }
+{ "error": { "code": "TASK_NOT_FOUND", "message": "任务不存在或已过期", "task_id": "sync_..." } }
 ```
 
 | HTTP | code | 场景 |
@@ -517,10 +517,10 @@ PUT 响应 `201` / GET 响应 `200`：
 
 ## 10. 认证与安全
 
-- **默认无鉴权**（本地/内网部署友好）；设环境变量 `EXPORT_SERVER_TOKEN` 后启用 `Authorization: Bearer <token>`（`/healthz` 除外）
+- **默认无鉴权**（本地/内网部署友好）；设环境变量 `SYNC_SERVER_TOKEN` 后启用 `Authorization: Bearer <token>`（`/healthz` 除外）
 - **输入收敛**：`user` 归一化为 uid 白名单字符集（`[A-Za-z0-9._-]+`），杜绝 SSRF/路径注入
 - **无敏感凭据**：服务本身免登录，不存储任何豆瓣 Cookie；提醒部署者勿把个人 Cookie 混入此服务
-- **CORS**：默认关闭；`EXPORT_SERVER_CORS_ORIGINS` 配置允许来源
+- **CORS**：默认关闭；`SYNC_SERVER_CORS_ORIGINS` 配置允许来源
 - **公开仓库提醒**：本服务只暴露公开数据，但若部署到公网，建议加鉴权 + 限流，避免被当作免费豆瓣抓取代理滥用
 
 ## 11. 其他横切关注点

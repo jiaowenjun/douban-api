@@ -15,7 +15,7 @@ pub enum AppError {
     TaskNotFound(String),
     #[error("订阅不存在: {0}")]
     SubscriptionNotFound(String),
-    #[error("该维度无缓存，请先创建导出任务")]
+    #[error("该维度无缓存，请先创建同步任务")]
     DimensionNotCached,
     #[error("任务未完成（当前状态: {0}）")]
     TaskNotFinished(String),

@@ -52,7 +52,7 @@ function Layout() {
   const navigate = useNavigate();
   return (
     <ProLayout
-      title="豆瓣导出后台"
+      title="豆瓣数据后台"
       logo={false}
       layout="side"
       fixSiderbar
@@ -61,7 +61,7 @@ function Layout() {
         path: '/',
         routes: [
           { path: '/', name: '概览' },
-          { path: '/tasks', name: '导出任务' },
+          { path: '/tasks', name: '同步任务' },
           { path: '/marks', name: '数据浏览' },
         ],
       }}

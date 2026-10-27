@@ -2,7 +2,7 @@
 
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed';
 
-/** GET /exports 列表项（摘要字段） */
+/** GET /syncs 列表项（摘要字段） */
 export interface TaskSummary {
   url: string;
   task_id: string;
@@ -20,7 +20,7 @@ export interface TaskListResponse {
   has_more: boolean;
 }
 
-/** GET /exports/{id} 与 POST /exports 响应 */
+/** GET /syncs/{id} 与 POST /syncs 响应 */
 export interface ProgressEntry {
   category: string;
   status: string;

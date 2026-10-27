@@ -183,7 +183,7 @@ fn ms_to_rfc3339(ms: i64) -> String {
 fn new_task_id() -> String {
     let now = ServerConfig::now_ms() as u64;
     let rand6: u32 = rand::thread_rng().gen_range(0x100000..=0xFFFFFF);
-    format!("exp_{now:012x}{rand6:06x}")
+    format!("sync_{now:012x}{rand6:06x}")
 }
 
 // --------------------------------------------------------------------------- //
@@ -442,7 +442,7 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
         started_at: row.get::<Option<i64>, _>("started_ms").map(ms_to_rfc3339),
         finished_at: row.get::<Option<i64>, _>("finished_ms").map(ms_to_rfc3339),
         expires_at: row.get::<Option<i64>, _>("expires_ms").map(ms_to_rfc3339),
-        result_url: format!("/api/v1/exports/{task_id}/result"),
+        result_url: format!("/api/v1/syncs/{task_id}/result"),
     })
 }
 
@@ -487,7 +487,7 @@ pub async fn list_tasks(state: &AppState, f: ListFilter) -> AppResult<(Vec<TaskS
         }
         let task_id: String = r.get("task_id");
         summaries.push(TaskSummary {
-            url: format!("/api/v1/exports/{task_id}"),
+            url: format!("/api/v1/syncs/{task_id}"),
             task_id,
             user: r.get("user"),
             status: r.get("status"),
@@ -1100,7 +1100,7 @@ pub async fn run_subscription_loop<F: DoubanFetcher>(state: AppState, fetcher: F
 // 任务终态与文件生成（worker 与创建路径共用）
 // --------------------------------------------------------------------------- //
 
-/// 维度到达终态后，推进所有关联任务；必要时生成导出文件。
+/// 维度到达终态后，推进所有关联任务。
 pub async fn finalize_linked_tasks(
     state: &AppState,
     uid: &str,
@@ -1324,7 +1324,7 @@ pub async fn server_info(state: &AppState) -> AppResult<Value> {
             .fetch_one(&state.pool)
             .await?;
     Ok(json!({
-        "name": "douban-export-server",
+        "name": "douban-sync-server",
         "version": env!("CARGO_PKG_VERSION"),
         "crawl": {
             "min_interval_seconds": state.config.crawl_min_interval_secs,

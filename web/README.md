@@ -1,26 +1,26 @@
-# 豆瓣导出服务器 · 管理后台
+# 豆瓣数据同步服务器 · 管理后台
 
-基于 [Ant Design Pro Components](https://procomponents.ant.design/)（ProLayout / ProTable / ModalForm）+ Vite + React + pnpm 的服务器管理页面，对接 `douban-export-server` 的 `/api/v1` 接口。
+基于 [Ant Design Pro Components](https://procomponents.ant.design/)（ProLayout / ProTable / ModalForm）+ Vite + React + pnpm 的服务器管理页面，对接 `douban-sync-server` 的 `/api/v1` 接口。
 
 ## 功能（刻意保持精简）
 
 | 页面 | 功能 |
 |---|---|
 | **概览** `/` | 服务状态、抓取队列、熔断器、鉴权状态、运行参数、最近任务；每 5s 自动刷新 |
-| **导出任务** `/tasks` | 任务列表（按用户/状态筛选、游标翻页）、新建抓取任务、详情抽屉（SSE 进度推流 + 轮询降级、错误信息、维度汇总与数据浏览跳转）、删除任务；有活跃任务时列表自动轮询 |
+| **同步任务** `/tasks` | 任务列表（按用户/状态筛选、游标翻页）、新建同步任务、详情抽屉（SSE 进度推流 + 轮询降级、错误信息、维度汇总与数据浏览跳转）、删除任务；有活跃任务时列表自动轮询 |
 | **数据浏览** `/marks` | 读取服务器 SQLite 内的书影音标记（不触发抓取）：封面、条目链接、星级评分、日期、短评，服务端分页；支持 `?uid=&category=&status=` 预填（任务详情「浏览数据」跳转落地页） |
 
 右上角「连接」可修改 API 地址与 Bearer Token（存 localStorage）：
 
 - 默认 `/api/v1`（同源部署或开发期 Vite 代理，无需 CORS）
-- 跨源部署填完整地址（如 `http://192.168.1.10:8080/api/v1`），需服务器设置 `EXPORT_SERVER_CORS_ORIGINS`
-- 服务器设置了 `EXPORT_SERVER_TOKEN` 时在此填写
+- 跨源部署填完整地址（如 `http://192.168.1.10:8080/api/v1`），需服务器设置 `SYNC_SERVER_CORS_ORIGINS`
+- 服务器设置了 `SYNC_SERVER_TOKEN` 时在此填写
 
 ## 开发
 
 ```bash
 # 1. 启动后端（仓库根目录，默认 127.0.0.1:8080）
-cargo run --bin douban-export-server
+cargo run --bin douban-sync-server
 
 # 2. 启动前端（另一个终端，Vite 已配置 /api 与 /healthz 代理到 8080）
 cd web && pnpm install && pnpm dev
@@ -35,8 +35,8 @@ pnpm build   # tsc 类型检查 + vite 打包到 dist/
 
 `dist/` 是纯静态文件，部署方式任选：
 
-- **同源部署（推荐，免 CORS）**：用 nginx / Caddy 等静态服务器托管 `dist/`，并把 `/api` 与 `/healthz` 反代到 `douban-export-server`；SPA 需配置历史回退（try_files → index.html）。
-- **跨源部署**：任意静态托管 + 右上角「连接」里填 API 完整地址 + 服务器开 `EXPORT_SERVER_CORS_ORIGINS`。
+- **同源部署（推荐，免 CORS）**：用 nginx / Caddy 等静态服务器托管 `dist/`，并把 `/api` 与 `/healthz` 反代到 `douban-sync-server`；SPA 需配置历史回退（try_files → index.html）。
+- **跨源部署**：任意静态托管 + 右上角「连接」里填 API 完整地址 + 服务器开 `SYNC_SERVER_CORS_ORIGINS`。
 
 ## 代码结构
 

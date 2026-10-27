@@ -1,6 +1,6 @@
 # douban-export
 
-免登录导出豆瓣用户的**公开书影音标记与短评**（电影/图书/音乐 × 看过·读过·听过/在看·在读·在听/想看·想读·想听）。
+免登录获取豆瓣用户的**公开书影音标记与短评**：CLI 本地导出文件，服务器同步入库并对外提供 API（电影/图书/音乐 × 看过·读过·听过/在看·在读·在听/想看·想读·想听）。
 
 原理与背景见 [豆瓣API调研报告.md](豆瓣API调研报告.md) 中的"路径②：公开收藏页 HTML 抓取"——豆瓣官方 API 已停止服务，本工具直接抓取公开收藏页（`movie/book/music.douban.com/people/{uid}/...`）并解析，**无需登录、无需 Cookie**。
 
@@ -9,7 +9,7 @@
 Rust 实现（reqwest + scraper + clap），编译为单二进制，无需运行时环境。提供 **CLI** 与 **HTTP 服务器** 两种形态，共享同一抓取核心（`src/crawler.rs`）：
 
 - `douban-export`——命令行一次性导出（文件断点续爬）
-- `douban-export-server`——axum 服务器（异步任务 + 维度缓存 + 全局限速），API 规范见 [服务器API设计.md](服务器API设计.md)
+- `douban-sync-server`——axum 服务器（异步任务 + 维度缓存 + 全局限速），API 规范见 [服务器API设计.md](服务器API设计.md)
 
 ## 使用（CLI）
 
@@ -25,26 +25,26 @@ cargo build --release
 
 ```bash
 cargo build --release
-EXPORT_SERVER_BIND=0.0.0.0:8080 \
-EXPORT_SERVER_DATA_DIR=./data \
-EXPORT_SERVER_TOKEN=my-secret \        # 留空则不启用鉴权
-EXPORT_DOUBAN_COOKIE='dbcl2="xxx"' \   # 可选：登录抓取，补全豆瓣隐藏条目
-./target/release/douban-export-server
+SYNC_SERVER_BIND=0.0.0.0:8080 \
+SYNC_SERVER_DATA_DIR=./data \
+SYNC_SERVER_TOKEN=my-secret \        # 留空则不启用鉴权
+SYNC_DOUBAN_COOKIE='dbcl2="xxx"' \   # 可选：登录抓取，补全豆瓣隐藏条目
+./target/release/douban-sync-server
 ```
 
 核心流程（异步任务模型，细节见设计文档）：
 
 ```bash
 # 1. 创建任务（wait_timeout 可选同步等待 ≤30s）
-curl -X POST http://127.0.0.1:8080/api/v1/exports \
+curl -X POST http://127.0.0.1:8080/api/v1/syncs \
      -H "Authorization: Bearer my-secret" -H "Content-Type: application/json" \
      -d '{"user":"wenjun30","categories":["movie","book","music"]}'
 
 # 2. 轮询进度（progress[] 按维度给出 fetched/total）
-curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/exports/{task_id}
+curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/syncs/{task_id}
 
 # 3. 取结果汇总（各维度条目数与含短评数）
-curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/exports/{task_id}/result
+curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/syncs/{task_id}/result
 
 # 4. 结构化读库内数据（分页 JSON，按日期倒序；未缓存返回 404 引导建任务）
 curl -H "Authorization: Bearer my-secret" \
@@ -53,7 +53,7 @@ curl -H "Authorization: Bearer my-secret" \
 
 抓取结果直接存入 SQLite `records` 表（一条标记一行，按维度长期保留，不随任务过期清理）；服务器不再生成导出文件，文件导出（csv/json/md/xlsx）由 CLI 提供。
 
-其余端点：任务列表/删除（`GET/DELETE /api/v1/exports`）、服务元信息（`GET /api/v1/server/info`）、健康检查（`GET /healthz`，不鉴权）。全部配置项（限速、TTL、熔断、保留期等）经环境变量设置，见 `src/server/config.rs`。
+其余端点：任务列表/删除（`GET/DELETE /api/v1/syncs`）、服务元信息（`GET /api/v1/server/info`）、健康检查（`GET /healthz`，不鉴权）。全部配置项（限速、TTL、熔断、保留期等）经环境变量设置，见 `src/server/config.rs`。
 
 内置防护：按 `(uid, category, status)` 维度缓存（TTL 24h，`refresh:true` 强制刷新）、同维度 single-flight、单 worker 串行 + 每次抓取 ≥2s 间隔（全局令牌桶）、403/超时指数退避重试、连续 5 次失败熔断 10 分钟、per-IP 限流。
 
@@ -94,7 +94,7 @@ cd web && pnpm build                 # 产物为纯静态 dist/，可同源部�
 
 ## 已知限制
 
-- **豆瓣隐藏条目**：个别条目（已删除/被锁定/仅登录可见）豆瓣"计数包含但列表不渲染"，免登录抓取会差 1~2 条（如测试账号电影 208/209、音乐 28/29）——抓取器并未丢数据，是豆瓣不发给未登录访客。服务器可设 `EXPORT_DOUBAN_COOKIE='dbcl2="xxx"'`（浏览器登录豆瓣后从开发者工具复制）以登录身份抓取补全；CLI 暂不支持
+- **豆瓣隐藏条目**：个别条目（已删除/被锁定/仅登录可见）豆瓣"计数包含但列表不渲染"，免登录抓取会差 1~2 条（如测试账号电影 208/209、音乐 28/29）——抓取器并未丢数据，是豆瓣不发给未登录访客。服务器可设 `SYNC_DOUBAN_COOKIE='dbcl2="xxx"'`（浏览器登录豆瓣后从开发者工具复制）以登录身份抓取补全；CLI 暂不支持
 - 仅能获取用户**公开**的标记；设置了隐私的账号拿不到
 - 页面结构变更时解析器需要更新（2026-10 实测有效）
 

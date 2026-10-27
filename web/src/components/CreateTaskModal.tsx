@@ -8,11 +8,11 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
   const { message } = AntApp.useApp();
   return (
     <ModalForm
-      title="新建抓取任务"
+      title="新建同步任务"
       width={520}
       trigger={
         <Button type="primary" icon={<PlusOutlined />}>
-          新建抓取
+          新建同步
         </Button>
       }
       modalProps={{ destroyOnClose: true }}
@@ -45,7 +45,7 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
         label="豆瓣用户"
         rules={[{ required: true, message: '请输入用户 ID 或个人主页链接' }]}
         placeholder="如 wenjun30 或 https://www.douban.com/people/wenjun30/"
-        extra="抓取约需 1–3 分钟（受豆瓣限速约束），完成后数据入库并可在数据浏览页查看"
+        extra="同步约需 1–3 分钟（受豆瓣限速约束），完成后数据入库并可在数据浏览页查看"
       />
       <ProFormSelect
         name="categories"

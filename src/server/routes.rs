@@ -24,10 +24,10 @@ use super::state::AppState;
 
 pub fn build_app(state: AppState) -> Router {
     let api = Router::new()
-        .route("/exports", get(list_exports).post(create_export))
-        .route("/exports/{task_id}", get(get_export).delete(delete_export))
-        .route("/exports/{task_id}/result", get(get_result))
-        .route("/exports/{task_id}/events", get(get_export_events))
+        .route("/syncs", get(list_syncs).post(create_sync))
+        .route("/syncs/{task_id}", get(get_sync).delete(delete_sync))
+        .route("/syncs/{task_id}/result", get(get_result))
+        .route("/syncs/{task_id}/events", get(get_sync_events))
         .route("/users/{uid}/marks", get(get_marks))
         .route("/subscriptions", get(list_subscriptions))
         .route(
@@ -134,7 +134,7 @@ async fn server_info(State(state): State<AppState>) -> AppResult<Json<Value>> {
 }
 
 // --------------------------------------------------------------------------- //
-// /exports
+// /syncs
 // --------------------------------------------------------------------------- //
 
 #[derive(serde::Deserialize, Default)]
@@ -182,8 +182,8 @@ where
     Ok(out)
 }
 
-/// 创建导出任务。body 手动解析以保证错误信封统一（400 而非 axum 默认 422）。
-async fn create_export(
+/// 创建同步任务。body 手动解析以保证错误信封统一（400 而非 axum 默认 422）。
+async fn create_sync(
     State(state): State<AppState>,
     body: Bytes,
 ) -> AppResult<Response> {
@@ -237,7 +237,7 @@ async fn create_export(
     Ok((code, Json(body)).into_response())
 }
 
-async fn get_export(
+async fn get_sync(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> AppResult<Json<service::TaskView>> {
@@ -256,7 +256,7 @@ fn task_event(name: &str, view: &TaskView) -> Result<Event, Infallible> {
 /// SSE 流：先推当前快照（progress），随后仅在进度变更时推送；
 /// 终态推 done（partial 也归 done，内容里带 error）/ error 后关流。
 /// worker 侧经 AppState 的 broadcast 通道通知（state.notify_progress）。
-async fn get_export_events(
+async fn get_sync_events(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> AppResult<
@@ -307,7 +307,7 @@ struct ListQuery {
     cursor: Option<i64>,
 }
 
-async fn list_exports(
+async fn list_syncs(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
 ) -> AppResult<Json<Value>> {
@@ -345,7 +345,7 @@ async fn list_exports(
     })))
 }
 
-async fn delete_export(
+async fn delete_sync(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> AppResult<StatusCode> {
