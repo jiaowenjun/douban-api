@@ -8,6 +8,7 @@ use sqlx::{Row, SqlitePool};
 use crate::crawler::{Category, Record, Status, parse_uid};
 
 use super::config::ServerConfig;
+use super::covers::cover_proxy_url;
 use super::error::{AppError, AppResult};
 use super::fetcher::DoubanFetcher;
 use super::state::AppState;
@@ -690,7 +691,9 @@ pub async fn read_marks(
             comment: r.get("comment"),
             subject_url: r.get("subject_url"),
             subject_id: r.get("subject_id"),
-            cover: r.get("cover"),
+            // 豆瓣 CDN 子域名 Referer 防盗链不一致，浏览器直连 img2/img3 会 403，
+            // 改写为本地代理端点（cache-then-serve），见 covers 模块
+            cover: cover_proxy_url(&r.get::<String, _>("cover")),
             comment_id: r.get("comment_id"),
             intro: r.get("intro"),
         })

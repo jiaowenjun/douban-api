@@ -1,6 +1,7 @@
 //! 服务器模块——按《服务器API设计.md》《服务器技术选型.md》实现。
 
 pub mod config;
+pub mod covers;
 pub mod db;
 pub mod error;
 pub mod fetcher;

@@ -23,6 +23,8 @@ pub enum AppError {
     TooManyRequests,
     #[error("队列已满，请稍后再试")]
     TooManyTasks,
+    #[error("封面回源失败: {0}")]
+    CoverUpstream(String),
     #[error("{0}")]
     Internal(String),
 }
@@ -49,6 +51,7 @@ impl AppError {
             AppError::TaskNotFinished(_) => "TASK_NOT_FINISHED",
             AppError::TooManyRequests => "TOO_MANY_REQUESTS",
             AppError::TooManyTasks => "TOO_MANY_TASKS",
+            AppError::CoverUpstream(_) => "COVER_UPSTREAM_FAILED",
             AppError::Internal(_) => "INTERNAL",
         }
     }
@@ -62,6 +65,7 @@ impl AppError {
             }
             AppError::TaskNotFinished(_) => StatusCode::CONFLICT,
             AppError::TooManyRequests | AppError::TooManyTasks => StatusCode::TOO_MANY_REQUESTS,
+            AppError::CoverUpstream(_) => StatusCode::BAD_GATEWAY,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

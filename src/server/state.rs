@@ -8,11 +8,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::{broadcast, watch};
 
 use super::config::ServerConfig;
+use super::covers::CoverService;
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: ServerConfig,
     pub pool: SqlitePool,
+    pub covers: CoverService,
     worker_wakeup_tx: watch::Sender<u64>,
     /// 维度进度变更通知（载荷为 task_id），SSE 订阅端按 task_id 过滤
     progress_tx: broadcast::Sender<String>,
@@ -29,8 +31,9 @@ impl AppState {
         let (progress_tx, _) = broadcast::channel(256);
         static RATE_TABLE: OnceLock<Mutex<HashMap<IpAddr, (u64, u32)>>> = OnceLock::new();
         Self {
-            config,
+            config: config.clone(),
             pool,
+            covers: CoverService::new(&config.data_dir, config.cover_concurrency),
             worker_wakeup_tx,
             progress_tx,
             consecutive_failures: Arc::new(AtomicU32::new(0)),

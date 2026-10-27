@@ -40,6 +40,7 @@ fn test_config(dir: &TempDir, token: &str) -> ServerConfig {
         queue_limit: 100,
         sub_rss_interval_secs: 600,
         sub_full_interval_secs: 86_400,
+        cover_concurrency: 4,
         // oneshot 无真实连接，IP 回退到 loopback 且全测试共享；调大避免互扰
         rate_per_minute: 10_000_000,
     }
@@ -470,6 +471,104 @@ async fn marks_pagination_and_not_cached() {
     .await;
     assert_eq!(code, StatusCode::NOT_FOUND);
     assert_eq!(v["error"]["code"], "DIMENSION_NOT_CACHED");
+}
+
+// --------------------------------------------------------------------------- //
+// 封面代理（cache-then-serve）：URL 改写 + 白名单 + 磁盘命中 + 鉴权
+// --------------------------------------------------------------------------- //
+
+/// 返回原始字节与响应头（封面是二进制，不能走 JSON 版 request()）
+async fn request_bytes(app: Router, uri: &str) -> (StatusCode, Vec<u8>, header::HeaderMap) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec();
+    (status, bytes, headers)
+}
+
+const IMG3_COVER: &str = "https%3A%2F%2Fimg3.doubanio.com%2Fview%2Fphoto%2Fs_ratio_poster%2Fpublic%2Fp2935834896.webp";
+
+#[tokio::test]
+async fn marks_cover_rewritten_to_proxy() {
+    let (_dir, state) = setup().await;
+    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    seed_ok_dimension(&state, Category::Music, records).await;
+
+    let app = build_app(state);
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=music&status=collect&page_size=1",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    // 浏览器直连 img2/img3 被 Referer 防盗链 403，响应里必须是本地代理端点
+    let cover = v["items"][0]["cover"].as_str().unwrap();
+    assert!(cover.starts_with("/api/v1/covers?u=https%3A%2F%2Fimg"), "实际值: {cover}");
+}
+
+#[tokio::test]
+async fn cover_serves_from_disk_cache() {
+    let (dir, state) = setup().await;
+    // 预置磁盘缓存：命中路径全程不发起网络请求
+    let covers_dir = dir.path().join("covers");
+    std::fs::create_dir_all(&covers_dir).unwrap();
+    let seeded = b"fake-webp-bytes".to_vec();
+    std::fs::write(covers_dir.join("p2935834896.webp"), &seeded).unwrap();
+
+    let app = build_app(state);
+    let (code, bytes, headers) =
+        request_bytes(app, &format!("/api/v1/covers?u={IMG3_COVER}")).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(bytes, seeded);
+    assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "image/webp");
+    assert!(
+        headers.get(header::CACHE_CONTROL).unwrap().to_str().unwrap().contains("immutable"),
+        "应允许浏览器长缓存"
+    );
+}
+
+#[tokio::test]
+async fn cover_rejects_non_whitelisted_url() {
+    let (_dir, state) = setup().await;
+    let app = build_app(state);
+    for bad in [
+        "https%3A%2F%2Fevil.com%2Fview%2Fphoto%2Fp1.webp",
+        "https%3A%2F%2Fimg3.doubanio.com%2Fsecret%2Fp1.webp",
+        "not%20a%20url",
+    ] {
+        let (code, v) = request(app.clone(), Method::GET, &format!("/api/v1/covers?u={bad}"), None, None).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST, "应拒绝: {bad}");
+        assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+    }
+}
+
+#[tokio::test]
+async fn cover_requires_token_when_configured() {
+    let (dir, state) = setup_with_token("secret").await;
+    let covers_dir = dir.path().join("covers");
+    std::fs::create_dir_all(&covers_dir).unwrap();
+    std::fs::write(covers_dir.join("p2935834896.webp"), b"x").unwrap();
+
+    let app = build_app(state);
+    // 无 token
+    let (code, _, _) = request_bytes(app.clone(), &format!("/api/v1/covers?u={IMG3_COVER}")).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+    // img 标签带不了 Header，?token= 查询参数兜底必须可用
+    let (code, _, _) =
+        request_bytes(app, &format!("/api/v1/covers?u={IMG3_COVER}&token=secret")).await;
+    assert_eq!(code, StatusCode::OK);
 }
 
 #[tokio::test]

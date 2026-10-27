@@ -61,6 +61,10 @@ pub struct ServerConfig {
     /// 订阅默认全量同步间隔（秒）
     #[arg(long, env = "SYNC_SUB_FULL_INTERVAL_SECS", default_value_t = 86_400)]
     pub sub_full_interval_secs: i64,
+
+    /// 封面代理并发回源上限
+    #[arg(long, env = "SYNC_COVER_CONCURRENCY", default_value_t = 4)]
+    pub cover_concurrency: u32,
 }
 
 impl ServerConfig {

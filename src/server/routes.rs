@@ -23,6 +23,13 @@ use super::service::{self, CreateTaskInput, TERMINAL_STATUSES, TaskView};
 use super::state::AppState;
 
 pub fn build_app(state: AppState) -> Router {
+    // 封面端点单列：仍走鉴权（img 标签带不了 Header，靠 ?token= 兜底），
+    // 但豁免限流——一页 20 张封面属正常连发，且磁盘命中后近乎静态文件
+    let covers = Router::new()
+        .route("/covers", get(get_cover))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .with_state(state.clone());
+
     let api = Router::new()
         .route("/syncs", get(list_syncs).post(create_sync))
         .route("/syncs/{task_id}", get(get_sync).delete(delete_sync))
@@ -37,7 +44,8 @@ pub fn build_app(state: AppState) -> Router {
         .route("/server/info", get(server_info))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-        .with_state(state);
+        .with_state(state)
+        .merge(covers);
 
     Router::new().route("/healthz", get(healthz)).nest("/api/v1", api)
 }
@@ -402,6 +410,38 @@ async fn get_marks(
         "page_size": marks.page_size,
         "items": marks.items,
     })))
+}
+
+// --------------------------------------------------------------------------- //
+// /covers
+// --------------------------------------------------------------------------- //
+
+#[derive(serde::Deserialize)]
+struct CoverQuery {
+    u: String,
+}
+
+/// 封面代理（cache-then-serve）：磁盘命中直接出文件，
+/// 未命中带豆瓣 Referer 回源一次并落盘，之后永久本地化。
+async fn get_cover(
+    State(state): State<AppState>,
+    Query(q): Query<CoverQuery>,
+) -> AppResult<Response> {
+    let cover = state.covers.get(&q.u).await?;
+    // 缓存键为豆瓣 photo id，内容不可变，允许浏览器长缓存
+    let mut resp = (
+        [(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("public, max-age=2592000, immutable"),
+        )],
+        cover.bytes,
+    )
+        .into_response();
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static(cover.content_type),
+    );
+    Ok(resp)
 }
 
 // --------------------------------------------------------------------------- //

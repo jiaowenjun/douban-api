@@ -42,7 +42,7 @@ curl -H "Authorization: Bearer my-secret" \
 
 抓取结果直接存入 SQLite `records` 表（一条标记一行，按维度长期保留，不随任务过期清理）；服务器不生成导出文件，数据经 API 查询。
 
-其余端点：任务列表/删除（`GET/DELETE /api/v1/syncs`）、服务元信息（`GET /api/v1/server/info`）、健康检查（`GET /healthz`，不鉴权）。全部配置项（限速、TTL、熔断、保留期等）经环境变量设置，见 `src/server/config.rs`。
+其余端点：任务列表/删除（`GET/DELETE /api/v1/syncs`）、封面代理（`GET /api/v1/covers?u=...`，绕过豆瓣 CDN 防盗链并磁盘缓存，`/marks` 的 cover 字段已自动改写指向它）、服务元信息（`GET /api/v1/server/info`）、健康检查（`GET /healthz`，不鉴权）。全部配置项（限速、TTL、熔断、保留期等）经环境变量设置，见 `src/server/config.rs`。
 
 内置防护：按 `(uid, category, status)` 维度缓存（TTL 24h，`refresh:true` 强制刷新）、同维度 single-flight、单 worker 串行 + 每次抓取 ≥2s 间隔（全局令牌桶）、403/超时指数退避重试、连续 5 次失败熔断 10 分钟、per-IP 限流。
 

@@ -20,7 +20,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { MarksResponse, RecordItem } from '../types';
-import { api, getUser, type ApiError } from '../api';
+import { api, getUser, resolveApiUrl, type ApiError } from '../api';
 import { CATEGORY_OPTIONS, STATUS_OPTIONS, dimLabel } from '../labels';
 
 const PAGE_SIZE = 20;
@@ -167,7 +167,7 @@ export default function Marks() {
             title: '',
             dataIndex: 'cover',
             width: 56,
-            render: (v) => <Avatar shape="square" size={44} src={v} />,
+            render: (v) => <Avatar shape="square" size={44} src={resolveApiUrl(v)} />,
           },
           {
             title: '条目',

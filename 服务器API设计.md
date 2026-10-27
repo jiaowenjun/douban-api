@@ -405,6 +405,20 @@ PUT 响应 `201` / GET 响应 `200`：
 
 **已知边界**：① RSS 仅 10 条窗口，两次轮询间变更超 10 条时旧的漏掉（全量兜底）；② 编辑旧标记是否 bump 到 feed 未验证，不依赖其做修改检测；③ 隐私条目在免登录 RSS 中不可见（配置 Cookie 的全量抓取可补全）；④ feed 结构无官方承诺，解析按容错设计。
 
+### 4.11 封面代理（cache-then-serve）
+
+**背景**：豆瓣图片 CDN（img1/2/3/9.doubanio.com）按子域名做 Referer 防盗链，策略不一致——浏览器直连时 img9 放行、img2/img3 一律 403（2026-10 实测），导致前端封面大量灰块（库内约 71% 记录在 img2/img3 上）。因此 `/marks` 响应中的 `cover` 一律改写为本端点的相对路径。
+
+```
+GET /api/v1/covers?u={urlencoded 豆瓣封面 URL}
+```
+
+语义：磁盘 `data/covers/{photo_id}` 命中直接返回文件；未命中带豆瓣 Referer 回源一次、落盘后返回（存量记录首次访问即自动"回填"）。响应带 `Cache-Control: public, max-age=2592000, immutable`（photo id 内容不可变）。
+
+约束：**白名单代理**，仅接受 `https://*.doubanio.com` 且路径前缀为 `/view/photo/` 或 `/view/subject/` 的 URL（违反返回 400 `INVALID_ARGUMENT`），防止变成开放中继；走鉴权（`?token=` 兜底可用）但**豁免限流**（一页 20 张封面属正常连发）；回源并发受 `SYNC_COVER_CONCURRENCY`（默认 4）限制；回源失败返回 502 `COVER_UPSTREAM_FAILED`，不落负缓存（下次访问自动重试）。
+
+**已知边界**：① 条目海报被豆瓣更换后本地旧图不更新（photo id 不变的场景无感知；换 id 则视为新图重新回源）；② 回源质量取决于服务器出口网络。
+
 ## 5. 数据模型
 
 ### Task

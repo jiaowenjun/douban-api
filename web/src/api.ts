@@ -21,6 +21,26 @@ export const setApiBase = (v: string) => localStorage.setItem(BASE_KEY, v);
 export const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
 export const setToken = (v: string) => localStorage.setItem(TOKEN_KEY, v);
 
+/** 解析服务端返回的相对 API 路径（如 /api/v1/covers?...）为可请求的地址。
+ *  API base 为跨源完整地址时（dist 静态部署 + CORS），相对路径会错误地落在前端
+ *  自己的 origin 上，需按 base 的 origin 解析；开启鉴权时 img 标签带不了
+ *  Authorization 头，追加 ?token= 查询参数兜底（服务端已支持）。 */
+export function resolveApiUrl(path: string): string {
+  if (!path || !path.startsWith('/')) return path;
+  const base = getApiBase();
+  let url: URL;
+  try {
+    url = new URL(path, /^https?:\/\//.test(base) ? base : window.location.origin);
+  } catch {
+    return path;
+  }
+  const token = getToken();
+  if (token && !url.searchParams.has('token')) {
+    url.searchParams.set('token', token);
+  }
+  return url.href;
+}
+
 /** 单用户站点的用户身份：在「连接」弹框设置一次，全站复用 */
 export const getUser = () => localStorage.getItem(USER_KEY) || '';
 export const setUser = (v: string) => localStorage.setItem(USER_KEY, v);
