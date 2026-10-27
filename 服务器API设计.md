@@ -1,6 +1,6 @@
 # 豆瓣导出服务器 API 设计（v1）
 
-> 状态：**设计稿**（未实现，不含代码改动）
+> 状态：**已实现**（v0.2.0，SSE 按 §13 建议 v1 未做轮询）
 > 日期：2026-10-27
 > 前置阅读：[豆瓣API调研报告.md](豆瓣API调研报告.md)（路径②：免登录公开页抓取）、[README.md](README.md)（现有 CLI 能力）
 
@@ -171,14 +171,15 @@ GET /api/v1/exports/{task_id}
                "formats": ["csv","json"], "refresh": false },
   "progress": [
     { "category": "movie", "status": "collect", "state": "running",
-      "fetched": 45, "total": 209 },
+      "fetched": 45, "total": 209, "percent": 21 },
     { "category": "book",  "status": "collect", "state": "done",
-      "fetched": 55, "total": 55 },
+      "fetched": 55, "total": 55, "percent": 100 },
     { "category": "music", "status": "collect", "state": "queued",
-      "fetched": 0,  "total": null }
+      "fetched": 0,  "total": null, "percent": null }
   ],
   "items_count": 100,
   "error": null,
+  "percent": 38,
   "created_at": "2026-10-27T10:00:00+08:00",
   "finished_at": null,
   "result_url": "/api/v1/exports/exp_01JD6Z8W4R9TQK5M2VX3YB7C8D/result",
@@ -191,6 +192,9 @@ GET /api/v1/exports/{task_id}
 - `total` 来自豆瓣页面的 `subject-num`，首页抓到前为 `null`
 - `fetched` 为**已去重**条目数；`total` 与最终 `fetched` 差 1~2 属正常（豆瓣隐藏已删条目，见 README 已知限制）
 - `items_count` 为各完成维度累计条数
+- **进度百分比**（服务端直接算好，前端免计算）：
+  - 维度级 `progress[].percent`：`done` 恒为 `100`；`error` 或总数未知（`total` 为 `null`）时为 `null`；进行中按 `fetched/total` 向下取整，**封顶 99**（避免显示 100 而实际未完成）
+  - 任务级 `percent`：`completed` 恒为 `100`；否则对 `total` 已知的维度求 `Σfetched/Σtotal` 向下取整并封顶 99；全部维度总数未知时为 `null`。注意：未抓到首页的维度不计入分母，某维度总数揭晓时百分比可能回落（如 51% → 35%），属正常现象
 - 错误信息（如有）：
 
 ```json

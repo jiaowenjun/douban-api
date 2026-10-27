@@ -28,6 +28,8 @@ pub struct TaskView {
     pub progress: Vec<ProgressEntry>,
     pub items_count: i64,
     pub error: Option<Value>,
+    /// 任务总进度百分比（0-100）；completed 恒为 100，未终态封顶 99，无法判定为 null
+    pub percent: Option<u32>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
@@ -42,6 +44,45 @@ pub struct ProgressEntry {
     pub state: String,
     pub fetched: i64,
     pub total: Option<i64>,
+    /// 维度进度百分比（0-100）；done 恒为 100，error/未知总数为 null，进行中封顶 99
+    pub percent: Option<u32>,
+}
+
+/// 维度百分比：done 恒 100；未知总数或 total=0 且未完成为 null；进行中封顶 99
+fn dim_percent(state: &str, fetched: i64, total: Option<i64>) -> Option<u32> {
+    match state {
+        "done" => Some(100),
+        "error" => None,
+        _ => {
+            let t = total?;
+            if t <= 0 {
+                return None;
+            }
+            let pct = (fetched.max(0) as f64 / t as f64 * 100.0).floor() as u32;
+            Some(pct.min(99))
+        }
+    }
+}
+
+/// 任务总百分比：completed 恒 100；否则按已知 total 的维度求和计算，封顶 99。
+/// 有维度尚未知 total 时其贡献不计入分母，因此结果偏乐观，封顶规则保证不误报完成。
+fn overall_percent(status: &str, entries: &[(i64, Option<i64>)]) -> Option<u32> {
+    if status == "completed" {
+        return Some(100);
+    }
+    let mut fetched_sum = 0i64;
+    let mut total_sum = 0i64;
+    for (fetched, total) in entries {
+        if let Some(t) = total {
+            fetched_sum += *fetched;
+            total_sum += t;
+        }
+    }
+    if total_sum <= 0 {
+        return None;
+    }
+    let pct = (fetched_sum as f64 / total_sum as f64 * 100.0).floor() as u32;
+    Some(pct.min(99))
 }
 
 #[derive(Serialize)]
@@ -290,7 +331,7 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
     .fetch_all(&state.pool)
     .await?;
 
-    let progress = progress_rows
+    let progress: Vec<ProgressEntry> = progress_rows
         .into_iter()
         .map(|r| {
             let td_state: String = r.get("td_state");
@@ -300,15 +341,26 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
                 "error" => "error".to_string(),
                 _ => dim_state.unwrap_or_else(|| "queued".to_string()), // waiting → 维度实际状态
             };
+            let fetched = r.get::<Option<i64>, _>("fetched_count").unwrap_or(0);
+            let total: Option<i64> = r.get("total");
+            let percent = dim_percent(&state, fetched, total);
             ProgressEntry {
                 category: r.get("category"),
                 status: r.get("dim_status"),
                 state,
-                fetched: r.get::<Option<i64>, _>("fetched_count").unwrap_or(0),
-                total: r.get("total"),
+                fetched,
+                total,
+                percent,
             }
         })
         .collect();
+    let percent = overall_percent(
+        &status,
+        &progress
+            .iter()
+            .map(|p| (p.fetched, p.total))
+            .collect::<Vec<_>>(),
+    );
 
     let error_json: Option<String> = row.get("error_json");
     Ok(TaskView {
@@ -319,6 +371,7 @@ pub async fn get_task(state: &AppState, task_id: &str) -> AppResult<TaskView> {
         progress,
         items_count: row.get("items_count"),
         error: error_json.and_then(|s| serde_json::from_str(&s).ok()),
+        percent,
         created_at: ms_to_rfc3339(row.get("created_ms")),
         started_at: row.get::<Option<i64>, _>("started_ms").map(ms_to_rfc3339),
         finished_at: row.get::<Option<i64>, _>("finished_ms").map(ms_to_rfc3339),
