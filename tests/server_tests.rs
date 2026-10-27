@@ -12,7 +12,7 @@ use douban_export::server::{
     db,
     fetcher::{DoubanFetcher, FetchError},
     routes::build_app,
-    service::{self, CreateTaskInput},
+    service,
     state::AppState,
     worker,
 };
@@ -37,7 +37,6 @@ fn test_config(dir: &TempDir, token: &str) -> ServerConfig {
         circuit_threshold: 5,
         circuit_cooldown_secs: 600,
         task_retention_days: 30,
-        file_retention_days: 7,
         queue_limit: 100,
         // oneshot 无真实连接，IP 回退到 loopback 且全测试共享；调大避免互扰
         rate_per_minute: 10_000_000,
@@ -51,7 +50,6 @@ async fn setup() -> (TempDir, AppState) {
 async fn setup_with_token(token: &str) -> (TempDir, AppState) {
     let dir = tempfile::tempdir().unwrap();
     let config = test_config(&dir, token);
-    std::fs::create_dir_all(config.files_dir()).unwrap();
     let pool = db::connect(&config.db_path()).await.unwrap();
     let state = AppState::new(config, pool);
     (dir, state)
@@ -143,18 +141,20 @@ async fn request(
     (status, value)
 }
 
-/// 预置一份"已成功缓存"的维度（records 来自 fixture 解析）
+/// 预置一份"已成功缓存"的维度（记录直插 records 表，与 worker 写入路径一致）
 async fn seed_ok_dimension(state: &AppState, category: Category, records: Vec<Record>) {
     let now = ServerConfig::now_ms();
     let page_size = douban_export::crawler::PAGE_SIZE as i64;
     let len = records.len() as i64;
+    service::upsert_records(&state.pool, "wenjun30", category.key(), "collect", &records)
+        .await
+        .unwrap();
     sqlx::query(
-        "INSERT INTO dimensions (uid, category, dim_status, state, records, fetched_count,
+        "INSERT INTO dimensions (uid, category, dim_status, state, fetched_count,
                                  total, next_start, fetched_ms, updated_ms)
-         VALUES ('wenjun30', ?, 'collect', 'ok', ?, ?, ?, ?, ?, ?)",
+         VALUES ('wenjun30', ?, 'collect', 'ok', ?, ?, ?, ?, ?)",
     )
     .bind(category.key())
-    .bind(serde_json::to_string(&records).unwrap())
     .bind(len)
     .bind(len)
     .bind((len + page_size - 1) / page_size * page_size)
@@ -163,16 +163,6 @@ async fn seed_ok_dimension(state: &AppState, category: Category, records: Vec<Re
     .execute(&state.pool)
     .await
     .unwrap();
-}
-
-fn create_input(categories: &[Category]) -> CreateTaskInput {
-    CreateTaskInput {
-        user: "wenjun30".to_string(),
-        categories: categories.to_vec(),
-        statuses: vec![Status::Collect],
-        formats: vec![douban_export::crawler::Format::Csv],
-        refresh: false,
-    }
 }
 
 async fn get_task_view(state: &AppState, task_id: &str) -> Value {
@@ -222,8 +212,7 @@ async fn cached_dimension_creates_completed_task_instantly() {
 
     let (code, v) = post_export(
         &state,
-        json!({"user": "wenjun30", "categories": ["music"], "formats": ["csv","json"],
-               "wait_timeout": 10}),
+        json!({"user": "wenjun30", "categories": ["music"], "wait_timeout": 10}),
     )
     .await;
     assert_eq!(code, StatusCode::OK, "全缓存命中应秒回终态: {v}");
@@ -233,23 +222,18 @@ async fn cached_dimension_creates_completed_task_instantly() {
     assert_eq!(v["items_count"], 15);
     assert_eq!(v["percent"], 100);
 
-    // 结果与文件
+    // 结果汇总（数据本体经 /users/{uid}/marks 浏览）
     let task_id = v["task_id"].as_str().unwrap().to_string();
     let app = build_app(state.clone());
-    let (code, result) = request(app.clone(), Method::GET, &format!("/api/v1/exports/{task_id}/result"), None, None).await;
+    let (code, result) =
+        request(app, Method::GET, &format!("/api/v1/exports/{task_id}/result"), None, None).await;
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(result["files"].as_array().unwrap().len(), 2);
     assert_eq!(result["summary"]["total"], 15);
-
-    let (code, _body) = request(
-        app,
-        Method::GET,
-        &format!("/api/v1/exports/{task_id}/result/wenjun30_music_collect.csv"),
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(code, StatusCode::OK);
+    assert_eq!(result["summary"]["with_comment"], 9);
+    let dims = result["dimensions"].as_array().unwrap();
+    assert_eq!(dims.len(), 1);
+    assert_eq!(dims[0]["category"], "music");
+    assert_eq!(dims[0]["items"], 15);
 }
 
 #[tokio::test]
@@ -257,7 +241,7 @@ async fn worker_crawls_book_dimension_to_completion() {
     let (_dir, state) = setup().await;
     let (code, v) = post_export(
         &state,
-        json!({"user": "wenjun30", "categories": ["book"], "formats": ["csv"]}),
+        json!({"user": "wenjun30", "categories": ["book"]}),
     )
     .await;
     assert_eq!(code, StatusCode::ACCEPTED);
@@ -273,6 +257,20 @@ async fn worker_crawls_book_dimension_to_completion() {
     assert_eq!(p["next_start"], 60);
     assert_eq!(p["page"], 4);
     assert_eq!(p["pages_total"], 4);
+
+    // 抓取完成后数据已入库，marks 可分页读取
+    let app = build_app(state.clone());
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=book&status=collect&page=1&page_size=50",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 55);
+    assert_eq!(v["items"].as_array().unwrap().len(), 50);
 }
 
 #[tokio::test]
@@ -280,7 +278,7 @@ async fn worker_crawls_music_with_dedup_and_percent_progress() {
     let (_dir, state) = setup().await;
     let (_, v) = post_export(
         &state,
-        json!({"user": "wenjun30", "categories": ["music"], "formats": ["csv"]}),
+        json!({"user": "wenjun30", "categories": ["music"]}),
     )
     .await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
@@ -409,6 +407,15 @@ async fn invalid_arguments_return_400_envelope() {
     assert_eq!(code, StatusCode::BAD_REQUEST);
     assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
 
+    // formats 已随文件导出移除，出现未知字段应 400
+    let (code, v) = post_export(
+        &state,
+        json!({"user": "wenjun30", "categories": ["music"], "formats": ["csv"]}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+
     // 非法 JSON body
     let app = build_app(state.clone());
     let (code, v) = request(app, Method::POST, "/api/v1/exports", Some("{bad json".into()), None).await;
@@ -434,10 +441,12 @@ async fn marks_pagination_and_not_cached() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(v["total"], 15);
     assert_eq!(v["fresh"], true);
-    // 第 2 页（每页 5 条）必须是第 6–10 条，而非从头偏移 page-1
+    // 第 2 页（每页 5 条）是按日期倒序的第 6–10 条，而非从头偏移 page-1
+    let mut sorted = records.clone();
+    sorted.sort_by(|a, b| b.date.cmp(&a.date));
     assert_eq!(v["items"].as_array().unwrap().len(), 5);
-    assert_eq!(v["items"][0]["title"], records[5].title);
-    assert_eq!(v["items"][4]["title"], records[9].title);
+    assert_eq!(v["items"][0]["title"], sorted[5].title);
+    assert_eq!(v["items"][4]["title"], sorted[9].title);
 
     // 未缓存维度
     let (code, v) = request(
@@ -453,24 +462,34 @@ async fn marks_pagination_and_not_cached() {
 }
 
 #[tokio::test]
-async fn delete_task_removes_files_and_returns_404() {
-    let (dir, state) = setup().await;
+async fn delete_task_keeps_records_and_returns_404() {
+    let (_dir, state) = setup().await;
     let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
     seed_ok_dimension(&state, Category::Music, records).await;
     let (_, v) = post_export(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
-    let task_dir = state.config.files_dir().join(&task_id);
-    assert!(task_dir.exists());
 
     let app = build_app(state.clone());
-    let (code, _) = request(app.clone(), Method::DELETE, &format!("/api/v1/exports/{task_id}"), None, None).await;
+    let (code, _) =
+        request(app.clone(), Method::DELETE, &format!("/api/v1/exports/{task_id}"), None, None).await;
     assert_eq!(code, StatusCode::NO_CONTENT);
-    assert!(!task_dir.exists(), "任务文件目录应被删除");
 
-    let (code, v) = request(app, Method::GET, &format!("/api/v1/exports/{task_id}"), None, None).await;
+    let (code, v) =
+        request(app.clone(), Method::GET, &format!("/api/v1/exports/{task_id}"), None, None).await;
     assert_eq!(code, StatusCode::NOT_FOUND);
     assert_eq!(v["error"]["code"], "TASK_NOT_FOUND");
-    drop(dir);
+
+    // 数据本体与任务生命周期解耦：任务删除后仍可浏览
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=music&status=collect&page_size=5",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 15);
 }
 
 #[tokio::test]
@@ -526,7 +545,7 @@ async fn sse_follows_crawl_to_completion() {
     let (_dir, state) = setup().await;
     let (_, v) = post_export(
         &state,
-        json!({"user": "wenjun30", "categories": ["music"], "formats": ["csv"]}),
+        json!({"user": "wenjun30", "categories": ["music"]}),
     )
     .await;
     let task_id = v["task_id"].as_str().unwrap().to_string();

@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS dimensions (
   category      TEXT NOT NULL,
   dim_status    TEXT NOT NULL,
   state         TEXT NOT NULL DEFAULT 'idle',
-  records       TEXT NOT NULL DEFAULT '[]',
   fetched_count INTEGER NOT NULL DEFAULT 0,
   total         INTEGER,
   next_start    INTEGER NOT NULL DEFAULT 0,
@@ -46,21 +45,29 @@ CREATE TABLE IF NOT EXISTS task_dims (
   FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS task_files (
-  task_id    TEXT NOT NULL,
-  name       TEXT NOT NULL,
-  category   TEXT NOT NULL,
-  dim_status TEXT NOT NULL,
-  format     TEXT NOT NULL,
-  size       INTEGER NOT NULL,
-  sha256     TEXT NOT NULL,
-  items      INTEGER NOT NULL,
-  PRIMARY KEY (task_id, name),
-  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS records (
+  uid         TEXT NOT NULL,
+  category    TEXT NOT NULL,
+  dim_status  TEXT NOT NULL,
+  subject_id  TEXT NOT NULL,
+  title       TEXT NOT NULL DEFAULT '',
+  alt_title   TEXT NOT NULL DEFAULT '',
+  my_rating   INTEGER,
+  date        TEXT NOT NULL DEFAULT '',
+  comment     TEXT NOT NULL DEFAULT '',
+  subject_url TEXT NOT NULL DEFAULT '',
+  cover       TEXT NOT NULL DEFAULT '',
+  comment_id  TEXT NOT NULL DEFAULT '',
+  intro       TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (uid, category, dim_status, subject_id)
 );
+
+-- 旧库的文件导出元数据表（数据现已直接入库，无迁移、直接丢弃）
+DROP TABLE IF EXISTS task_files;
 
 CREATE INDEX IF NOT EXISTS idx_task_dims_dim ON task_dims(uid, category, dim_status);
 CREATE INDEX IF NOT EXISTS idx_dimensions_due ON dimensions(state, next_sync_ms);
+CREATE INDEX IF NOT EXISTS idx_records_dim_date ON records(uid, category, dim_status, date DESC);
 "#;
 
 pub async fn connect(db_path: &std::path::Path) -> Result<SqlitePool> {

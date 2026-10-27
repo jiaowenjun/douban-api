@@ -7,8 +7,8 @@
 | 页面 | 功能 |
 |---|---|
 | **概览** `/` | 服务状态、抓取队列、熔断器、鉴权状态、运行参数、最近任务；每 5s 自动刷新 |
-| **导出任务** `/tasks` | 任务列表（按用户/状态筛选、游标翻页）、新建导出任务、详情抽屉（维度进度轮询、错误信息、结果汇总与文件下载）、删除任务；有活跃任务时列表自动轮询 |
-| **数据浏览** `/marks` | 直接读取服务器缓存的书影音标记（不触发抓取）：封面、条目链接、星级评分、日期、短评，服务端分页 |
+| **导出任务** `/tasks` | 任务列表（按用户/状态筛选、游标翻页）、新建抓取任务、详情抽屉（SSE 进度推流 + 轮询降级、错误信息、维度汇总与数据浏览跳转）、删除任务；有活跃任务时列表自动轮询 |
+| **数据浏览** `/marks` | 读取服务器 SQLite 内的书影音标记（不触发抓取）：封面、条目链接、星级评分、日期、短评，服务端分页；支持 `?uid=&category=&status=` 预填（任务详情「浏览数据」跳转落地页） |
 
 右上角「连接」可修改 API 地址与 Bearer Token（存 localStorage）：
 
@@ -42,17 +42,17 @@ pnpm build   # tsc 类型检查 + vite 打包到 dist/
 
 ```
 src/
-  api.ts                    # fetch 封装：base/token、错误信封解析、文件下载
+  api.ts                    # fetch 封装：base/token、错误信封解析、SSE 地址
   types.ts                  # 与 src/server/service.rs 响应结构一一对应
   labels.tsx                # 状态/维度中文标签、Tag 渲染
   App.tsx                   # ProLayout 布局 + 路由 + 连接设置
   pages/
     Overview.tsx            # 概览
-    Tasks.tsx               # 导出任务（ProTable + 游标翻页 + 活跃轮询）
-    Marks.tsx               # 缓存数据浏览
+    Tasks.tsx               # 抓取任务（ProTable + 游标翻页 + 活跃轮询）
+    Marks.tsx               # 库内数据浏览（支持 URL 参数预填）
   components/
-    CreateTaskModal.tsx     # 新建导出（ModalForm）
-    TaskDetailDrawer.tsx    # 任务详情抽屉（进度轮询 + 结果下载）
+    CreateTaskModal.tsx     # 新建抓取（ModalForm）
+    TaskDetailDrawer.tsx    # 任务详情抽屉（SSE 进度 + 维度汇总 + 数据浏览跳转）
 ```
 
 ## 已知取舍

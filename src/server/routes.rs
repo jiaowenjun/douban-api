@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{ConnectInfo, Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     middleware::{self, Next},
     response::{
         IntoResponse, Response,
@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 
-use crate::crawler::{Category, Format, Status};
+use crate::crawler::{Category, Status};
 
 use super::error::{AppError, AppResult};
 use super::service::{self, CreateTaskInput, TERMINAL_STATUSES, TaskView};
@@ -27,7 +27,6 @@ pub fn build_app(state: AppState) -> Router {
         .route("/exports", get(list_exports).post(create_export))
         .route("/exports/{task_id}", get(get_export).delete(delete_export))
         .route("/exports/{task_id}/result", get(get_result))
-        .route("/exports/{task_id}/result/{file_name}", get(get_result_file))
         .route("/exports/{task_id}/events", get(get_export_events))
         .route("/users/{uid}/marks", get(get_marks))
         .route("/server/info", get(server_info))
@@ -142,8 +141,6 @@ struct CreateReq {
     #[serde(default)]
     statuses: Option<Vec<String>>,
     #[serde(default)]
-    formats: Option<Vec<String>>,
-    #[serde(default)]
     refresh: bool,
     #[serde(default)]
     wait_timeout: u64,
@@ -197,7 +194,6 @@ async fn create_export(
     let categories = parse_enum_list(req.categories, &Category::ALL, |c| c.key(), "categories")?;
     const DEFAULT_STATUSES: [Status; 1] = [Status::Collect];
     let statuses = parse_enum_list(req.statuses, &DEFAULT_STATUSES, |s| s.key(), "statuses")?;
-    let formats = parse_enum_list(req.formats, &[Format::Csv, Format::Json, Format::Md, Format::Xlsx], |f| f.key(), "formats")?;
 
     let outcome = service::create_task(
         &state,
@@ -205,7 +201,6 @@ async fn create_export(
             user,
             categories,
             statuses,
-            formats,
             refresh: req.refresh,
         },
     )
@@ -345,30 +340,6 @@ async fn get_result(
     Path(task_id): Path<String>,
 ) -> AppResult<Json<service::ResultView>> {
     Ok(Json(service::task_result(&state, &task_id).await?))
-}
-
-async fn get_result_file(
-    State(state): State<AppState>,
-    Path((task_id, file_name)): Path<(String, String)>,
-    headers: HeaderMap,
-) -> AppResult<Response> {
-    let (bytes, meta) = service::read_task_file(&state, &task_id, &file_name).await?;
-    let etag = format!("\"{}\"", &meta.sha256[..16.min(meta.sha256.len())]);
-    if headers
-        .get(header::IF_NONE_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v == etag)
-    {
-        return Ok(StatusCode::NOT_MODIFIED.into_response());
-    }
-    let mut resp = (StatusCode::OK, bytes).into_response();
-    let h = resp.headers_mut();
-    h.insert(header::CONTENT_TYPE, meta.format.content_type().parse().unwrap());
-    h.insert(header::ETAG, etag.parse().unwrap());
-    if let Ok(cd) = format!("attachment; filename=\"{file_name}\"").parse() {
-        h.insert(header::CONTENT_DISPOSITION, cd);
-    }
-    Ok(resp)
 }
 
 // --------------------------------------------------------------------------- //

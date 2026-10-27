@@ -13,8 +13,6 @@ pub enum AppError {
     Unauthorized(String),
     #[error("任务不存在或已过期: {0}")]
     TaskNotFound(String),
-    #[error("文件不存在: {0}")]
-    FileNotFound(String),
     #[error("该维度无缓存，请先创建导出任务")]
     DimensionNotCached,
     #[error("任务未完成（当前状态: {0}）")]
@@ -44,7 +42,6 @@ impl AppError {
             AppError::InvalidArgument(_) => "INVALID_ARGUMENT",
             AppError::Unauthorized(_) => "UNAUTHORIZED",
             AppError::TaskNotFound(_) => "TASK_NOT_FOUND",
-            AppError::FileNotFound(_) => "FILE_NOT_FOUND",
             AppError::DimensionNotCached => "DIMENSION_NOT_CACHED",
             AppError::TaskNotFinished(_) => "TASK_NOT_FINISHED",
             AppError::TooManyRequests => "TOO_MANY_REQUESTS",
@@ -57,9 +54,7 @@ impl AppError {
         match self {
             AppError::InvalidArgument(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-            AppError::TaskNotFound(_) | AppError::FileNotFound(_) | AppError::DimensionNotCached => {
-                StatusCode::NOT_FOUND
-            }
+            AppError::TaskNotFound(_) | AppError::DimensionNotCached => StatusCode::NOT_FOUND,
             AppError::TaskNotFinished(_) => StatusCode::CONFLICT,
             AppError::TooManyRequests | AppError::TooManyTasks => StatusCode::TOO_MANY_REQUESTS,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,

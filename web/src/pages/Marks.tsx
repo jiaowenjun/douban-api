@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   App as AntApp,
@@ -40,6 +40,21 @@ export default function Marks() {
   const [data, setData] = useState<MarksResponse | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchParams] = useSearchParams();
+
+  // 支持从任务详情跳转预填：/marks?uid=xxx&category=music&status=collect
+  useEffect(() => {
+    const uid = searchParams.get('uid');
+    if (!uid) return;
+    const q: Query = {
+      uid,
+      category: searchParams.get('category') ?? 'movie',
+      status: searchParams.get('status') ?? 'collect',
+    };
+    form.setFieldsValue(q);
+    setPage(1);
+    setQuery(q);
+  }, [searchParams, form]);
 
   const load = useCallback(async () => {
     if (!query) return;

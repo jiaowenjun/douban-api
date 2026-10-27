@@ -12,13 +12,6 @@ export const STATUS_OPTIONS = [
   { value: 'wish', label: '想看 / 想读 / 想听' },
 ];
 
-export const FORMAT_OPTIONS = [
-  { value: 'csv', label: 'CSV' },
-  { value: 'json', label: 'JSON' },
-  { value: 'md', label: 'Markdown' },
-  { value: 'xlsx', label: 'Excel' },
-];
-
 export const TASK_STATUS_META: Record<string, { label: string; color: string }> = {
   queued: { label: '排队中', color: 'default' },
   running: { label: '抓取中', color: 'processing' },
@@ -51,10 +44,4 @@ export function DimStateTag({ state }: { state: string }) {
   };
   const m = meta[state];
   return <Tag color={m?.color}>{m?.label ?? state}</Tag>;
-}
-
-export function formatBytes(n: number) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }

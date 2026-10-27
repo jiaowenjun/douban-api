@@ -2,24 +2,23 @@ import { App as AntApp, Button } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { ModalForm, ProFormSelect, ProFormSwitch, ProFormText } from '@ant-design/pro-components';
 import { api } from '../api';
-import { CATEGORY_OPTIONS, FORMAT_OPTIONS, STATUS_OPTIONS } from '../labels';
+import { CATEGORY_OPTIONS, STATUS_OPTIONS } from '../labels';
 
 export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: string) => void }) {
   const { message } = AntApp.useApp();
   return (
     <ModalForm
-      title="新建导出任务"
+      title="新建抓取任务"
       width={520}
       trigger={
         <Button type="primary" icon={<PlusOutlined />}>
-          新建导出
+          新建抓取
         </Button>
       }
       modalProps={{ destroyOnClose: true }}
       initialValues={{
         categories: ['movie', 'book', 'music'],
         statuses: ['collect'],
-        formats: ['csv', 'json'],
         refresh: false,
       }}
       onFinish={async (values) => {
@@ -28,7 +27,6 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
             user: values.user.trim(),
             categories: values.categories,
             statuses: values.statuses,
-            formats: values.formats,
             refresh: values.refresh ?? false,
           });
           message.success(
@@ -47,7 +45,7 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
         label="豆瓣用户"
         rules={[{ required: true, message: '请输入用户 ID 或个人主页链接' }]}
         placeholder="如 wenjun30 或 https://www.douban.com/people/wenjun30/"
-        extra="抓取约需 1–3 分钟（受豆瓣限速约束），提交后可在详情中查看进度"
+        extra="抓取约需 1–3 分钟（受豆瓣限速约束），完成后数据入库并可在数据浏览页查看"
       />
       <ProFormSelect
         name="categories"
@@ -62,13 +60,6 @@ export default function CreateTaskModal({ onCreated }: { onCreated: (taskId: str
         mode="multiple"
         options={STATUS_OPTIONS}
         rules={[{ required: true, message: '至少选择一个状态' }]}
-      />
-      <ProFormSelect
-        name="formats"
-        label="导出格式"
-        mode="multiple"
-        options={FORMAT_OPTIONS}
-        rules={[{ required: true, message: '至少选择一种格式' }]}
       />
       <ProFormSwitch name="refresh" label="强制刷新缓存" extra="忽略未过期缓存，重新回源抓取" />
     </ModalForm>

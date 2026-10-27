@@ -10,7 +10,7 @@ pub struct ServerConfig {
     #[arg(long, env = "EXPORT_SERVER_BIND", default_value = "0.0.0.0:8080")]
     pub bind: String,
 
-    /// 数据目录（SQLite 与导出文件）
+    /// 数据目录（SQLite 数据库）
     #[arg(long, env = "EXPORT_SERVER_DATA_DIR", default_value = "data")]
     pub data_dir: PathBuf,
 
@@ -42,13 +42,9 @@ pub struct ServerConfig {
     #[arg(long, env = "EXPORT_CIRCUIT_COOLDOWN_SECS", default_value_t = 600)]
     pub circuit_cooldown_secs: i64,
 
-    /// 任务记录保留天数
+    /// 任务记录保留天数（records 表数据不随任务过期）
     #[arg(long, env = "EXPORT_TASK_RETENTION_DAYS", default_value_t = 30)]
     pub task_retention_days: i64,
-
-    /// 结果文件保留天数
-    #[arg(long, env = "EXPORT_FILE_RETENTION_DAYS", default_value_t = 7)]
-    pub file_retention_days: i64,
 
     /// 队列长度上限（排队中的维度数）
     #[arg(long, env = "EXPORT_QUEUE_LIMIT", default_value_t = 100)]
@@ -62,10 +58,6 @@ pub struct ServerConfig {
 impl ServerConfig {
     pub fn db_path(&self) -> PathBuf {
         self.data_dir.join("douban_export.db")
-    }
-
-    pub fn files_dir(&self) -> PathBuf {
-        self.data_dir.join("files")
     }
 
     /// 现在的 epoch 毫秒

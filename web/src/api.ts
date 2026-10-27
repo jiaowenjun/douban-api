@@ -100,19 +100,4 @@ export const api = {
       `/users/${encodeURIComponent(uid)}/marks?category=${category}&status=${status}` +
         `&page=${page}&page_size=${pageSize}`,
     ),
-
-  /** 走 fetch 以带上 Token，再触发浏览器下载 */
-  async downloadFile(path: string, fileName: string) {
-    const res = await fetch(getApiBase() + path, { headers: authHeaders() });
-    if (!res.ok) throw await parseError(res);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  },
 };

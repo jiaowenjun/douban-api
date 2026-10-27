@@ -38,20 +38,20 @@ EXPORT_DOUBAN_COOKIE='dbcl2="xxx"' \   # 可选：登录抓取，补全豆瓣隐
 # 1. 创建任务（wait_timeout 可选同步等待 ≤30s）
 curl -X POST http://127.0.0.1:8080/api/v1/exports \
      -H "Authorization: Bearer my-secret" -H "Content-Type: application/json" \
-     -d '{"user":"wenjun30","categories":["movie","book","music"],"formats":["csv","json"]}'
+     -d '{"user":"wenjun30","categories":["movie","book","music"]}'
 
 # 2. 轮询进度（progress[] 按维度给出 fetched/total）
 curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/exports/{task_id}
 
-# 3. 取结果清单 / 下载文件（支持 ETag/304）
+# 3. 取结果汇总（各维度条目数与含短评数）
 curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/exports/{task_id}/result
-curl -O -H "Authorization: Bearer my-secret" \
-     "http://127.0.0.1:8080/api/v1/exports/{task_id}/result/wenjun30_movie_collect.csv"
 
-# 4. 结构化直读缓存（分页 JSON，未缓存返回 404 引导建任务）
+# 4. 结构化读库内数据（分页 JSON，按日期倒序；未缓存返回 404 引导建任务）
 curl -H "Authorization: Bearer my-secret" \
      "http://127.0.0.1:8080/api/v1/users/wenjun30/marks?category=movie&status=collect&page=1&page_size=50"
 ```
+
+抓取结果直接存入 SQLite `records` 表（一条标记一行，按维度长期保留，不随任务过期清理）；服务器不再生成导出文件，文件导出（csv/json/md/xlsx）由 CLI 提供。
 
 其余端点：任务列表/删除（`GET/DELETE /api/v1/exports`）、服务元信息（`GET /api/v1/server/info`）、健康检查（`GET /healthz`，不鉴权）。全部配置项（限速、TTL、熔断、保留期等）经环境变量设置，见 `src/server/config.rs`。
 
@@ -59,7 +59,7 @@ curl -H "Authorization: Bearer my-secret" \
 
 ## 管理后台（web/）
 
-服务器自带一个 Ant Design Pro 风格的管理页面（Vite + React + pnpm），提供概览监控、导出任务的创建/进度/下载、缓存数据浏览：
+服务器自带一个 Ant Design Pro 风格的管理页面（Vite + React + pnpm），提供概览监控、抓取任务的创建/进度、库内数据浏览：
 
 ```bash
 cd web && pnpm install && pnpm dev   # 开发：http://localhost:5173（已代理到 :8080）

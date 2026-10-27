@@ -17,8 +17,6 @@ pub async fn run_server() -> Result<()> {
     let config = config::ServerConfig::parse();
     std::fs::create_dir_all(&config.data_dir)
         .with_context(|| format!("创建数据目录失败: {}", config.data_dir.display()))?;
-    std::fs::create_dir_all(config.files_dir())
-        .with_context(|| format!("创建文件目录失败: {}", config.files_dir().display()))?;
 
     let pool = db::connect(&config.db_path())
         .await

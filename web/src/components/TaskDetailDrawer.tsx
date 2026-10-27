@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Alert, App as AntApp, Button, Card, Descriptions, Drawer, Progress, Space, Table, Tag } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { Alert, Button, Card, Descriptions, Drawer, Progress, Space, Table } from 'antd';
+import { EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type { ProgressEntry, ResultView, TaskView } from '../types';
+import type { ProgressEntry, ResultDim, ResultView, TaskView } from '../types';
 import { api } from '../api';
-import { DimStateTag, TaskStatusTag, dimLabel, formatBytes } from '../labels';
+import { DimStateTag, TaskStatusTag, dimLabel } from '../labels';
 
 const TERMINAL = ['completed', 'partial', 'failed'];
 
@@ -46,7 +47,7 @@ export default function TaskDetailDrawer({
   taskId: string | null;
   onClose: () => void;
 }) {
-  const { message } = AntApp.useApp();
+  const navigate = useNavigate();
   const [task, setTask] = useState<TaskView | null>(null);
   const [result, setResult] = useState<ResultView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -141,12 +142,10 @@ export default function TaskDetailDrawer({
     };
   }, [taskId]);
 
-  const download = async (name: string, url: string) => {
-    try {
-      await api.downloadFile(url, name);
-    } catch (e) {
-      message.error((e as Error).message);
-    }
+  const browse = (dim: ResultDim) => {
+    if (!task) return;
+    onClose();
+    navigate(`/marks?uid=${encodeURIComponent(task.user)}&category=${dim.category}&status=${dim.status}`);
   };
 
   return (
@@ -173,7 +172,7 @@ export default function TaskDetailDrawer({
               </Descriptions.Item>
             )}
             {task.expires_at && (
-              <Descriptions.Item label="文件过期">
+              <Descriptions.Item label="任务记录过期">
                 {dayjs(task.expires_at).format('YYYY-MM-DD HH:mm')}
               </Descriptions.Item>
             )}
@@ -200,7 +199,7 @@ export default function TaskDetailDrawer({
           </Card>
 
           {result && (
-            <Card size="small" title="导出结果">
+            <Card size="small" title="抓取结果">
               <Descriptions size="small" column={1} style={{ marginBottom: 8 }}>
                 <Descriptions.Item label="汇总">
                   共 {result.summary.total} 条，含短评 {result.summary.with_comment} 条
@@ -211,35 +210,29 @@ export default function TaskDetailDrawer({
                   </Descriptions.Item>
                 ))}
               </Descriptions>
-              <Table
+              <Table<ResultDim>
                 size="small"
-                rowKey="name"
+                rowKey={(d) => `${d.category}-${d.status}`}
                 pagination={false}
-                dataSource={result.files}
+                dataSource={result.dimensions}
                 columns={[
                   {
-                    title: '文件',
-                    dataIndex: 'name',
-                    render: (_, f) => (
-                      <Space size={4}>
-                        <Tag>{f.format.toUpperCase()}</Tag>
-                        {f.name}
-                      </Space>
-                    ),
+                    title: '维度',
+                    render: (_, d) => dimLabel(d.category, d.status),
                   },
                   { title: '条目', dataIndex: 'items', width: 70 },
-                  { title: '大小', dataIndex: 'size', width: 90, render: (v) => formatBytes(v) },
+                  { title: '含短评', dataIndex: 'with_comment', width: 80 },
                   {
                     title: '',
-                    width: 80,
-                    render: (_, f) => (
+                    width: 90,
+                    render: (_, d) => (
                       <Button
                         type="link"
                         size="small"
-                        icon={<DownloadOutlined />}
-                        onClick={() => download(f.name, f.url)}
+                        icon={<EyeOutlined />}
+                        onClick={() => browse(d)}
                       >
-                        下载
+                        浏览数据
                       </Button>
                     ),
                   },

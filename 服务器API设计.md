@@ -51,7 +51,7 @@
                   ▼
              豆瓣公开收藏页（movie/book/music.douban.com）
                   
-             存储层：SQLite（任务+缓存数据） + 文件（导出产物）
+             存储层：SQLite（任务调度状态 + records 数据表，抓取结果直接入库）
 ```
 
 组件职责：
@@ -59,13 +59,13 @@
 - **API 层**：参数校验、鉴权（可选）、客户端限流、路由
 - **任务管理器**：任务队列与状态机；对同一 `uid+category+status` 维度做 single-flight（去重合并）
 - **抓取器**：移植现有 CLI 的抓取/解析/重试/断点逻辑（含 Referer、两代页面结构兼容）
-- **存储**：SQLite 存任务记录与缓存数据（Record 结构 12 字段不变）；导出文件（csv/json/md/xlsx）落盘
+- **存储**：SQLite 单库——任务/维度调度表 + `records` 正规化数据表（Record 12 字段一行一条，按维度长期保留；不再生成导出文件，文件导出仅 CLI 提供）
 
 ## 2. 核心设计决策与理由
 
 ### D1：异步任务模型（而非同步等待）
 
-全量抓取 ≥1 分钟，超出任何合理的 HTTP 超时。`POST /exports` 创建任务后立即返回 `202`，客户端轮询（或 SSE）拿进度，完成后下载。
+全量抓取 ≥1 分钟，超出任何合理的 HTTP 超时。`POST /exports` 创建任务后立即返回 `202`，客户端轮询（或 SSE）拿进度，完成后经 `/users/{uid}/marks` 浏览库内数据。
 
 对极小数据量提供**有限同步等待**逃生门：`?wait_timeout=N`（N ≤ 30s），超时未完成仍返回任务 ID，不阻塞。
 
@@ -89,20 +89,19 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 
 | # | 方法 | 路径 | 用途 |
 |---|---|---|---|
-| 1 | POST | `/exports` | 创建导出任务（核心入口） |
+| 1 | POST | `/exports` | 创建抓取任务（核心入口） |
 | 2 | GET | `/exports/{task_id}` | 查询任务状态与进度 |
 | 3 | GET | `/exports` | 任务列表（过滤、游标分页） |
-| 4 | DELETE | `/exports/{task_id}` | 删除任务及其产物 |
-| 5 | GET | `/exports/{task_id}/result` | 结果元数据（文件清单 + 汇总） |
-| 6 | GET | `/exports/{task_id}/result/{category}_{status}.{ext}` | 下载单个导出文件 |
-| 7 | GET | `/users/{uid}/marks` | 直接读缓存数据（JSON，分页） |
-| 8 | GET | `/exports/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
-| 9 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
-| 10 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
+| 4 | DELETE | `/exports/{task_id}` | 删除任务记录（数据保留） |
+| 5 | GET | `/exports/{task_id}/result` | 结果元数据（维度汇总） |
+| 6 | GET | `/users/{uid}/marks` | 读库内数据（JSON，分页） |
+| 7 | GET | `/exports/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
+| 8 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
+| 9 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
 
 ## 4. 接口详细设计
 
-### 4.1 创建导出任务
+### 4.1 创建抓取任务
 
 ```
 POST /api/v1/exports
@@ -116,7 +115,6 @@ Content-Type: application/json
   "user": "wenjun30",
   "categories": ["movie", "book", "music"],
   "statuses": ["collect"],
-  "formats": ["csv", "json"],
   "refresh": false,
   "wait_timeout": 0
 }
@@ -127,9 +125,10 @@ Content-Type: application/json
 | `user` | string | 必填 | 豆瓣用户 ID 或 `/people/{id}/` URL；复用 CLI 的 ID 规则（`[A-Za-z0-9._-]+`） |
 | `categories` | string[] | `["movie","book","music"]` | 枚举 |
 | `statuses` | string[] | `["collect"]` | `collect` / `do` / `wish` |
-| `formats` | string[] | `["csv","json"]` | `csv` / `json` / `md` / `xlsx` |
-| `refresh` | bool | `false` | `true` 时忽略未过期缓存，强制回源 |
+| `refresh` | bool | `false` | `true` 时忽略未过期缓存，强制回源（清空该维度旧数据后重抓） |
 | `wait_timeout` | int(秒) | `0` | `0`–`30`；>0 时服务端最多等待该时长，完成即返回 `completed` |
+
+> 注：数据直接入 SQLite，不再有 `formats` 参数（传入未知字段将返回 400）；文件导出能力由 CLI 提供。
 
 响应 `202 Accepted`：
 
@@ -168,7 +167,7 @@ GET /api/v1/exports/{task_id}
   "user": "wenjun30",
   "status": "running",
   "request": { "categories": ["movie","book","music"], "statuses": ["collect"],
-               "formats": ["csv","json"], "refresh": false },
+               "refresh": false },
   "progress": [
     { "category": "movie", "status": "collect", "state": "running",
       "fetched": 45, "total": 209, "percent": 21,
@@ -240,8 +239,8 @@ GET /api/v1/exports?user=wenjun30&status=running&limit=20&cursor=exp_01JD...
 DELETE /api/v1/exports/{task_id}
 ```
 
-- `204 No Content`：删除任务记录与导出文件
-- **不删除缓存数据**（缓存属于维度级共享资源，见 D2/D3）
+- `204 No Content`：删除任务记录（任务/维度关联/task_dims 行）
+- **不删除 records 数据**（数据属于维度级共享资源，与任务生命周期解耦，见 D2/D3）
 - `404 TASK_NOT_FOUND`
 - 运行中任务允许删除：先取消再清理（`state: running` 的维度中断，断点保留在其缓存记录中）
 
@@ -262,39 +261,25 @@ GET /api/v1/exports/{task_id}/result
     "with_comment": 272,
     "by_category_status": { "movie·看过": 208, "book·读过": 55, "music·听过": 28 }
   },
-  "files": [
-    { "name": "wenjun30_movie_collect.csv",  "category": "movie", "status": "collect",
-      "format": "csv",  "size": 179479, "sha256": "9f2a...", "items": 208,
-      "url": "/api/v1/exports/exp_.../result/wenjun30_movie_collect.csv" },
-    { "name": "wenjun30_movie_collect.json", "format": "json", "size": 226152,
-      "sha256": "c81b...", "items": 208, "url": "..." }
+  "dimensions": [
+    { "category": "movie", "status": "collect", "items": 208, "with_comment": 200 },
+    { "category": "book",  "status": "collect", "items": 55,  "with_comment": 50 }
   ],
-  "expires_at": "2026-11-03T10:00:00+08:00"
+  "expires_at": "2026-11-26T10:00:00+08:00"
 }
 ```
 
+`dimensions` 为各成功维度的汇总；数据本体经 4.6 的 `/users/{uid}/marks` 分页浏览。
+
 `status` 非终态时返回 `409 TASK_NOT_FINISHED`（附当前 status 与 progress 摘要）。
 
-### 4.6 下载导出文件
-
-```
-GET /api/v1/exports/{task_id}/result/{file_name}
-```
-
-- 文件名即 4.5 返回的 `name`（如 `wenjun30_movie_collect.csv`），与 CLI 输出命名**保持一致**
-- Content-Type：csv → `text/csv; charset=utf-8`（带 BOM）；json → `application/json; charset=utf-8`；md → `text/markdown; charset=utf-8`；xlsx → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-- 带 `ETag`（sha256 前 16 位）与 `Last-Modified`，支持 `If-None-Match` → `304`
-- `Content-Disposition: attachment; filename="..."`
-
-错误：`404 TASK_NOT_FOUND` / `404 FILE_NOT_FOUND`。
-
-### 4.7 直接读缓存数据
+### 4.6 读库内数据
 
 ```
 GET /api/v1/users/{uid}/marks?category=movie&status=collect&page=1&page_size=50
 ```
 
-定位：**只读缓存**，给应用（而非浏览器下载）用的结构化数据接口。不触发抓取。
+定位：**只读库内数据**（`records` 表，SQL 分页、按日期倒序），给应用用的结构化数据接口。不触发抓取。
 
 响应 `200`：
 
@@ -322,11 +307,11 @@ GET /api/v1/users/{uid}/marks?category=movie&status=collect&page=1&page_size=50
 
 ```json
 { "error": { "code": "DIMENSION_NOT_CACHED",
-  "message": "该维度无缓存，请先创建导出任务",
+  "message": "该维度无缓存，请先创建抓取任务",
   "hint": "POST /api/v1/exports {\"user\":\"wenjun30\",\"categories\":[\"movie\"],\"statuses\":[\"collect\"]}" } }
 ```
 
-### 4.8 任务进度 SSE（已实现）
+### 4.7 任务进度 SSE（已实现）
 
 ```
 GET /api/v1/exports/{task_id}/events
@@ -352,7 +337,7 @@ data: {"task_id":"exp_...","status":"failed","error":{...}}
 - **鉴权注意**：浏览器 `EventSource` 无法设置自定义 Header，启用 token 时本端点支持 `?token=<token>` 查询参数兜底（其余端点仍要求 Authorization 头）
 - data 为完整的 4.2 任务视图 JSON（含 percent/page 等全部字段）
 
-### 4.9 服务元信息
+### 4.8 服务元信息
 
 ```
 GET /api/v1/server/info
@@ -361,15 +346,15 @@ GET /api/v1/server/info
 ```json
 {
   "name": "douban-export-server",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "crawl": { "min_interval_seconds": 2.0, "max_concurrent_users": 2,
              "circuit_breaker": { "threshold": 5, "cooldown_seconds": 600 } },
-  "cache": { "ttl_seconds": 86400, "retention_task_days": 30, "retention_file_days": 7 },
+  "cache": { "ttl_seconds": 86400, "retention_task_days": 30 },
   "queue": { "running": 1, "queued": 0 }
 }
 ```
 
-### 4.10 健康检查
+### 4.9 健康检查
 
 ```
 GET /healthz    → 200 {"status":"ok"}
@@ -391,22 +376,21 @@ GET /healthz    → 200 {"status":"ok"}
 | `items_count` | int | 已累计条数 |
 | `error` | object? | 终态错误信息 |
 | `created_at` / `started_at` / `finished_at` | timestamp | |
-| `expires_at` | timestamp | 文件过期时间（默认 finished_at + 7d） |
+| `expires_at` | timestamp | 任务记录过期时间（默认 finished_at + 30d；过期仅清任务行，数据保留） |
 
-### Dimension（缓存与调度单元）
+### Dimension（调度与缓存元数据单元）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `uid` + `category` + `status` | string | 联合主键（缓存键） |
 | `state` | enum | `idle` / `queued` / `running` / `ok` / `error` |
-| `records` | blob | Record 数组（SQLite JSON 列） |
+| `fetched_count` / `total` / `next_start` | int | 抓取进度与断点（数据本体在 records 表，本表只存调度状态） |
 | `fetched_at` | timestamp | 最近成功抓取时间（TTL 判定依据） |
-| `checkpoint` | json | 断点（next_start / 页进度），复用 CLI 的 ckpt 结构 |
 | `last_error` | string? | |
 
-### Record（不变）
+### Record（数据本体，`records` 表）
 
-沿用 CLI 的 12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——服务器只做搬运，不改字段语义，保证 CLI 导出文件与 API 数据可直接互证。
+沿用 CLI 的 12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。
 
 ## 6. 任务状态机
 
@@ -429,7 +413,7 @@ GET /healthz    → 200 {"status":"ok"}
                  └─────────────┘
 ```
 
-- `partial`：部分维度成功——`result` 仍可用（含成功维度的文件），`error.failed_dimensions` 列出失败维度
+- `partial`：部分维度成功——`result` 仍可用（含成功维度汇总），成功维度数据已入库，`error.failed_dimensions` 列出失败维度
 - 断点：`queued/running` 中断（进程重启、任务被删）后，Dimension 的 `checkpoint` 保留，下次同维度入队自动续爬
 - 终态（`completed/partial/failed`）不可逆；重新抓取 = 新任务
 
@@ -438,10 +422,11 @@ GET /healthz    → 200 {"status":"ok"}
 | 项 | 默认值 | 说明 |
 |---|---|---|
 | 缓存 TTL | 24h | `fetched_at + TTL` 内 `fresh: true`，命中即不回源 |
-| 强制刷新 | `refresh: true` | 跳过 TTL 判定；旧数据在抓取成功前保持可读（不删旧写新失败态） |
-| 结果文件保留 | 7 天 | `expires_at` 过期后后台清理；任务记录保留 30 天 |
+| 强制刷新 | `refresh: true` | 跳过 TTL 判定；先清空该维度旧数据再重抓（期间该维度数据不可读直至抓取完成） |
+| records 数据保留 | 永久 | 数据与任务生命周期解耦，仅 `refresh` 触发整维度重写；不随任务过期清理 |
+| 任务记录保留 | 30 天 | `expires_at` 过期后后台清理任务行（数据不动） |
 | 失败缓存 | 不缓存 | 维度失败只记 `last_error`，下次请求可重试 |
-| 存储预估 | 单维度 ≤ 数千条 | 208 部电影 JSON ≈ 226KB；SQLite 完全够用 |
+| 存储预估 | 单维度 ≤ 数千条 | 208 部电影 ≈ 226KB JSON；SQLite 完全够用 |
 
 ## 8. 限速与并发控制
 
@@ -466,7 +451,7 @@ GET /healthz    → 200 {"status":"ok"}
 |---|---|---|
 | 400 | `INVALID_ARGUMENT` | uid 非法 / 枚举值错误 / 分页参数越界 |
 | 401 | `UNAUTHORIZED` | 启用鉴权且 token 缺失/错误 |
-| 404 | `TASK_NOT_FOUND` / `FILE_NOT_FOUND` / `DIMENSION_NOT_CACHED` | 资源不存在 |
+| 404 | `TASK_NOT_FOUND` / `DIMENSION_NOT_CACHED` | 资源不存在 |
 | 409 | `TASK_NOT_FINISHED` | 任务未终态就取 result |
 | 429 | `TOO_MANY_REQUESTS` / `TOO_MANY_TASKS` | 客户端限流 / 队列满 |
 | 500 | `INTERNAL` | 未预期错误 |
@@ -477,7 +462,7 @@ GET /healthz    → 200 {"status":"ok"}
 ## 10. 认证与安全
 
 - **默认无鉴权**（本地/内网部署友好）；设环境变量 `EXPORT_SERVER_TOKEN` 后启用 `Authorization: Bearer <token>`（`/healthz` 除外）
-- **输入收敛**：`user` 归一化为 uid 白名单字符集（`[A-Za-z0-9._-]+`），杜绝 SSRF/路径注入；`file_name` 仅允许服务端生成的白名单集合
+- **输入收敛**：`user` 归一化为 uid 白名单字符集（`[A-Za-z0-9._-]+`），杜绝 SSRF/路径注入
 - **无敏感凭据**：服务本身免登录，不存储任何豆瓣 Cookie；提醒部署者勿把个人 Cookie 混入此服务
 - **CORS**：默认关闭；`EXPORT_SERVER_CORS_ORIGINS` 配置允许来源
 - **公开仓库提醒**：本服务只暴露公开数据，但若部署到公网，建议加鉴权 + 限流，避免被当作免费豆瓣抓取代理滥用

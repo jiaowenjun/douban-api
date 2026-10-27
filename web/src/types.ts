@@ -42,7 +42,7 @@ export interface TaskView {
   task_id: string;
   user: string;
   status: TaskStatus;
-  request: { categories: string[]; statuses: string[]; formats: string[]; refresh: boolean };
+  request: { categories: string[]; statuses: string[]; refresh: boolean };
   progress: ProgressEntry[];
   items_count: number;
   error: TaskError | null;
@@ -59,15 +59,12 @@ export interface CreateTaskResponse extends TaskView {
   created_dimensions?: number;
 }
 
-export interface ResultFile {
-  name: string;
+/** 任务结果中一个完成维度的汇总 */
+export interface ResultDim {
   category: string;
   status: string;
-  format: string;
-  size: number;
-  sha256: string;
   items: number;
-  url: string;
+  with_comment: number;
 }
 
 export interface ResultView {
@@ -78,7 +75,7 @@ export interface ResultView {
     with_comment: number;
     by_category_status: Record<string, number>;
   };
-  files: ResultFile[];
+  dimensions: ResultDim[];
   expires_at: string | null;
 }
 
@@ -125,7 +122,6 @@ export interface ServerInfo {
   cache: {
     ttl_seconds: number;
     retention_task_days: number;
-    retention_file_days: number;
   };
   queue: { queued: number; running: number };
   auth_enabled: boolean;
@@ -136,6 +132,5 @@ export interface CreateTaskBody {
   user: string;
   categories: string[];
   statuses: string[];
-  formats: string[];
   refresh: boolean;
 }

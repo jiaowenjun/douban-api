@@ -8,7 +8,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::crawler::{
-    self, Category, Record, Status, collection_url, parse_items, parse_total, referer_for,
+    self, Category, Status, collection_url, parse_items, parse_total, referer_for,
 };
 
 use super::config::ServerConfig;
@@ -24,7 +24,6 @@ pub(super) struct DueDimension {
     uid: String,
     category: String,
     dim_status: String,
-    records: String,
     next_start: i64,
     attempts: i64,
 }
@@ -74,7 +73,7 @@ pub async fn process_next_due<F: DoubanFetcher>(state: &AppState, fetcher: &F) -
 
 async fn pick_due_dimension(pool: &SqlitePool) -> Result<Option<DueDimension>> {
     let row = sqlx::query(
-        "SELECT uid, category, dim_status, records, next_start, attempts
+        "SELECT uid, category, dim_status, next_start, attempts
          FROM dimensions
          WHERE state IN ('queued','running')
            AND (next_sync_ms IS NULL OR next_sync_ms <= ?)
@@ -90,7 +89,6 @@ async fn pick_due_dimension(pool: &SqlitePool) -> Result<Option<DueDimension>> {
         uid: r.get("uid"),
         category: r.get("category"),
         dim_status: r.get("dim_status"),
-        records: r.get("records"),
         next_start: r.get("next_start"),
         attempts: r.get("attempts"),
     }))
@@ -124,7 +122,6 @@ async fn process_dimension<F: DoubanFetcher>(
     .await
     .context("标记关联任务 running 失败")?;
 
-    let mut records: Vec<Record> = serde_json::from_str(&dim.records).unwrap_or_default();
     let start = dim.next_start.max(0) as usize;
     let url = collection_url(cat, &dim.uid, st, start);
     let referer = referer_for(&dim.uid);
@@ -141,14 +138,18 @@ async fn process_dimension<F: DoubanFetcher>(
             let items = parse_items(&html, cat, st);
             let empty_page = items.is_empty();
 
-            // 合并去重（翻页偏移/标记新增可能造成重复）
-            let mut seen: std::collections::HashSet<String> =
-                records.iter().map(|r| r.subject_id.clone()).collect();
-            for r in items {
-                if seen.insert(r.subject_id.clone()) {
-                    records.push(r);
-                }
-            }
+            // 本页写库；主键冲突即重复（翻页偏移/标记新增），交给 INSERT OR IGNORE
+            service::upsert_records(&state.pool, &dim.uid, &dim.category, &dim.dim_status, &items)
+                .await?;
+            let fetched_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
+            )
+            .bind(&dim.uid)
+            .bind(&dim.category)
+            .bind(&dim.dim_status)
+            .fetch_one(&state.pool)
+            .await
+            .context("统计维度记录数失败")?;
 
             // 终点判定：next_start 越过总数；无 total 时只能靠空页终止。
             // 不以"本页不满 15 条"判定——页面可能因条目被删而少渲染。
@@ -159,15 +160,13 @@ async fn process_dimension<F: DoubanFetcher>(
             };
 
             if finished {
-                records.sort_by(|a, b| b.date.cmp(&a.date));
                 sqlx::query(
-                    "UPDATE dimensions SET state='ok', records=?, fetched_count=?, total=?,
+                    "UPDATE dimensions SET state='ok', fetched_count=?, total=?,
                             next_start=?, fetched_ms=?, attempts=0, next_sync_ms=NULL,
                             last_error=NULL, updated_ms=?
                      WHERE uid=? AND category=? AND dim_status=?",
                 )
-                .bind(serde_json::to_string(&records)?)
-                .bind(records.len() as i64)
+                .bind(fetched_count)
                 .bind(total)
                 .bind(next_start)
                 .bind(now)
@@ -180,7 +179,7 @@ async fn process_dimension<F: DoubanFetcher>(
                 info!(
                     uid = %dim.uid,
                     dimension = format!("{}/{}", dim.category, dim.dim_status),
-                    items = records.len(),
+                    items = fetched_count,
                     "维度抓取完成"
                 );
                 service::finalize_linked_tasks(
@@ -189,12 +188,11 @@ async fn process_dimension<F: DoubanFetcher>(
                 .await?;
             } else {
                 sqlx::query(
-                    "UPDATE dimensions SET state='running', records=?, fetched_count=?, total=?,
+                    "UPDATE dimensions SET state='running', fetched_count=?, total=?,
                             next_start=?, updated_ms=?
                      WHERE uid=? AND category=? AND dim_status=?",
                 )
-                .bind(serde_json::to_string(&records)?)
-                .bind(records.len() as i64)
+                .bind(fetched_count)
                 .bind(total)
                 .bind(next_start)
                 .bind(now)

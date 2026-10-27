@@ -1,19 +1,58 @@
-//! 任务/缓存/文件的服务层——创建任务、查询进度、生成导出文件、缓存读取、过期清理。
+//! 任务/数据的服务层——创建任务、查询进度、记录入库与查询、缓存读取、过期清理。
 
 use rand::Rng;
 use serde::Serialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
-use std::path::PathBuf;
 
-use crate::crawler::{Category, Format, Record, Status, export_records, parse_uid};
+use crate::crawler::{Category, Record, Status, parse_uid};
 
 use super::config::ServerConfig;
 use super::error::{AppError, AppResult};
 use super::state::AppState;
 
 pub const TERMINAL_STATUSES: [&str; 3] = ["completed", "partial", "failed"];
+
+// --------------------------------------------------------------------------- //
+// 记录入库（worker 与测试共用）
+// --------------------------------------------------------------------------- //
+
+/// 批量写维度记录；主键 (uid, category, dim_status, subject_id) 冲突即忽略，
+/// 天然完成翻页偏移/标记新增场景下的去重。
+pub async fn upsert_records(
+    pool: &SqlitePool,
+    uid: &str,
+    category: &str,
+    dim_status: &str,
+    items: &[Record],
+) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+    for r in items {
+        sqlx::query(
+            "INSERT OR IGNORE INTO records
+                    (uid, category, dim_status, subject_id, title, alt_title, my_rating,
+                     date, comment, subject_url, cover, comment_id, intro)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(uid)
+        .bind(category)
+        .bind(dim_status)
+        .bind(&r.subject_id)
+        .bind(&r.title)
+        .bind(&r.alt_title)
+        .bind(r.my_rating)
+        .bind(&r.date)
+        .bind(&r.comment)
+        .bind(&r.subject_url)
+        .bind(&r.cover)
+        .bind(&r.comment_id)
+        .bind(&r.intro)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
 
 // --------------------------------------------------------------------------- //
 // 视图模型
@@ -122,7 +161,6 @@ pub struct CreateTaskInput {
     pub user: String,
     pub categories: Vec<Category>,
     pub statuses: Vec<Status>,
-    pub formats: Vec<Format>,
     pub refresh: bool,
 }
 
@@ -164,7 +202,6 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
     let request_json = serde_json::to_string(&json!({
         "categories": input.categories.iter().map(|c| c.key()).collect::<Vec<_>>(),
         "statuses": input.statuses.iter().map(|s| s.key()).collect::<Vec<_>>(),
-        "formats": input.formats.iter().map(|f| f.key()).collect::<Vec<_>>(),
         "refresh": input.refresh,
     }))
     .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -241,8 +278,14 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
                     .is_some_and(|(s, _, _)| s == "ok");
                 if is_fresh_ok {
                     // refresh：清空旧数据重新全量抓
+                    sqlx::query("DELETE FROM records WHERE uid=? AND category=? AND dim_status=?")
+                        .bind(&uid)
+                        .bind(cat.key())
+                        .bind(st.key())
+                        .execute(&state.pool)
+                        .await?;
                     sqlx::query(
-                        "UPDATE dimensions SET state='queued', records='[]', fetched_count=0,
+                        "UPDATE dimensions SET state='queued', fetched_count=0,
                                 total=NULL, next_start=0, fetched_ms=NULL, attempts=0,
                                 next_sync_ms=NULL, last_error=NULL, updated_ms=?
                          WHERE uid=? AND category=? AND dim_status=?",
@@ -280,7 +323,7 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
         state.wake_worker();
     }
 
-    // 全部维度命中缓存 → 直接终态并生成文件
+    // 全部维度命中缓存 → 直接终态
     let waiting: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM task_dims WHERE task_id = ? AND state != 'done'",
     )
@@ -288,15 +331,8 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
     .fetch_one(&state.pool)
     .await?;
     if waiting == 0 {
-        finish_task(
-            &state.pool,
-            &task_id,
-            "completed",
-            now,
-            state.config.file_retention_days * 24 * 3600 * 1000,
-        )
-        .await?;
-        generate_task_files(state, &task_id).await?;
+        finish_task(&state.pool, &task_id, "completed", now, task_retention_ms(&state.config))
+            .await?;
     }
 
     let view = get_task(state, &task_id).await?;
@@ -453,10 +489,7 @@ pub async fn delete_task(state: &AppState, task_id: &str) -> AppResult<()> {
     if exists.is_none() {
         return Err(AppError::TaskNotFound(task_id.to_string()));
     }
-    let dir = state.config.files_dir().join(task_id);
-    if dir.exists() {
-        std::fs::remove_dir_all(dir)?;
-    }
+    // 只删任务记录；records 表的维度数据与任务生命周期解耦，长期保留
     sqlx::query("DELETE FROM tasks WHERE task_id = ?")
         .bind(task_id)
         .execute(&state.pool)
@@ -465,19 +498,15 @@ pub async fn delete_task(state: &AppState, task_id: &str) -> AppResult<()> {
 }
 
 // --------------------------------------------------------------------------- //
-// 结果与文件
+// 任务结果（按维度汇总，数据本体经 /users/{uid}/marks 浏览）
 // --------------------------------------------------------------------------- //
 
 #[derive(Serialize)]
-pub struct ResultFileView {
-    pub name: String,
+pub struct ResultDimView {
     pub category: String,
     pub status: String,
-    pub format: String,
-    pub size: i64,
-    pub sha256: String,
     pub items: i64,
-    pub url: String,
+    pub with_comment: i64,
 }
 
 #[derive(Serialize)]
@@ -485,12 +514,12 @@ pub struct ResultView {
     pub task_id: String,
     pub user: String,
     pub summary: Value,
-    pub files: Vec<ResultFileView>,
+    pub dimensions: Vec<ResultDimView>,
     pub expires_at: Option<String>,
 }
 
 pub async fn task_result(state: &AppState, task_id: &str) -> AppResult<ResultView> {
-    let task = sqlx::query("SELECT status, user, expires_ms FROM tasks WHERE task_id = ?")
+    let task = sqlx::query("SELECT user, status, expires_ms FROM tasks WHERE task_id = ?")
         .bind(task_id)
         .fetch_optional(&state.pool)
         .await?
@@ -501,37 +530,10 @@ pub async fn task_result(state: &AppState, task_id: &str) -> AppResult<ResultVie
     }
     let user: String = task.get("user");
 
-    let file_rows = sqlx::query(
-        "SELECT name, category, dim_status, format, size, sha256, items
-         FROM task_files WHERE task_id = ? ORDER BY name",
-    )
-    .bind(task_id)
-    .fetch_all(&state.pool)
-    .await?;
-    let files: Vec<ResultFileView> = file_rows
-        .into_iter()
-        .map(|r| {
-            let name: String = r.get("name");
-            ResultFileView {
-                url: format!("/api/v1/exports/{task_id}/result/{name}"),
-                name,
-                category: r.get("category"),
-                status: r.get("dim_status"),
-                format: r.get("format"),
-                size: r.get("size"),
-                sha256: r.get("sha256"),
-                items: r.get("items"),
-            }
-        })
-        .collect();
-
-    // 汇总（含短评数：读 done 维度的 records 统计）
+    // 汇总（含短评数：读 records 表统计）
     let dim_rows = sqlx::query(
-        "SELECT td.category, td.dim_status, td.items, d.records
-         FROM task_dims td
-         LEFT JOIN dimensions d
-           ON d.uid = td.uid AND d.category = td.category AND d.dim_status = td.dim_status
-         WHERE td.task_id = ? AND td.state = 'done'",
+        "SELECT category, dim_status, items FROM task_dims
+         WHERE task_id = ? AND state = 'done' ORDER BY rowid",
     )
     .bind(task_id)
     .fetch_all(&state.pool)
@@ -540,27 +542,39 @@ pub async fn task_result(state: &AppState, task_id: &str) -> AppResult<ResultVie
     let mut total = 0i64;
     let mut with_comment = 0i64;
     let mut by: serde_json::Map<String, Value> = serde_json::Map::new();
+    let mut dimensions = Vec::with_capacity(dim_rows.len());
     for r in dim_rows {
         let category: String = r.get("category");
         let dim_status: String = r.get("dim_status");
         let items: i64 = r.get("items");
+        let dim_comments: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM records
+             WHERE uid = ? AND category = ? AND dim_status = ? AND comment != ''",
+        )
+        .bind(&user)
+        .bind(&category)
+        .bind(&dim_status)
+        .fetch_one(&state.pool)
+        .await?;
         total += items;
-        if let Some(records_json) = r.try_get::<Option<String>, _>("records").ok().flatten() {
-            if let Ok(recs) = serde_json::from_str::<Vec<Record>>(&records_json) {
-                with_comment += recs.iter().filter(|x| !x.comment.is_empty()).count() as i64;
-            }
-        }
+        with_comment += dim_comments;
         let label = Category::from_key(&category)
             .map(|c| format!("{}·{}", c.key(), c.status_label(status_of(&dim_status))))
             .unwrap_or_else(|| format!("{category}·{dim_status}"));
         by.insert(label, json!(items));
+        dimensions.push(ResultDimView {
+            category,
+            status: dim_status,
+            items,
+            with_comment: dim_comments,
+        });
     }
 
     Ok(ResultView {
         task_id: task_id.to_string(),
         user,
         summary: json!({"total": total, "with_comment": with_comment, "by_category_status": by}),
-        files,
+        dimensions,
         expires_at: task
             .try_get::<Option<i64>, _>("expires_ms")
             .ok()
@@ -571,43 +585,6 @@ pub async fn task_result(state: &AppState, task_id: &str) -> AppResult<ResultVie
 
 fn status_of(key: &str) -> Status {
     Status::from_key(key).unwrap_or(Status::Collect)
-}
-
-pub async fn read_task_file(
-    state: &AppState,
-    task_id: &str,
-    file_name: &str,
-) -> AppResult<(Vec<u8>, ResultFileMeta)> {
-    let row = sqlx::query(
-        "SELECT name, format, sha256 FROM task_files WHERE task_id = ? AND name = ?",
-    )
-    .bind(task_id)
-    .bind(file_name)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::FileNotFound(file_name.to_string()))?;
-
-    let path = state.config.files_dir().join(task_id).join(file_name);
-    let bytes = std::fs::read(&path).map_err(|_| AppError::FileNotFound(file_name.to_string()))?;
-    let format_key: String = row.get("format");
-    let fmt = match format_key.as_str() {
-        "csv" => Format::Csv,
-        "json" => Format::Json,
-        "md" => Format::Md,
-        _ => Format::Xlsx,
-    };
-    Ok((
-        bytes,
-        ResultFileMeta {
-            sha256: row.get("sha256"),
-            format: fmt,
-        },
-    ))
-}
-
-pub struct ResultFileMeta {
-    pub sha256: String,
-    pub format: Format,
 }
 
 // --------------------------------------------------------------------------- //
@@ -635,7 +612,7 @@ pub async fn read_marks(
     page_size: i64,
 ) -> AppResult<MarksPage> {
     let row = sqlx::query(
-        "SELECT state, records, fetched_ms FROM dimensions
+        "SELECT state, fetched_ms FROM dimensions
          WHERE uid = ? AND category = ? AND dim_status = ?",
     )
     .bind(uid)
@@ -651,14 +628,51 @@ pub async fn read_marks(
     if state_str != "ok" {
         return Err(AppError::DimensionNotCached);
     }
-    let records: Vec<Record> =
-        serde_json::from_str(&row.get::<String, _>("records")).unwrap_or_default();
     let fetched_ms: Option<i64> = row.get("fetched_ms");
-    let total = records.len();
-    let start = ((page - 1).max(0) as usize)
-        .saturating_mul(page_size.max(1) as usize)
-        .min(total);
-    let end = start.saturating_add(page_size.max(1) as usize).min(total);
+
+    let page_size = page_size.max(1);
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
+    )
+    .bind(uid)
+    .bind(category.key())
+    .bind(status.key())
+    .fetch_one(&state.pool)
+    .await?;
+    let offset = (page - 1).max(0) * page_size;
+    let rows = sqlx::query(
+        "SELECT subject_id, title, alt_title, my_rating, date, comment,
+                subject_url, cover, comment_id, intro
+         FROM records
+         WHERE uid = ? AND category = ? AND dim_status = ?
+         ORDER BY date DESC, rowid
+         LIMIT ? OFFSET ?",
+    )
+    .bind(uid)
+    .bind(category.key())
+    .bind(status.key())
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+    let items: Vec<Record> = rows
+        .into_iter()
+        .map(|r| Record {
+            category: category.key().to_string(),
+            status: status.key().to_string(),
+            title: r.get("title"),
+            alt_title: r.get("alt_title"),
+            my_rating: r.get::<Option<i64>, _>("my_rating").map(|v| v as u8),
+            date: r.get("date"),
+            comment: r.get("comment"),
+            subject_url: r.get("subject_url"),
+            subject_id: r.get("subject_id"),
+            cover: r.get("cover"),
+            comment_id: r.get("comment_id"),
+            intro: r.get("intro"),
+        })
+        .collect();
+
     Ok(MarksPage {
         user: uid.to_string(),
         category,
@@ -667,10 +681,10 @@ pub async fn read_marks(
         fresh: fetched_ms
             .map(|t| t + state.config.cache_ttl_secs * 1000 > ServerConfig::now_ms())
             .unwrap_or(false),
-        total,
+        total: total as usize,
         page,
         page_size,
-        items: records[start..end].to_vec(),
+        items,
     })
 }
 
@@ -773,7 +787,7 @@ pub async fn recompute_task_status(state: &AppState, task_id: &str) -> anyhow::R
         task_id,
         status,
         now,
-        state.config.file_retention_days * 24 * 3600 * 1000,
+        task_retention_ms(&state.config),
     )
     .await?;
 
@@ -803,7 +817,6 @@ pub async fn recompute_task_status(state: &AppState, task_id: &str) -> anyhow::R
             .await?;
     }
 
-    generate_task_files(state, task_id).await?;
     Ok(())
 }
 
@@ -812,9 +825,10 @@ async fn finish_task(
     task_id: &str,
     status: &str,
     now: i64,
-    file_retention_ms: i64,
+    task_retention_ms: i64,
 ) -> anyhow::Result<()> {
-    let expires = now + file_retention_ms;
+    // 任务记录保留期（数据本体在 records 表，与任务过期无关）
+    let expires = now + task_retention_ms;
     sqlx::query(
         "UPDATE tasks SET status = ?, finished_ms = ?, expires_ms = ?,
                 items_count = COALESCE((
@@ -832,93 +846,8 @@ async fn finish_task(
     Ok(())
 }
 
-/// 任务终态后按请求格式生成导出文件（文件名与 CLI 一致）
-pub async fn generate_task_files(state: &AppState, task_id: &str) -> anyhow::Result<()> {
-    let task = sqlx::query("SELECT user, request_json FROM tasks WHERE task_id = ?")
-        .bind(task_id)
-        .fetch_optional(&state.pool)
-        .await?;
-    let Some(task) = task else { return Ok(()) };
-    let uid: String = task.get("user");
-    let request: Value =
-        serde_json::from_str(&task.get::<String, _>("request_json")).unwrap_or(json!({}));
-    let formats: Vec<Format> = request["formats"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .filter_map(|s| match s {
-                    "csv" => Some(Format::Csv),
-                    "json" => Some(Format::Json),
-                    "md" => Some(Format::Md),
-                    "xlsx" => Some(Format::Xlsx),
-                    _ => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let dims = sqlx::query(
-        "SELECT td.category, td.dim_status, d.records
-         FROM task_dims td
-         JOIN dimensions d
-           ON d.uid = td.uid AND d.category = td.category AND d.dim_status = td.dim_status
-         WHERE td.task_id = ? AND td.state = 'done'
-         ORDER BY td.rowid",
-    )
-    .bind(task_id)
-    .fetch_all(&state.pool)
-    .await?;
-
-    let dir = state.config.files_dir().join(task_id);
-    std::fs::create_dir_all(&dir)?;
-
-    for dim in dims {
-        let category: String = dim.get("category");
-        let dim_status: String = dim.get("dim_status");
-        let Some(cat) = Category::from_key(&category) else { continue };
-        let Some(st) = Status::from_key(&dim_status) else { continue };
-        let records: Vec<Record> =
-            serde_json::from_str(&dim.get::<String, _>("records")).unwrap_or_default();
-        if records.is_empty() {
-            continue;
-        }
-        let md_title = format!(
-            "{} 的{}记录·{}",
-            uid,
-            cat.status_label(st),
-            cat.kind_label()
-        );
-
-        for fmt in &formats {
-            let name = format!("{uid}_{category}_{dim_status}.{}", fmt.key());
-            let path = dir.join(&name);
-            export_records(*fmt, &records, &path, &md_title)?;
-            let bytes = std::fs::read(&path)?;
-            let sha256 = hex_sha256(&bytes);
-            sqlx::query(
-                "INSERT OR REPLACE INTO task_files
-                        (task_id, name, category, dim_status, format, size, sha256, items)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(task_id)
-            .bind(&name)
-            .bind(&category)
-            .bind(&dim_status)
-            .bind(fmt.key())
-            .bind(bytes.len() as i64)
-            .bind(&sha256)
-            .bind(records.len() as i64)
-            .execute(&state.pool)
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-fn hex_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+fn task_retention_ms(config: &super::config::ServerConfig) -> i64 {
+    config.task_retention_days * 24 * 3600 * 1000
 }
 
 // --------------------------------------------------------------------------- //
@@ -936,26 +865,21 @@ pub async fn run_cleanup_loop(state: AppState) {
 
 async fn cleanup_once(state: &AppState) -> anyhow::Result<()> {
     let now = ServerConfig::now_ms();
-    let task_ret = state.config.task_retention_days * 24 * 3600 * 1000;
-    let file_ret = state.config.file_retention_days * 24 * 3600 * 1000;
+    let retention = task_retention_ms(&state.config);
 
+    // 只清理过期任务记录；records 表数据与任务生命周期解耦，不参与清理
     let expired: Vec<String> = sqlx::query_scalar(
         "SELECT task_id FROM tasks
-         WHERE (expires_ms IS NOT NULL AND expires_ms + ? < ?)
+         WHERE (expires_ms IS NOT NULL AND expires_ms < ?)
             OR (finished_ms IS NOT NULL AND finished_ms + ? < ?)",
     )
-    .bind(file_ret)
     .bind(now)
-    .bind(task_ret)
+    .bind(retention)
     .bind(now)
     .fetch_all(&state.pool)
     .await?;
 
     for task_id in expired {
-        let dir: PathBuf = state.config.files_dir().join(&task_id);
-        if dir.exists() {
-            let _ = std::fs::remove_dir_all(&dir);
-        }
         sqlx::query("DELETE FROM tasks WHERE task_id = ?")
             .bind(&task_id)
             .execute(&state.pool)
@@ -999,7 +923,6 @@ pub async fn server_info(state: &AppState) -> AppResult<Value> {
         "cache": {
             "ttl_seconds": state.config.cache_ttl_secs,
             "retention_task_days": state.config.task_retention_days,
-            "retention_file_days": state.config.file_retention_days,
         },
         "queue": {"queued": queued, "running": running},
         "auth_enabled": !state.config.token.is_empty(),
