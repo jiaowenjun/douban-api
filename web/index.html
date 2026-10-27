@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>豆瓣导出服务器 · 管理后台</title>
+    <script>
+      // 首帧前按系统主题设好底色，避免暗色模式下白屏闪烁
+      if (matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.style.colorScheme = 'dark';
+        document.documentElement.style.background = '#000';
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -13,6 +13,7 @@ import {
   Space,
   Table,
   Tag,
+  theme,
   Tooltip,
   Typography,
 } from 'antd';
@@ -34,6 +35,7 @@ interface Query {
 export default function Marks() {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
+  const { token } = theme.useToken();
   const [form] = Form.useForm<Query>();
   const [query, setQuery] = useState<Query | null>(null);
   const [page, setPage] = useState(1);
@@ -132,7 +134,7 @@ export default function Marks() {
               {data.user} 的 {dimLabel(data.category, data.status)} · 共 {data.total} 条
             </span>
             <Tag color={data.fresh ? 'success' : 'default'}>{data.fresh ? '缓存有效' : '缓存已过期'}</Tag>
-            <span style={{ color: '#888' }}>抓取于 {dayjs(data.cached_at).format('YYYY-MM-DD HH:mm')}</span>
+            <span style={{ color: token.colorTextDescription }}>抓取于 {dayjs(data.cached_at).format('YYYY-MM-DD HH:mm')}</span>
           </Space>
         </div>
       )}
@@ -195,7 +197,7 @@ export default function Marks() {
                   {v}
                 </Tooltip>
               ) : (
-                <span style={{ color: '#ccc' }}>—</span>
+                <span style={{ color: token.colorTextQuaternary }}>—</span>
               ),
           },
         ]}

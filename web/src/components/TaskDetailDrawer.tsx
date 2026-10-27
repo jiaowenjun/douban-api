@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Descriptions, Drawer, Progress, Space, Table } from 'antd';
+import { Alert, Button, Card, Descriptions, Drawer, Progress, Space, Table, theme } from 'antd';
 import { EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { ProgressEntry, ResultDim, ResultView, TaskView } from '../types';
@@ -10,6 +10,7 @@ import { DimStateTag, TaskStatusTag, dimLabel } from '../labels';
 const TERMINAL = ['completed', 'partial', 'failed'];
 
 function DimProgress({ dim }: { dim: ProgressEntry }) {
+  const { token } = theme.useToken();
   const done = dim.state === 'done';
   const failed = dim.state === 'error';
   // page = 已完成的页数（next_start/15）；running 时正在抓第 page+1 页
@@ -25,7 +26,7 @@ function DimProgress({ dim }: { dim: ProgressEntry }) {
           <span>{dimLabel(dim.category, dim.status)}</span>
           <DimStateTag state={dim.state} />
         </Space>
-        <span style={{ color: '#888' }}>
+        <span style={{ color: token.colorTextDescription }}>
           {dim.fetched}
           {dim.total != null ? ` / ${dim.total}` : ''} 条{pageInfo}
         </span>
