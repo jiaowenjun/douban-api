@@ -1,5 +1,6 @@
 /target/
 output/
 output_rs*/
+data/
 *.ckpt.json
 .DS_Store

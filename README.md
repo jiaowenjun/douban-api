@@ -4,11 +4,14 @@
 
 原理与背景见 [豆瓣API调研报告.md](豆瓣API调研报告.md) 中的"路径②：公开收藏页 HTML 抓取"——豆瓣官方 API 已停止服务，本工具直接抓取公开收藏页（`movie/book/music.douban.com/people/{uid}/...`）并解析，**无需登录、无需 Cookie**。
 
-服务器化改造的接口设计见 [服务器API设计.md](服务器API设计.md)（设计稿，尚未实现）。
+服务器 API 规范见 [服务器API设计.md](服务器API设计.md)（已实现）；技术栈与实现模式的分析见 [服务器技术选型.md](服务器技术选型.md)（基于 weimo 系列后端的实地考察，结论：axum + tokio + sqlx/SQLite + DB 即队列的 worker 模式）。
 
-Rust 实现（reqwest + scraper + clap），编译为单二进制，无需运行时环境。
+Rust 实现（reqwest + scraper + clap），编译为单二进制，无需运行时环境。提供 **CLI** 与 **HTTP 服务器** 两种形态，共享同一抓取核心（`src/crawler.rs`）：
 
-## 使用
+- `douban-export`——命令行一次性导出（文件断点续爬）
+- `douban-export-server`——axum 服务器（异步任务 + 维度缓存 + 全局限速），API 规范见 [服务器API设计.md](服务器API设计.md)
+
+## 使用（CLI）
 
 ```bash
 cargo build --release
@@ -17,6 +20,41 @@ cargo build --release
     --category movie book --status collect wish \
     --format csv json md xlsx --out output
 ```
+
+## 使用（服务器）
+
+```bash
+cargo build --release
+EXPORT_SERVER_BIND=0.0.0.0:8080 \
+EXPORT_SERVER_DATA_DIR=./data \
+EXPORT_SERVER_TOKEN=my-secret \        # 留空则不启用鉴权
+./target/release/douban-export-server
+```
+
+核心流程（异步任务模型，细节见设计文档）：
+
+```bash
+# 1. 创建任务（wait_timeout 可选同步等待 ≤30s）
+curl -X POST http://127.0.0.1:8080/api/v1/exports \
+     -H "Authorization: Bearer my-secret" -H "Content-Type: application/json" \
+     -d '{"user":"wenjun30","categories":["movie","book","music"],"formats":["csv","json"]}'
+
+# 2. 轮询进度（progress[] 按维度给出 fetched/total）
+curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/exports/{task_id}
+
+# 3. 取结果清单 / 下载文件（支持 ETag/304）
+curl -H "Authorization: Bearer my-secret" http://127.0.0.1:8080/api/v1/exports/{task_id}/result
+curl -O -H "Authorization: Bearer my-secret" \
+     "http://127.0.0.1:8080/api/v1/exports/{task_id}/result/wenjun30_movie_collect.csv"
+
+# 4. 结构化直读缓存（分页 JSON，未缓存返回 404 引导建任务）
+curl -H "Authorization: Bearer my-secret" \
+     "http://127.0.0.1:8080/api/v1/users/wenjun30/marks?category=movie&status=collect&page=1&page_size=50"
+```
+
+其余端点：任务列表/删除（`GET/DELETE /api/v1/exports`）、服务元信息（`GET /api/v1/server/info`）、健康检查（`GET /healthz`，不鉴权）。全部配置项（限速、TTL、熔断、保留期等）经环境变量设置，见 `src/server/config.rs`。
+
+内置防护：按 `(uid, category, status)` 维度缓存（TTL 24h，`refresh:true` 强制刷新）、同维度 single-flight、单 worker 串行 + 每次抓取 ≥2s 间隔（全局令牌桶）、403/超时指数退避重试、连续 5 次失败熔断 10 分钟、per-IP 限流。
 
 ## 参数
 
