@@ -56,9 +56,22 @@ impl Default for ReqwestFetcher {
 
 impl ReqwestFetcher {
     pub fn new() -> Self {
+        Self::with_cookie("")
+    }
+
+    /// 带豆瓣登录 Cookie 构造（如 `dbcl2="..."`）。
+    /// 免登录抓取看不到被豆瓣隐藏的条目（计数含但列表不渲染），
+    /// 配置 Cookie 后以登录身份抓取即可补全；留空保持免登录行为。
+    pub fn with_cookie(cookie: &str) -> Self {
         let mut headers = reqwest::header::HeaderMap::new();
         for (k, v) in BASE_HEADERS {
             headers.insert(k, v.parse().expect("static header"));
+        }
+        if !cookie.is_empty() {
+            headers.insert(
+                reqwest::header::COOKIE,
+                cookie.parse().expect("合法 cookie 头"),
+            );
         }
         let client = reqwest::Client::builder()
             .user_agent(UA)

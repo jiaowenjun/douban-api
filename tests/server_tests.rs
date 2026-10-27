@@ -30,6 +30,7 @@ fn test_config(dir: &TempDir, token: &str) -> ServerConfig {
         bind: "127.0.0.1:0".to_string(),
         data_dir: dir.path().to_path_buf(),
         token: token.to_string(),
+        douban_cookie: String::new(),
         cors_origins: String::new(),
         cache_ttl_secs: 86_400,
         crawl_min_interval_secs: 0.0, // 测试不限速
@@ -419,7 +420,7 @@ async fn invalid_arguments_return_400_envelope() {
 async fn marks_pagination_and_not_cached() {
     let (_dir, state) = setup().await;
     let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
-    seed_ok_dimension(&state, Category::Music, records).await;
+    seed_ok_dimension(&state, Category::Music, records.clone()).await;
 
     let app = build_app(state.clone());
     let (code, v) = request(
@@ -433,8 +434,10 @@ async fn marks_pagination_and_not_cached() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(v["total"], 15);
     assert_eq!(v["fresh"], true);
+    // 第 2 页（每页 5 条）必须是第 6–10 条，而非从头偏移 page-1
     assert_eq!(v["items"].as_array().unwrap().len(), 5);
-    assert_eq!(v["items"][0]["title"], v["items"][0]["title"]); // 结构存在
+    assert_eq!(v["items"][0]["title"], records[5].title);
+    assert_eq!(v["items"][4]["title"], records[9].title);
 
     // 未缓存维度
     let (code, v) = request(

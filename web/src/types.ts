@@ -129,6 +129,7 @@ export interface ServerInfo {
   };
   queue: { queued: number; running: number };
   auth_enabled: boolean;
+  cookie_enabled: boolean;
 }
 
 export interface CreateTaskBody {

@@ -655,8 +655,10 @@ pub async fn read_marks(
         serde_json::from_str(&row.get::<String, _>("records")).unwrap_or_default();
     let fetched_ms: Option<i64> = row.get("fetched_ms");
     let total = records.len();
-    let start = ((page - 1).max(0) as usize).min(total);
-    let end = (start + page_size as usize).min(total);
+    let start = ((page - 1).max(0) as usize)
+        .saturating_mul(page_size.max(1) as usize)
+        .min(total);
+    let end = start.saturating_add(page_size.max(1) as usize).min(total);
     Ok(MarksPage {
         user: uid.to_string(),
         category,
@@ -1001,5 +1003,6 @@ pub async fn server_info(state: &AppState) -> AppResult<Value> {
         },
         "queue": {"queued": queued, "running": running},
         "auth_enabled": !state.config.token.is_empty(),
+        "cookie_enabled": !state.config.douban_cookie.is_empty(),
     }))
 }

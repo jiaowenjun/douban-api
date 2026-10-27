@@ -18,6 +18,10 @@ pub struct ServerConfig {
     #[arg(long, env = "EXPORT_SERVER_TOKEN", default_value = "")]
     pub token: String,
 
+    /// 豆瓣登录 Cookie（如 'dbcl2="xxx"'；留空则免登录抓取，隐藏条目不可见）
+    #[arg(long, env = "EXPORT_DOUBAN_COOKIE", default_value = "")]
+    pub douban_cookie: String,
+
     /// 允许的 CORS 来源（逗号分隔，留空关闭）
     #[arg(long, env = "EXPORT_SERVER_CORS_ORIGINS", default_value = "")]
     pub cors_origins: String,

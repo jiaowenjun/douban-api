@@ -138,7 +138,9 @@ export default function Overview() {
 
       <ProCard title="运行参数" size="small" style={{ marginTop: 16 }} headerBordered>
         {info ? (
-          <div>抓取间隔 ≥ {info.crawl.min_interval_seconds}s · 缓存 TTL {Math.round(info.cache.ttl_seconds / 3600)} 小时
+          <div>
+            {info.cookie_enabled ? '登录抓取（Cookie 已配置，可取隐藏条目）' : '免登录抓取（豆瓣隐藏条目不可见）'} · 抓取间隔 ≥{' '}
+            {info.crawl.min_interval_seconds}s · 缓存 TTL {Math.round(info.cache.ttl_seconds / 3600)} 小时
             · 任务保留 {info.cache.retention_task_days} 天 · 文件保留 {info.cache.retention_file_days} 天
             · 熔断阈值 {info.crawl.circuit.threshold} 次 / 冷却 {Math.round(info.crawl.circuit.cooldown_seconds / 60)} 分钟</div>
         ) : (

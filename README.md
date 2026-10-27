@@ -28,6 +28,7 @@ cargo build --release
 EXPORT_SERVER_BIND=0.0.0.0:8080 \
 EXPORT_SERVER_DATA_DIR=./data \
 EXPORT_SERVER_TOKEN=my-secret \        # 留空则不启用鉴权
+EXPORT_DOUBAN_COOKIE='dbcl2="xxx"' \   # 可选：登录抓取，补全豆瓣隐藏条目
 ./target/release/douban-export-server
 ```
 
@@ -93,7 +94,7 @@ cd web && pnpm build                 # 产物为纯静态 dist/，可同源部�
 
 ## 已知限制
 
-- 个别条目豆瓣已删除/不再渲染，总数可能差 1~2 条（如测试账号电影 207/208），无法通过任何页面模式取回
+- **豆瓣隐藏条目**：个别条目（已删除/被锁定/仅登录可见）豆瓣"计数包含但列表不渲染"，免登录抓取会差 1~2 条（如测试账号电影 208/209、音乐 28/29）——抓取器并未丢数据，是豆瓣不发给未登录访客。服务器可设 `EXPORT_DOUBAN_COOKIE='dbcl2="xxx"'`（浏览器登录豆瓣后从开发者工具复制）以登录身份抓取补全；CLI 暂不支持
 - 仅能获取用户**公开**的标记；设置了隐私的账号拿不到
 - 页面结构变更时解析器需要更新（2026-10 实测有效）
 

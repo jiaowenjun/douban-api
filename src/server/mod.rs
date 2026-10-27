@@ -27,7 +27,7 @@ pub async fn run_server() -> Result<()> {
 
     tokio::spawn(worker::run_worker(
         state.clone(),
-        fetcher::ReqwestFetcher::new(),
+        fetcher::ReqwestFetcher::with_cookie(&config.douban_cookie),
     ));
     tokio::spawn(service::run_cleanup_loop(state.clone()));
 
