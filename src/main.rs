@@ -1,6 +1,6 @@
 //! douban-export —— 免登录导出豆瓣用户的公开书影音标记（含短评）
 //!
-//! 原理（与 Python 版 douban_export.py 一致，即调研报告中的"路径②"）：
+//! 原理（调研报告《豆瓣API调研报告.md》中的"路径②：公开收藏页 HTML 抓取"）：
 //! 电影/图书/音乐的收藏页是公开网页，无需登录 Cookie，直接抓取 HTML 解析：
 //!   https://movie.douban.com/people/{uid}/{collect|do|wish}?start={0,15,30,...}
 //!   https://book.douban.com/people/{uid}/...
@@ -103,7 +103,7 @@ enum Format {
     Xlsx,
 }
 
-/// 一条标记记录，字段与 Python 版完全一致（顺序即 CSV 列顺序）。
+/// 一条标记记录（声明顺序即 CSV 列顺序）。
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Record {
     category: String,
@@ -136,7 +136,7 @@ struct Checkpoint {
 // 文本/解析辅助
 // --------------------------------------------------------------------------- //
 
-/// 压缩空白为单个空格并去首尾（对应 Python 的 re.sub(r"\s+", " ", s).strip()）。
+/// 压缩空白为单个空格并去首尾。
 fn norm_space(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -541,7 +541,7 @@ fn export_csv(records: &[Record], path: &Path) -> Result<()> {
     use std::io::Write;
     let mut f = fs::File::create(path)?;
     f.write_all("\u{FEFF}".as_bytes())?; // BOM，便于 Excel 直接打开
-    // CRLF 行尾与 Python csv 模块默认一致，保证两版输出逐字节相同；
+    // CRLF 行尾（csv 模块的通用约定，Excel 友好）；
     // serialize 结构体时 csv 库会自动以字段名写表头，无需手动 write_record
     let mut w = csv::WriterBuilder::new()
         .terminator(csv::Terminator::CRLF)
@@ -703,7 +703,7 @@ fn main() -> Result<()> {
                 continue;
             }
 
-            // 与 Python 版一致：按标记日期倒序
+            // 按标记日期倒序
             let mut records = records;
             records.sort_by(|a, b| b.date.cmp(&a.date));
 

@@ -4,40 +4,14 @@
 
 原理与背景见 [豆瓣API调研报告.md](豆瓣API调研报告.md) 中的"路径②：公开收藏页 HTML 抓取"——豆瓣官方 API 已停止服务，本工具直接抓取公开收藏页（`movie/book/music.douban.com/people/{uid}/...`）并解析，**无需登录、无需 Cookie**。
 
-本仓库提供两个功能完全对齐的实现：
-
-| 实现 | 路径 | 说明 |
-|---|---|---|
-| Python | `douban_export.py` | 依赖 requests + beautifulsoup4（+ 可选 openpyxl），uv venv 环境 |
-| Rust | `douban-export-rs/` | 单二进制，reqwest + scraper + clap，`cargo build --release` |
-
-两版 CLI 参数、字段、导出格式完全一致，且对同一账号的导出结果**逐字节相同**（2026-10-27 用测试账号验证：3 类别 × json/csv 全部 `cmp` 一致）。
+Rust 实现（reqwest + scraper + clap），编译为单二进制，无需运行时环境。
 
 ## 使用
 
-### Python
-
 ```bash
-# 准备环境（二选一）
-uv venv && uv pip install requests beautifulsoup4 openpyxl   # xlsx 可选
-# 或直接用系统 Python（需 requests + beautifulsoup4）
-
-# 全部类型（电影/图书/音乐）的"看过/读过/听过"
-.venv/bin/python douban_export.py wenjun30
-
-# 完整 URL 也可以；指定类型、状态和导出格式
-.venv/bin/python douban_export.py https://www.douban.com/people/wenjun30/ \
-    --category movie book --status collect wish \
-    --format csv json md xlsx --out output
-```
-
-### Rust
-
-```bash
-cd douban-export-rs
 cargo build --release
-./target/release/douban-export wenjun30                      # 默认 csv json
-./target/release/douban-export wenjun30 \
+./target/release/douban-export wenjun30                      # 全部类型，默认导出 csv json
+./target/release/douban-export https://www.douban.com/people/wenjun30/ \
     --category movie book --status collect wish \
     --format csv json md xlsx --out output
 ```
