@@ -7,11 +7,159 @@
   font-size: var(--font-size-xl, 24px);
 }
 
+.marks-page__meta {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 .marks-page__placeholder {
   display: grid;
   gap: 0.75em;
+  justify-items: start;
   padding: calc(var(--space-card-pad, 13px) * 2);
-  border: 1px dashed hsl(var(--border));
+  border: 1px dashed var(--color-border, hsl(var(--border)));
   border-radius: var(--radius);
-  color: hsl(var(--muted-foreground));
+  color: var(--color-text-secondary);
+}
+
+.marks-page__hint {
+  margin: 0;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* ------------------------------------------------------------------ */
+/* 列表条目：封面 + 标题/评分/短评                                     */
+/* ------------------------------------------------------------------ */
+
+.marks-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marks-item__link {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-divider, var(--color-border));
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.marks-item__link:hover {
+  background: var(--color-bg-hover);
+}
+
+.marks-item__cover {
+  width: 44px;
+  height: 66px;
+  flex: none;
+  border-radius: var(--radius-xs, 4px);
+  object-fit: cover;
+  background: var(--color-bg-raised);
+}
+
+.marks-item__cover--empty {
+  border: 1px dashed var(--color-border);
+}
+
+.marks-item__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  align-content: start;
+}
+
+.marks-item__title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.marks-item__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marks-item__alt {
+  overflow: hidden;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marks-item__intro {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.marks-item__comment {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+  line-height: var(--font-line-height-reading, 1.6);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.marks-item__date {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 评分：底色五星 + 金色按比例裁切覆盖层 */
+.marks-rating {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.marks-rating__base {
+  color: var(--color-border-emphasis);
+}
+
+.marks-rating__fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  /* 星级金：token 体系暂无 warning 类颜色 */
+  color: #f5a623;
+}
+
+/* ------------------------------------------------------------------ */
+/* 加载更多                                                            */
+/* ------------------------------------------------------------------ */
+
+.marks-page__more {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+.marks-page__more-error {
+  color: var(--color-text-danger);
+  font-size: var(--font-size-sm);
 }

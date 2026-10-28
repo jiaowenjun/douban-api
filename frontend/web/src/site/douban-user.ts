@@ -11,6 +11,8 @@ export type DoubanUserValue = {
   profile: DoubanProfile | null
   signIn: (uid: string) => void
   signOut: () => void
+  /** 打开登录对话框（对话框由 Provider 持有，任意入口共用一份开关） */
+  openLogin: () => void
 }
 
 export const DoubanUserContext = createContext<DoubanUserValue | null>(null)

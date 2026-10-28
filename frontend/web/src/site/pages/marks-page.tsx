@@ -1,31 +1,267 @@
+import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Navigate, useParams } from 'react-router'
 
-import {
-  DEFAULT_MARKS_PATH,
-  MARKS_STATUS,
-  resolveMarksView,
-} from '../navigation'
+import { TextButton } from 'weimo-ui-core/components/text-button'
+
+import { fetchDoubanMarks } from '../api'
+import type { DoubanMark } from '../api'
+import { useDoubanUser } from '../douban-user'
+import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
 
-/** 标记列表页骨架：路由参数驱动标题，列表内容待接入 /api/v1/users/{uid}/marks */
+const PAGE_SIZE = 20
+
+/** 列表态；加载更多失败保留已加载条目，只在按钮旁提示 */
+type MarksState =
+  | { phase: 'loading' }
+  | { phase: 'not-cached' }
+  | { phase: 'error'; message: string }
+  | {
+      phase: 'list'
+      items: DoubanMark[]
+      total: number
+      page: number
+      cachedAt: string
+      loadingMore: boolean
+      moreError: string | null
+    }
+
+/** 评分星级：底色五星 + 按比例裁切的金色覆盖层（豆瓣式两段 ★★★★★ 叠加） */
+function RatingStars({ value }: { value: number }) {
+  const label = `我的评分：${value} 星`
+  return (
+    <span aria-label={label} className="marks-rating" title={label}>
+      <span aria-hidden="true" className="marks-rating__base">
+        ★★★★★
+      </span>
+      <span
+        aria-hidden="true"
+        className="marks-rating__fill"
+        style={{ width: `${(value / 5) * 100}%` }}
+      >
+        ★★★★★
+      </span>
+    </span>
+  )
+}
+
+/** RFC3339 → YYYY-MM-DD（cached_at 只取日期粒度即可） */
+function formatDate(iso: string): string {
+  return iso ? iso.slice(0, 10) : ''
+}
+
+/** 标记列表页：读登录用户的缓存标记（GET /users/{uid}/marks），只读不触发抓取 */
 export function MarksPage() {
   const { category } = useParams()
   const view = resolveMarksView(category)
+  const { uid, profile, openLogin } = useDoubanUser()
+
+  // 请求序号：uid/类别切换或加载更多时自增，丢弃迟到的旧响应
+  const seqRef = useRef(0)
+  // 失败重试用的重放计数：自增即让下方 effect 重跑
+  const [reloadNonce, setReloadNonce] = useState(0)
+
+  const marksCategory = view?.category
+  const requestKey =
+    uid && marksCategory ? `${uid}|${marksCategory}|${reloadNonce}` : null
+
+  // 状态与它对应的请求 key 绑定；渲染期发现 key 变化即回到 loading
+  // （render 期调整，模式同 login-dialog 的 prevOpen，避免 effect 内同步 setState）
+  const [snapshot, setSnapshot] = useState<{
+    key: string | null
+    state: MarksState
+  }>({ key: null, state: { phase: 'loading' } })
+  if (requestKey !== snapshot.key) {
+    setSnapshot({ key: requestKey, state: { phase: 'loading' } })
+  }
+  const state = snapshot.state
+
+  useEffect(() => {
+    if (!requestKey || !uid || !marksCategory) return
+    const seq = ++seqRef.current
+    fetchDoubanMarks(uid, marksCategory, 1, PAGE_SIZE).then((result) => {
+      if (seq !== seqRef.current) return
+      if (result.ok) {
+        setSnapshot({
+          key: requestKey,
+          state: {
+            phase: 'list',
+            items: result.data.items,
+            total: result.data.total,
+            page: result.data.page,
+            cachedAt: result.data.cached_at,
+            loadingMore: false,
+            moreError: null,
+          },
+        })
+      } else if (result.kind === 'not-cached') {
+        setSnapshot({ key: requestKey, state: { phase: 'not-cached' } })
+      } else {
+        setSnapshot({
+          key: requestKey,
+          state: { phase: 'error', message: result.message },
+        })
+      }
+    })
+  }, [uid, marksCategory, requestKey])
+
+  async function loadMore() {
+    if (!uid || !marksCategory || state.phase !== 'list' || state.loadingMore) {
+      return
+    }
+    const seq = ++seqRef.current
+    setSnapshot({
+      key: requestKey,
+      state: { ...state, loadingMore: true, moreError: null },
+    })
+    const nextPage = state.page + 1
+    const result = await fetchDoubanMarks(
+      uid,
+      marksCategory,
+      nextPage,
+      PAGE_SIZE,
+    )
+    if (seq !== seqRef.current) return
+    if (result.ok) {
+      setSnapshot({
+        key: requestKey,
+        state: {
+          phase: 'list',
+          items: [...state.items, ...result.data.items],
+          total: result.data.total,
+          page: result.data.page,
+          cachedAt: result.data.cached_at,
+          loadingMore: false,
+          moreError: null,
+        },
+      })
+    } else {
+      setSnapshot({
+        key: requestKey,
+        state: { ...state, loadingMore: false, moreError: result.message },
+      })
+    }
+  }
 
   if (!view) {
     return <Navigate replace to={DEFAULT_MARKS_PATH} />
   }
 
+  let content: ReactNode
+  if (!uid) {
+    content = (
+      <div className="marks-page__placeholder">
+        <p>登录豆瓣账号后，这里会展示你{view.pageTitle}的记录。</p>
+        <TextButton onClick={openLogin} type="button">
+          登录豆瓣账号
+        </TextButton>
+      </div>
+    )
+  } else if (state.phase === 'loading') {
+    content = <div className="marks-page__placeholder">加载中…</div>
+  } else if (state.phase === 'not-cached') {
+    content = (
+      <div className="marks-page__placeholder">
+        <p>用户 {profile?.username || uid} 的数据还没有同步过。</p>
+        <p className="marks-page__hint">
+          本站只读缓存，请先在服务端发起一次同步，完成后刷新本页即可看到
+          {view.pageTitle}的记录。
+        </p>
+      </div>
+    )
+  } else if (state.phase === 'error') {
+    content = (
+      <div className="marks-page__placeholder">
+        <p>加载失败：{state.message}</p>
+        <TextButton
+          onClick={() => setReloadNonce((n) => n + 1)}
+          type="button"
+          variant="ghost"
+        >
+          重试
+        </TextButton>
+      </div>
+    )
+  } else {
+    const hasMore = state.items.length < state.total
+    const syncedDate = formatDate(state.cachedAt)
+    content = (
+      <>
+        <p className="marks-page__meta">
+          {profile?.username || uid} 共 {state.total} 条
+          {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
+        </p>
+        <ul className="marks-list">
+          {state.items.map((mark) => (
+            <li
+              className="marks-item"
+              key={mark.comment_id || mark.subject_id}
+            >
+              <a
+                className="marks-item__link"
+                href={mark.subject_url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {mark.cover ? (
+                  <img
+                    alt=""
+                    className="marks-item__cover"
+                    loading="lazy"
+                    src={mark.cover}
+                  />
+                ) : (
+                  <div className="marks-item__cover marks-item__cover--empty" />
+                )}
+                <div className="marks-item__body">
+                  <div className="marks-item__title-row">
+                    <span className="marks-item__title">{mark.title}</span>
+                    {mark.my_rating ? (
+                      <RatingStars value={mark.my_rating} />
+                    ) : null}
+                  </div>
+                  {mark.alt_title ? (
+                    <div className="marks-item__alt">{mark.alt_title}</div>
+                  ) : null}
+                  {mark.intro ? (
+                    <div className="marks-item__intro">{mark.intro}</div>
+                  ) : null}
+                  {mark.comment ? (
+                    <p className="marks-item__comment">{mark.comment}</p>
+                  ) : null}
+                  <div className="marks-item__date">{mark.date}</div>
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+        {hasMore ? (
+          <div className="marks-page__more">
+            {state.moreError ? (
+              <span className="marks-page__more-error">
+                {state.moreError}
+              </span>
+            ) : null}
+            <TextButton
+              disabled={state.loadingMore}
+              onClick={loadMore}
+              type="button"
+            >
+              {state.loadingMore
+                ? '加载中…'
+                : `加载更多（${state.items.length}/${state.total}）`}
+            </TextButton>
+          </div>
+        ) : null}
+      </>
+    )
+  }
+
   return (
     <section className="marks-page">
       <h1 className="marks-page__title">{view.pageTitle}</h1>
-      <div className="marks-page__placeholder">
-        <p>列表内容建设中，将展示 {view.pageTitle} 的条目。</p>
-        <p>
-          数据源：GET /api/v1/users/&#123;uid&#125;/marks?category=
-          {view.category}&amp;status={MARKS_STATUS}
-        </p>
-      </div>
+      {content}
     </section>
   )
 }

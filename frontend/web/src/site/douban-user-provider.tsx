@@ -6,6 +6,7 @@ import {
   DoubanUserContext,
   readStoredDoubanUid,
 } from './douban-user'
+import { LoginDialog } from './login-dialog'
 import { fetchDoubanProfile } from './api'
 import type { DoubanProfile } from './api'
 
@@ -21,9 +22,11 @@ function persistDoubanUid(uid: string | null) {
   }
 }
 
-/** 站点身份：豆瓣用户 ID 存 localStorage，后续 /users/{uid}/marks 等请求都依赖它 */
+/** 站点身份：豆瓣用户 ID 存 localStorage，后续 /users/{uid}/marks 等请求都依赖它。
+ *  登录对话框的开关也持在这里，侧边栏入口与内容页的登录引导共用一份 */
 export function DoubanUserProvider({ children }: { children: ReactNode }) {
   const [uid, setUid] = useState<string | null>(readStoredDoubanUid)
+  const [loginOpen, setLoginOpen] = useState(false)
   // 资料与它所属的 uid 绑定存储；展示值在渲染期派生，登出/切换后旧资料自然失效
   const [profileEntry, setProfileEntry] = useState<{
     uid: string
@@ -57,14 +60,17 @@ export function DoubanUserProvider({ children }: { children: ReactNode }) {
     persistDoubanUid(null)
   }, [])
 
+  const openLogin = useCallback(() => setLoginOpen(true), [])
+
   const value = useMemo(
-    () => ({ uid, profile, signIn, signOut }),
-    [uid, profile, signIn, signOut],
+    () => ({ uid, profile, signIn, signOut, openLogin }),
+    [uid, profile, signIn, signOut, openLogin],
   )
 
   return (
     <DoubanUserContext.Provider value={value}>
       {children}
+      <LoginDialog onOpenChange={setLoginOpen} open={loginOpen} />
     </DoubanUserContext.Provider>
   )
 }

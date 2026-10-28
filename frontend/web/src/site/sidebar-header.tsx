@@ -1,10 +1,8 @@
-import { useState } from 'react'
 import { LogIn, UserRound } from 'lucide-react'
 
 import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 
 import { useDoubanUser } from './douban-user'
-import { LoginDialog } from './login-dialog'
 import { SidebarDebugSwitch } from './sidebar-debug-switch'
 import './sidebar-header.css'
 
@@ -16,8 +14,7 @@ type SidebarHeaderProps = {
     样式对齐 weimo-biji 的 biji-side-bar__header；
     附带钉在侧边栏底部的 DEBUG 子容器描边开关 */
 export function SidebarHeader({ siteName }: SidebarHeaderProps) {
-  const { uid, profile } = useDoubanUser()
-  const [loginOpen, setLoginOpen] = useState(false)
+  const { uid, profile, openLogin } = useDoubanUser()
 
   return (
     <>
@@ -34,7 +31,7 @@ export function SidebarHeader({ siteName }: SidebarHeaderProps) {
               uid ? `豆瓣账号：${uid}，点击管理` : '登录豆瓣账号'
             }
             className="sidebar-header__button"
-            onClick={() => setLoginOpen(true)}
+            onClick={openLogin}
             size="sm"
             tooltip={
               uid
@@ -60,7 +57,6 @@ export function SidebarHeader({ siteName }: SidebarHeaderProps) {
         </div>
       </div>
       <SidebarDebugSwitch />
-      <LoginDialog onOpenChange={setLoginOpen} open={loginOpen} />
     </>
   )
 }
