@@ -1,16 +1,11 @@
-/* 书影音标记卡片：封面 + 标题/评分/短评（列表条目） */
+/* 书影音标记卡片：封面 + 标题/评分/短评（列表条目）。
+   材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core 的 card-surface
+   —— 由组件挂 card-surface 类提供，这里只留布局与内容排版 */
 
-.mark-card__link {
+.mark-card {
   display: flex;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--color-border-divider, var(--color-border));
-  border-radius: var(--radius-sm);
-  text-decoration: none;
-}
-
-.mark-card__link:hover {
-  background: var(--color-bg-hover);
 }
 
 .mark-card__cover {

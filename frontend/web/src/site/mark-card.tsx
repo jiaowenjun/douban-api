@@ -1,3 +1,5 @@
+import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
+
 import type { DoubanMark } from './api'
 import './mark-card.css'
 
@@ -24,43 +26,36 @@ function RatingStars({ value }: { value: number }) {
   )
 }
 
-/** 书影音标记卡片：封面 + 标题/评分/短评的列表条目（含 <li>），整卡链到豆瓣条目页 */
+/** 书影音标记卡片：封面 + 标题/评分/短评的列表条目（含 <li>）；
+    材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，与 BaseCard 同源；
+    纯展示，无链接与交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   return (
-    <li className="mark-card">
-      <a
-        className="mark-card__link"
-        href={mark.subject_url}
-        rel="noreferrer"
-        target="_blank"
-      >
-        {mark.cover ? (
-          <img
-            alt=""
-            className="mark-card__cover"
-            loading="lazy"
-            src={mark.cover}
-          />
-        ) : (
-          <div className="mark-card__cover mark-card__cover--empty" />
-        )}
-        <div className="mark-card__body">
-          <div className="mark-card__title-row">
-            <span className="mark-card__title">{mark.title}</span>
-            {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-          </div>
-          {mark.alt_title ? (
-            <div className="mark-card__alt">{mark.alt_title}</div>
-          ) : null}
-          {mark.intro ? (
-            <div className="mark-card__intro">{mark.intro}</div>
-          ) : null}
-          {mark.comment ? (
-            <p className="mark-card__comment">{mark.comment}</p>
-          ) : null}
-          <div className="mark-card__date">{mark.date}</div>
+    <li className={getCardSurfaceClassName('mark-card')}>
+      {mark.cover ? (
+        <img
+          alt=""
+          className="mark-card__cover"
+          loading="lazy"
+          src={mark.cover}
+        />
+      ) : (
+        <div className="mark-card__cover mark-card__cover--empty" />
+      )}
+      <div className="mark-card__body">
+        <div className="mark-card__title-row">
+          <span className="mark-card__title">{mark.title}</span>
+          {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
         </div>
-      </a>
+        {mark.alt_title ? (
+          <div className="mark-card__alt">{mark.alt_title}</div>
+        ) : null}
+        {mark.intro ? <div className="mark-card__intro">{mark.intro}</div> : null}
+        {mark.comment ? (
+          <p className="mark-card__comment">{mark.comment}</p>
+        ) : null}
+        <div className="mark-card__date">{mark.date}</div>
+      </div>
     </li>
   )
 }
