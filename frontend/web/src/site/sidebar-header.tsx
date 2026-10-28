@@ -5,13 +5,15 @@ import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 
 import { useDoubanUser } from './douban-user'
 import { LoginDialog } from './login-dialog'
+import { SidebarDebugSwitch } from './sidebar-debug-switch'
 import './sidebar-header.css'
 
 type SidebarHeaderProps = {
   siteName: string
 }
 
-/** 侧边栏顶部栏：站点名 + 登录入口，样式对齐 weimo-biji 的 biji-side-bar__header */
+/** 侧边栏顶部栏：站点名 + 登录入口，样式对齐 weimo-biji 的 biji-side-bar__header；
+    附带钉在侧边栏底部的 DEBUG 子容器描边开关 */
 export function SidebarHeader({ siteName }: SidebarHeaderProps) {
   const { uid } = useDoubanUser()
   const [loginOpen, setLoginOpen] = useState(false)
@@ -36,6 +38,7 @@ export function SidebarHeader({ siteName }: SidebarHeaderProps) {
           </GhostIconButton>
         </div>
       </div>
+      <SidebarDebugSwitch />
       <LoginDialog onOpenChange={setLoginOpen} open={loginOpen} />
     </>
   )

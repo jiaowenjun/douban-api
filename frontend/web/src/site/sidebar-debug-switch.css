@@ -1,0 +1,22 @@
+/* 开关经 sidebarHeader 插槽注入，借绝对定位钉到侧边栏底部；
+   navigation 是滚动容器，内容不足一屏时其盒高即整个侧边栏高，需就近建立定位锚点 */
+.weimo-site-template__navigation {
+  position: relative;
+}
+
+.sidebar-debug-switch {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* 开启后描边侧边栏内子容器：导航头部与各导航分组；
+   两个子容器默认 padding 均为 0，DEBUG 时补 2px 临时内边距，避免描边贴住内容难以观察 */
+.sidebar-debug .weimo-site-template__navigation-header,
+.sidebar-debug .weimo-site-template__navigation-group {
+  outline: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 2px;
+}
