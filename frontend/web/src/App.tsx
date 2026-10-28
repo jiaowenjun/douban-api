@@ -9,6 +9,7 @@ import {
 import type { SiteNavigationItem } from 'weimo-ui-template/components/site-template'
 import { SiteTemplate } from 'weimo-ui-template/components/site-template'
 
+import { DoubanUserProvider } from './site/douban-user-provider'
 import {
   DEFAULT_MARKS_PATH,
   MARKS_NAVIGATION_GROUPS,
@@ -56,9 +57,11 @@ function SiteShell() {
 
 function App() {
   return (
-    <HashRouter>
-      <SiteShell />
-    </HashRouter>
+    <DoubanUserProvider>
+      <HashRouter>
+        <SiteShell />
+      </HashRouter>
+    </DoubanUserProvider>
   )
 }
 
