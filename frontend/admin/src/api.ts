@@ -8,6 +8,7 @@ import type {
   SubscriptionListResponse,
   TaskListResponse,
   TaskView,
+  UserProfile,
 } from './types';
 
 // 连接配置存 localStorage：默认同源 /api/v1（开发期由 Vite 代理），
@@ -139,6 +140,9 @@ export const api = {
       `/users/${encodeURIComponent(uid)}/marks?category=${category}&status=${status}` +
         `&page=${page}&page_size=${pageSize}`,
     ),
+
+  getUserProfile: (uid: string) =>
+    request<UserProfile>(`/users/${encodeURIComponent(uid)}/profile`),
 
   listSubscriptions: () =>
     request<SubscriptionListResponse>('/subscriptions'),

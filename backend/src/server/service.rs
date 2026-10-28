@@ -88,6 +88,58 @@ async fn refresh_dimension(
 }
 
 // --------------------------------------------------------------------------- //
+// 用户资料（收藏页顶部资料块随抓取顺带入库）
+// --------------------------------------------------------------------------- //
+
+/// 抓取 worker 每页顺带调用：资料块解析成功即 upsert，
+/// 空字段不覆盖已有值（两种页面结构渲染细节不同，避免互相清空）。
+pub async fn upsert_user_profile(
+    pool: &SqlitePool,
+    uid: &str,
+    profile: &crate::crawler::UserProfile,
+) -> anyhow::Result<()> {
+    if profile.username.is_empty() && profile.avatar.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO users (uid, username, avatar, updated_ms)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(uid) DO UPDATE SET
+            username = CASE WHEN excluded.username != '' THEN excluded.username ELSE users.username END,
+            avatar   = CASE WHEN excluded.avatar != '' THEN excluded.avatar ELSE users.avatar END,
+            updated_ms = excluded.updated_ms",
+    )
+    .bind(uid)
+    .bind(&profile.username)
+    .bind(&profile.avatar)
+    .bind(ServerConfig::now_ms())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct UserProfileView {
+    pub uid: String,
+    pub username: String,
+    /// 已改写为本地封面代理端点（豆瓣头像域有 Referer 防盗链，浏览器直连 418）
+    pub avatar: String,
+}
+
+pub async fn get_user_profile(state: &AppState, uid: &str) -> AppResult<UserProfileView> {
+    let row = sqlx::query("SELECT username, avatar FROM users WHERE uid = ?")
+        .bind(uid)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::UserNotFound(uid.to_string()))?;
+    Ok(UserProfileView {
+        uid: uid.to_string(),
+        username: row.get("username"),
+        avatar: cover_proxy_url(&row.get::<String, _>("avatar")),
+    })
+}
+
+// --------------------------------------------------------------------------- //
 // 视图模型
 // --------------------------------------------------------------------------- //
 

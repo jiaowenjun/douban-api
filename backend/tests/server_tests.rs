@@ -6,7 +6,9 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header},
 };
-use weimo_douban::crawler::{Category, Record, Status, parse_feed, parse_items, parse_total};
+use weimo_douban::crawler::{
+    Category, Record, Status, parse_feed, parse_items, parse_profile, parse_total,
+};
 use weimo_douban::server::{
     config::ServerConfig,
     db,
@@ -212,6 +214,20 @@ fn parser_book_new_structure() {
     assert_eq!(parse_total(&fixture("book_collect_p4.html")), Some(55));
 }
 
+#[test]
+fn parser_user_profile_from_both_structures() {
+    // 图书/电影：#db-usr-profile .pic img（src 头像 + alt 用户名）
+    let book = parse_profile(&fixture("book_collect_p1.html")).unwrap();
+    assert_eq!(book.username, "芝麻");
+    assert_eq!(book.avatar, "https://img2.doubanio.com/icon/u189180823-11.jpg");
+    // 音乐：.music-user-profile img.avatar + .username
+    let music = parse_profile(&fixture("music_collect_p1.html")).unwrap();
+    assert_eq!(music.username, "芝麻");
+    assert_eq!(music.avatar, "https://img2.doubanio.com/icon/u189180823-11.jpg");
+    // 两种结构都不在的页面返回 None
+    assert!(parse_profile("<html><body>empty</body></html>").is_none());
+}
+
 // --------------------------------------------------------------------------- //
 // 任务生命周期（oneshot 打 Router）
 // --------------------------------------------------------------------------- //
@@ -283,6 +299,45 @@ async fn worker_crawls_book_dimension_to_completion() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(v["total"], 55);
     assert_eq!(v["items"].as_array().unwrap().len(), 50);
+}
+
+#[tokio::test]
+async fn worker_upserts_user_profile_and_endpoint_serves_it() {
+    let (_dir, state) = setup().await;
+    // 同步前资料端点 404
+    let app = build_app(state.clone());
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/profile",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "USER_NOT_FOUND");
+
+    let (code, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["book"]})).await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    drive(&state, &fixture_fetcher()).await;
+
+    // 抓取任一页后资料已随页入库；头像改写为本地代理端点（豆瓣头像域直连 418）
+    let app = build_app(state.clone());
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/profile",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["uid"], "wenjun30");
+    assert_eq!(v["username"], "芝麻");
+    assert_eq!(
+        v["avatar"],
+        "/api/v1/covers?u=https%3A%2F%2Fimg2.doubanio.com%2Ficon%2Fu189180823-11.jpg"
+    );
 }
 
 #[tokio::test]

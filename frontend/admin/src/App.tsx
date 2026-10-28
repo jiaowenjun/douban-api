@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Popover, Button, Form, Input, App as AntApp } from 'antd';
-import { SettingOutlined, UserOutlined } from '@ant-design/icons';
+import { SettingOutlined } from '@ant-design/icons';
 import { ProLayout } from '@ant-design/pro-components';
 import {
   BrowserRouter,
@@ -15,6 +15,7 @@ import Overview from './pages/Overview';
 import Tasks from './pages/Tasks';
 import Marks from './pages/Marks';
 import { getApiBase, getToken, getUser, parseUserInput, setApiBase, setToken, setUser } from './api';
+import { UserAvatar, useUserProfile } from './user-profile';
 
 /** 右上角连接设置：豆瓣用户 ID（单用户站点的身份，只在这里填一次）+ API 地址 + Bearer Token */
 function ConnectionSettings() {
@@ -67,6 +68,8 @@ function Layout() {
   const navigate = useNavigate();
   const [connOpen, setConnOpen] = useState(false);
   const user = getUser();
+  // 已同步过时显示豆瓣昵称与头像；未同步（404）回退 @uid 与图标
+  const profile = useUserProfile(user || null);
 
   // 首次访问未设置用户名时，主动打开连接弹框引导填写
   useEffect(() => {
@@ -100,8 +103,8 @@ function Layout() {
           onOpenChange={setConnOpen}
           content={<ConnectionSettings />}
         >
-          <Button type="text" icon={user ? <UserOutlined /> : <SettingOutlined />}>
-            {user ? `@${user}` : '连接'}
+          <Button type="text" icon={user ? <UserAvatar uid={user} size={24} /> : <SettingOutlined />}>
+            {user ? profile?.username || `@${user}` : '连接'}
           </Button>
         </Popover>,
       ]}

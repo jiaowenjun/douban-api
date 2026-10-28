@@ -14,8 +14,9 @@ use tokio::sync::Semaphore;
 use super::error::AppError;
 use crate::crawler::UA;
 
-/// 允许回源的路径前缀（库内两类封面：电影海报 /view/photo/、书音封面 /view/subject/）
-const ALLOWED_PATH_PREFIXES: [&str; 2] = ["/view/photo/", "/view/subject/"];
+/// 允许回源的路径前缀（库内三类豆瓣图：电影海报 /view/photo/、书音封面
+/// /view/subject/、用户头像 /icon/——浏览器直连头像域 418，必须代理）
+const ALLOWED_PATH_PREFIXES: [&str; 3] = ["/view/photo/", "/view/subject/", "/icon/"];
 
 /// 回源时伪装的豆瓣来源页（实测 www/movie 域 Referer 对全部 img 子域名均放行）
 const ORIGIN_REFERER: &str = "https://www.douban.com/";
@@ -211,6 +212,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(name, "s27018761.jpg");
+        assert_eq!(ct, "image/jpeg");
+        // 用户头像（文件名带版本号后缀，stem 校验允许 `-`）
+        let (_, name, ct) =
+            parse_cover_url("https://img2.doubanio.com/icon/u189180823-11.jpg").unwrap();
+        assert_eq!(name, "u189180823-11.jpg");
         assert_eq!(ct, "image/jpeg");
     }
 

@@ -157,3 +157,11 @@ export interface Subscription {
 export interface SubscriptionListResponse {
   subscriptions: Subscription[];
 }
+
+/** GET /users/{uid}/profile——收藏页顶部资料块随抓取顺带入库；uid 未同步过时 404 */
+export interface UserProfile {
+  uid: string;
+  username: string;
+  /** 本地封面代理相对路径（/api/v1/covers?u=...），img 标签需经 resolveApiUrl 处理 */
+  avatar: string;
+}

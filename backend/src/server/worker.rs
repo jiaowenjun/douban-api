@@ -138,6 +138,15 @@ async fn process_dimension<F: DoubanFetcher>(
             let items = parse_items(&html, cat, st);
             let empty_page = items.is_empty();
 
+            // 页面顶部资料块顺带解析：头像/用户名随任意一页抓取即可获得
+            if let Some(profile) = crawler::parse_profile(&html) {
+                if let Err(e) = service::upsert_user_profile(&state.pool, &dim.uid, &profile).await
+                {
+                    // 资料是顺带产物，失败不阻断条目入库
+                    warn!(uid = %dim.uid, error = %e, "用户资料入库失败");
+                }
+            }
+
             // 本页写库；主键冲突即重复（翻页偏移/标记新增），交给 INSERT OR IGNORE
             service::upsert_records(&state.pool, &dim.uid, &dim.category, &dim.dim_status, &items)
                 .await?;

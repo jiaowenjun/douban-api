@@ -367,6 +367,45 @@ pub fn parse_items(html: &str, category: Category, status: Status) -> Vec<Record
 }
 
 // --------------------------------------------------------------------------- //
+// 用户资料解析（收藏页顶部资料块，随常规抓取免费获得）
+// --------------------------------------------------------------------------- //
+
+/// 收藏页顶部的用户资料：电影/图书在 `#db-usr-profile .pic img`
+/// （src 为头像，alt 为用户名），音乐在 `.music-user-profile`
+/// （`img.avatar` + `.username`）。三种页面 2026-10 实测同构存在。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserProfile {
+    pub username: String,
+    /// 豆瓣头像原始 URL（img*.doubanio.com/icon/…，浏览器直连会被防盗链拦截）
+    pub avatar: String,
+}
+
+/// 从收藏页 HTML 解析用户资料；两种结构都未命中返回 None。
+/// 头像 URL 带版本后缀（如 u189180823-11.jpg），用户换头像后 URL 随之变化。
+pub fn parse_profile(html: &str) -> Option<UserProfile> {
+    let doc = Html::parse_document(html);
+    let s_usr_img = Selector::parse("#db-usr-profile .pic img").unwrap();
+    if let Some(img) = doc.select(&s_usr_img).next() {
+        return Some(UserProfile {
+            username: norm_space(&attr_or(img, "alt")),
+            avatar: attr_or(img, "src"),
+        });
+    }
+
+    let s_music_img = Selector::parse(".music-user-profile img.avatar").unwrap();
+    let img = doc.select(&s_music_img).next()?;
+    let s_username = Selector::parse(".music-user-profile .username").unwrap();
+    Some(UserProfile {
+        username: doc
+            .select(&s_username)
+            .next()
+            .map(text_of)
+            .unwrap_or_default(),
+        avatar: attr_or(img, "src"),
+    })
+}
+
+// --------------------------------------------------------------------------- //
 // RSS 动态解析（订阅增量同步的数据源）
 // --------------------------------------------------------------------------- //
 

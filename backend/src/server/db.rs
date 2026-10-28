@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS records (
   PRIMARY KEY (uid, category, dim_status, subject_id)
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  uid        TEXT PRIMARY KEY,
+  username   TEXT NOT NULL DEFAULT '',
+  avatar     TEXT NOT NULL DEFAULT '',
+  updated_ms INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
   uid          TEXT PRIMARY KEY,
   enabled      INTEGER NOT NULL DEFAULT 1,

@@ -15,6 +15,8 @@ pub enum AppError {
     TaskNotFound(String),
     #[error("订阅不存在: {0}")]
     SubscriptionNotFound(String),
+    #[error("该用户资料尚未同步（需成功抓取其收藏页）: {0}")]
+    UserNotFound(String),
     #[error("该维度无缓存，请先创建同步任务")]
     DimensionNotCached,
     #[error("任务未完成（当前状态: {0}）")]
@@ -47,6 +49,7 @@ impl AppError {
             AppError::Unauthorized(_) => "UNAUTHORIZED",
             AppError::TaskNotFound(_) => "TASK_NOT_FOUND",
             AppError::SubscriptionNotFound(_) => "SUBSCRIPTION_NOT_FOUND",
+            AppError::UserNotFound(_) => "USER_NOT_FOUND",
             AppError::DimensionNotCached => "DIMENSION_NOT_CACHED",
             AppError::TaskNotFinished(_) => "TASK_NOT_FINISHED",
             AppError::TooManyRequests => "TOO_MANY_REQUESTS",
@@ -60,7 +63,8 @@ impl AppError {
         match self {
             AppError::InvalidArgument(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-            AppError::TaskNotFound(_) | AppError::SubscriptionNotFound(_) | AppError::DimensionNotCached => {
+            AppError::TaskNotFound(_) | AppError::SubscriptionNotFound(_)
+            | AppError::UserNotFound(_) | AppError::DimensionNotCached => {
                 StatusCode::NOT_FOUND
             }
             AppError::TaskNotFinished(_) => StatusCode::CONFLICT,

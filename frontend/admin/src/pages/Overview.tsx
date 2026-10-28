@@ -7,12 +7,28 @@ import dayjs from 'dayjs';
 import type { ServerInfo, Subscription, TaskSummary } from '../types';
 import { api, getUser, health } from '../api';
 import { TaskStatusTag } from '../labels';
+import { UserAvatar, useUserProfile } from '../user-profile';
 
 const fmtInterval = (secs: number) =>
   secs % 86400 === 0 ? `${secs / 86400} 天` : secs % 3600 === 0 ? `${secs / 3600} 小时` : `${Math.round(secs / 60)} 分钟`;
 
 const fmtTime = (v: string | null) =>
   v ? dayjs(v).format('MM-DD HH:mm') : '—';
+
+/** 订阅表用户列：头像 + 昵称（该 uid 尚未同步过时回退 uid），点击跳数据浏览 */
+function SubUserCell({ uid }: { uid: string }) {
+  const navigate = useNavigate();
+  const profile = useUserProfile(uid);
+  return (
+    <Space size={6}>
+      <UserAvatar uid={uid} size={20} />
+      <a onClick={() => navigate(`/marks?uid=${encodeURIComponent(uid)}`)}>
+        {profile?.username || uid}
+      </a>
+      {profile && <span style={{ fontSize: 12, opacity: 0.55 }}>@{uid}</span>}
+    </Space>
+  );
+}
 
 export default function Overview() {
   const navigate = useNavigate();
@@ -25,6 +41,7 @@ export default function Overview() {
   const [subFull, setSubFull] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [messageApi, contextHolder] = message.useMessage();
+  const identity = useUserProfile(getUser() || null);
 
   const load = async () => {
     try {
@@ -210,7 +227,14 @@ export default function Overview() {
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
-          <span>订阅用户 {getUser() ? `@${getUser()}` : '（未设置，点右上角「连接」填写）'}</span>
+          <span>
+            订阅用户{' '}
+            {getUser()
+              ? identity?.username
+                ? `${identity.username}（@${getUser()}）`
+                : `@${getUser()}`
+              : '（未设置，点右上角「连接」填写）'}
+          </span>
           <InputNumber
             placeholder="增量间隔（秒，默认 3600）"
             style={{ width: 180 }}
@@ -239,10 +263,10 @@ export default function Overview() {
             {
               title: '用户',
               dataIndex: 'uid',
-              width: 130,
+              width: 180,
               render: (_, r) => (
                 <Space size={4}>
-                  <a onClick={() => navigate(`/marks?user=${r.uid}`)}>{r.uid}</a>
+                  <SubUserCell uid={r.uid} />
                   {!r.enabled && <Badge status="default" text="停用" />}
                 </Space>
               ),

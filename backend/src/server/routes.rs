@@ -36,6 +36,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}/result", get(get_result))
         .route("/syncs/{task_id}/events", get(get_sync_events))
         .route("/users/{uid}/marks", get(get_marks))
+        .route("/users/{uid}/profile", get(get_user_profile))
         .route("/subscriptions", get(list_subscriptions))
         .route(
             "/subscriptions/{uid}",
@@ -410,6 +411,17 @@ async fn get_marks(
         "page_size": marks.page_size,
         "items": marks.items,
     })))
+}
+
+// --------------------------------------------------------------------------- //
+// /users/{uid}/profile
+// --------------------------------------------------------------------------- //
+
+async fn get_user_profile(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+) -> AppResult<Json<service::UserProfileView>> {
+    Ok(Json(service::get_user_profile(&state, &uid).await?))
 }
 
 // --------------------------------------------------------------------------- //

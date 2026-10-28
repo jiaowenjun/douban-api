@@ -22,6 +22,7 @@ import dayjs from 'dayjs';
 import type { MarksResponse, RecordItem } from '../types';
 import { api, getUser, resolveApiUrl, type ApiError } from '../api';
 import { CATEGORY_OPTIONS, STATUS_OPTIONS, dimLabel } from '../labels';
+import { UserAvatar, useUserProfile } from '../user-profile';
 
 const PAGE_SIZE = 20;
 
@@ -42,6 +43,7 @@ export default function Marks() {
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchParams] = useSearchParams();
+  const headerProfile = useUserProfile(data?.user ?? null);
 
   // 挂载或深链变化时确定目标用户：/marks?uid= 深链优先，否则用「连接」设置的单用户，
   // 确定后立即自动查询（从任务详情「浏览数据」跳转也走这里）
@@ -137,8 +139,10 @@ export default function Marks() {
       {data && (
         <div style={{ marginBottom: 12 }}>
           <Space size={12}>
-            <span>
-              {data.user} 的 {dimLabel(data.category, data.status)} · 共 {data.total} 条
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <UserAvatar uid={data.user} size={20} />
+              {headerProfile?.username || data.user} 的 {dimLabel(data.category, data.status)} · 共{' '}
+              {data.total} 条
             </span>
             <Tag color={data.fresh ? 'success' : 'default'}>{data.fresh ? '缓存有效' : '缓存已过期'}</Tag>
             <span style={{ color: token.colorTextDescription }}>抓取于 {dayjs(data.cached_at).format('YYYY-MM-DD HH:mm')}</span>

@@ -101,6 +101,7 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 | 10 | GET | `/subscriptions` | 订阅列表 |
 | 11 | PUT | `/subscriptions/{uid}` | 创建/更新订阅（RSS 增量 + 定时全量） |
 | 12 | DELETE | `/subscriptions/{uid}` | 取消订阅 |
+| 13 | GET | `/users/{uid}/profile` | 用户资料（头像 + 用户名，随抓取入库） |
 
 ## 4. 接口详细设计
 
@@ -415,9 +416,23 @@ GET /api/v1/covers?u={urlencoded 豆瓣封面 URL}
 
 语义：磁盘 `data/covers/{photo_id}` 命中直接返回文件；未命中带豆瓣 Referer 回源一次、落盘后返回（存量记录首次访问即自动"回填"）。响应带 `Cache-Control: public, max-age=2592000, immutable`（photo id 内容不可变）。
 
-约束：**白名单代理**，仅接受 `https://*.doubanio.com` 且路径前缀为 `/view/photo/` 或 `/view/subject/` 的 URL（违反返回 400 `INVALID_ARGUMENT`），防止变成开放中继；走鉴权（`?token=` 兜底可用）但**豁免限流**（一页 20 张封面属正常连发）；回源并发受 `SYNC_COVER_CONCURRENCY`（默认 4）限制；回源失败返回 502 `COVER_UPSTREAM_FAILED`，不落负缓存（下次访问自动重试）。
+约束：**白名单代理**，仅接受 `https://*.doubanio.com` 且路径前缀为 `/view/photo/`、`/view/subject/` 或 `/icon/`（用户头像）的 URL（违反返回 400 `INVALID_ARGUMENT`），防止变成开放中继；走鉴权（`?token=` 兜底可用）但**豁免限流**（一页 20 张封面属正常连发）；回源并发受 `SYNC_COVER_CONCURRENCY`（默认 4）限制；回源失败返回 502 `COVER_UPSTREAM_FAILED`，不落负缓存（下次访问自动重试）。
 
 **已知边界**：① 条目海报被豆瓣更换后本地旧图不更新（photo id 不变的场景无感知；换 id 则视为新图重新回源）；② 回源质量取决于服务器出口网络。
+
+### 4.12 用户资料（头像 + 用户名）
+
+**背景**：三个类目的收藏页顶部都自带用户资料块（电影/图书 `#db-usr-profile .pic img`，src 为头像、alt 为用户名；音乐 `.music-user-profile` 的 `img.avatar` + `.username`，2026-10 实测同构）。抓取 worker 每页顺带解析并 upsert 进 `users` 表，**零额外请求**。头像走 `/covers` 代理是因为头像域（img2/img3）浏览器直连不是 403 而是 **418**（2026-10 实测），必须服务端带豆瓣 Referer 回源。
+
+```
+GET /api/v1/users/{uid}/profile
+→ 200 {"uid": "wenjun30", "username": "芝麻",
+       "avatar": "/api/v1/covers?u=https%3A%2F%2Fimg2.doubanio.com%2Ficon%2Fu189180823-11.webp"}
+```
+
+约束：该 uid **至少成功抓取过一页收藏页**才有资料，否则 404 `USER_NOT_FOUND`；`avatar` 已改写为 `/covers` 相对路径（前端经自身代理转发）。
+
+**已知边界**：① 头像 URL 带版本后缀（`u189180823-11.jpg` 的 `-11`），用户换头像后 URL 变化，库内旧地址要等下次抓取任意收藏页才刷新；② 收藏页头像是 48×48 小图（大图需抓 `www.douban.com/people/{uid}/` 主页，www 域反爬更严，不做）；③ 空字段不覆盖已有值（不同类目页面渲染细节不同，避免互相清空）。
 
 ## 5. 数据模型
 
@@ -449,6 +464,14 @@ GET /api/v1/covers?u={urlencoded 豆瓣封面 URL}
 ### Record（数据本体，`records` 表）
 
 12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。RSS 增量同步共用同一路径。
+
+### User（用户资料，`users` 表）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `uid` | string | 主键 |
+| `username` / `avatar` | string | 收藏页资料块随抓取顺带 upsert（见 4.12）；空字段不覆盖已有值 |
+| `updated_ms` | timestamp | 最近一次资料入库时间 |
 
 ### Subscription（订阅，`subscriptions` 表）
 
