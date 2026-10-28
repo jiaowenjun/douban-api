@@ -1,0 +1,17 @@
+.marks-page {
+  display: grid;
+  gap: var(--space-card-section-gap, 1em);
+}
+
+.marks-page__title {
+  font-size: var(--font-size-xl, 24px);
+}
+
+.marks-page__placeholder {
+  display: grid;
+  gap: 0.75em;
+  padding: calc(var(--space-card-pad, 13px) * 2);
+  border: 1px dashed hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--muted-foreground));
+}

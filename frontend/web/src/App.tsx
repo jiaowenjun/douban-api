@@ -1,0 +1,63 @@
+import {
+  HashRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router'
+import type { SiteNavigationItem } from 'weimo-ui-template/components/site-template'
+import { SiteTemplate } from 'weimo-ui-template/components/site-template'
+
+import {
+  DEFAULT_MARKS_PATH,
+  MARKS_NAVIGATION_GROUPS,
+  resolveMarksView,
+} from './site/navigation'
+import { MarksPage } from './site/pages/marks-page'
+
+/** 从 /:category/:status 路径解析导航高亮项与顶栏标题 */
+function useMarksViewFromLocation() {
+  const { pathname } = useLocation()
+  const [, category, status] = pathname.split('/')
+
+  return resolveMarksView(category, status)
+}
+
+function SiteShell() {
+  const navigate = useNavigate()
+  const view = useMarksViewFromLocation()
+
+  function handleNavigate(item: SiteNavigationItem) {
+    navigate(item.href.replace(/^#/, ''))
+  }
+
+  return (
+    <SiteTemplate
+      activeItemId={view?.activeItemId}
+      navigationGroups={MARKS_NAVIGATION_GROUPS}
+      onNavigate={handleNavigate}
+      pageTitle={view?.pageTitle}
+      siteName="weimo-douban"
+    >
+      <Routes>
+        <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
+        <Route element={<MarksPage />} path="/:category/:status" />
+        <Route
+          element={<Navigate replace to={DEFAULT_MARKS_PATH} />}
+          path="*"
+        />
+      </Routes>
+    </SiteTemplate>
+  )
+}
+
+function App() {
+  return (
+    <HashRouter>
+      <SiteShell />
+    </HashRouter>
+  )
+}
+
+export default App

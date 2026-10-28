@@ -1,0 +1,3 @@
+minimumReleaseAgeExclude:
+  - weimo-ui-core@0.2.1
+  - weimo-ui-template@0.3.1

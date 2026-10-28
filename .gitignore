@@ -4,3 +4,6 @@ output_rs*/
 data/
 *.ckpt.json
 .DS_Store
+
+# ZCode 本地会话目录
+.zcode/
