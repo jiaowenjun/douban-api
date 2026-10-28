@@ -14,6 +14,10 @@ pub enum FetchError {
     Timeout,
     #[error("响应过短({0}B)疑似拦截")]
     Suspicious(usize),
+    /// 解析哨兵命中：页面正常返回但内容与约定结构矛盾
+    /// （改版/登录墙/JS challenge 会以 200+0 条呈现），重试无意义
+    #[error("页面解析异常: {0}")]
+    ParseAnomaly(String),
     #[error("网络异常: {0}")]
     Network(String),
 }
@@ -24,15 +28,18 @@ impl FetchError {
         match self {
             FetchError::NotFound => "PAGE_NOT_FOUND",
             FetchError::Timeout => "DOUBAN_TIMEOUT",
+            FetchError::ParseAnomaly(_) => "PARSE_ERROR",
             FetchError::Blocked(_) | FetchError::Suspicious(_) | FetchError::Network(_) => {
                 "DOUBAN_BLOCKED"
             }
         }
     }
 
-    /// 是否可重试（对应 retry_policy 的 Transient 分类）
+    /// 是否可重试（对应 retry_policy 的 Transient 分类）。
+    /// ParseAnomaly 与 NotFound 一样按永久失败处理——确定性结构证据，
+    /// 且不应计入熔断（不是豆瓣拒绝服务）。
     pub fn is_transient(&self) -> bool {
-        !matches!(self, FetchError::NotFound)
+        !matches!(self, FetchError::NotFound | FetchError::ParseAnomaly(_))
     }
 }
 
@@ -52,8 +59,9 @@ pub trait DoubanFetcher: Send + Sync {
         subject_id: &str,
     ) -> impl std::future::Future<Output = Result<serde_json::Value, FetchError>> + Send;
 
-    /// 抓个人书影音动态 RSS。默认实现复用 fetch_page（测试 fake 即走此路径）；
-    /// 生产实现必须覆盖——RSS 仅数 KB，不能套用页面抓取的 >5KB 反爬阈值。
+    /// 抓个人书影音动态 RSS。默认实现复用 fetch_page（测试 fake 走此路径即可）；
+    /// 生产 ReqwestFetcher 已覆盖——RSS 仅数 KB，不能套用页面抓取的
+    /// >5KB 反爬阈值，改以 XML 特征校验（looks_like_feed）。
     fn fetch_feed(
         &self,
         uid: &str,
@@ -171,5 +179,65 @@ impl DoubanFetcher for ReqwestFetcher {
             return Err(FetchError::Suspicious(text.len()));
         }
         Ok(value)
+    }
+
+    /// RSS 抓取：与页面的差异在真伪判定——RSS 仅数 KB，>5KB 字节阈值
+    /// 不适用，改以 XML 特征校验（looks_like_feed）。
+    async fn fetch_feed(&self, uid: &str) -> Result<String, FetchError> {
+        let resp = self
+            .client
+            .get(crate::crawler::feed_url(uid))
+            .header("Referer", crate::crawler::referer_for(uid))
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    FetchError::Timeout
+                } else {
+                    FetchError::Network(e.to_string())
+                }
+            })?;
+
+        let code = resp.status().as_u16();
+        if code == 404 {
+            return Err(FetchError::NotFound);
+        }
+        if !resp.status().is_success() {
+            return Err(FetchError::Blocked(code));
+        }
+        let text = String::from_utf8_lossy(&resp.bytes().await.map_err(|e| FetchError::Network(e.to_string()))?)
+            .into_owned();
+        if !looks_like_feed(&text) {
+            return Err(FetchError::Suspicious(text.len()));
+        }
+        Ok(text)
+    }
+}
+
+/// RSS 响应真伪判定：合法 feed 以 XML 声明或 `<rss>` 根元素开头
+/// （容忍 BOM 与前导空白）；拦截页/HTML 错误页不满足该特征。
+pub fn looks_like_feed(text: &str) -> bool {
+    let t = text.trim_start_matches('\u{feff}').trim_start();
+    t.starts_with("<?xml") || t.starts_with("<rss")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn looks_like_feed_accepts_real_shapes() {
+        // 2026-10-28 实抓 feed 开头（含 BOM/前导空白容忍）
+        assert!(looks_like_feed("<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\">"));
+        assert!(looks_like_feed("<rss version=\"2.0\"><channel>"));
+        assert!(looks_like_feed("\u{feff}\n  <?xml version=\"1.0\"?>"));
+    }
+
+    #[test]
+    fn looks_like_feed_rejects_non_xml() {
+        // 拦截页（200 + HTML）与空响应都不能当 feed 用
+        assert!(!looks_like_feed("<!DOCTYPE html><html><body>blocked</body></html>"));
+        assert!(!looks_like_feed(""));
+        assert!(!looks_like_feed("请开启 JavaScript"));
     }
 }

@@ -1575,3 +1575,47 @@ async fn subjects_list_endpoint_filters_and_counts() {
     let (_, body) = request(app.clone(), Method::GET, "/api/v1/subjects?q=%", None, None).await;
     assert_eq!(body["total"], 0, "百分号被转义，不匹配全部");
 }
+
+// --------------------------------------------------------------------------- //
+// 解析哨兵：改版/登录墙空页必须显式失败，合法空集不受影响
+// --------------------------------------------------------------------------- //
+
+#[tokio::test]
+async fn parse_sentinel_flags_silent_empty_page_as_error() {
+    let (_dir, state) = setup().await;
+    // 模拟豆瓣改版/登录墙：200 + total=55 + 页面无条目结构
+    //（改版前这里会静默标 ok + 0 条，见《豆瓣源依赖性与脆弱性分析.md》§3 F1）
+    let broken =
+        "<html><body><span class=\"subject-num\">1-15&nbsp;/&nbsp;55</span></body></html>";
+    let fetcher = FakeFetcher(move |_url: &str| Ok(broken.to_string()));
+    let (code, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["book"]})).await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    let task_id = v["task_id"].as_str().unwrap().to_string();
+
+    drive(&state, &fetcher).await;
+
+    // 维度 error、任务 failed 且错误码可见（而非 completed + 0 条的静默缺失）
+    let view = get_task_view(&state, &task_id).await;
+    assert_eq!(view["status"], "failed");
+    assert_eq!(view["error"]["code"], "PARSE_ERROR");
+    assert_eq!(count(&state, "SELECT COUNT(*) FROM records").await, 0);
+    // 解析异常不是豆瓣拒绝服务，不计入熔断
+    assert_eq!(state.circuit_remaining_ms(), 0);
+}
+
+#[tokio::test]
+async fn parse_sentinel_allows_genuinely_empty_dimension() {
+    let (_dir, state) = setup().await;
+    // 用户真的没有标记：无 subject-num、无条目——哨兵不误伤
+    let empty = "<html><body><p>还没有添加内容</p></body></html>";
+    let fetcher = FakeFetcher(move |_url: &str| Ok(empty.to_string()));
+    let (code, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["book"]})).await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    let task_id = v["task_id"].as_str().unwrap().to_string();
+
+    drive(&state, &fetcher).await;
+
+    let view = get_task_view(&state, &task_id).await;
+    assert_eq!(view["status"], "completed");
+    assert_eq!(view["items_count"], 0);
+}

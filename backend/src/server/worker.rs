@@ -8,7 +8,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::crawler::{
-    self, Category, Status, collection_url, parse_items, parse_total, referer_for,
+    self, Category, Record, Status, collection_url, parse_items, parse_total, referer_for,
 };
 
 use super::config::ServerConfig;
@@ -147,94 +147,13 @@ async fn process_dimension<F: DoubanFetcher>(
             tokio::time::sleep(Duration::from_secs_f64(interval)).await;
             let total = parse_total(&html).map(|t| t as i64);
             let items = parse_items(&html, cat, st);
-            let empty_page = items.is_empty();
-
-            // 页面顶部资料块顺带解析：头像/用户名随任意一页抓取即可获得
-            if let Some(profile) = crawler::parse_profile(&html) {
-                if let Err(e) = service::upsert_user_profile(&state.pool, &dim.uid, &profile).await
-                {
-                    // 资料是顺带产物，失败不阻断条目入库
-                    warn!(uid = %dim.uid, error = %e, "用户资料入库失败");
-                }
-            }
-
-            // 本页写库；主键冲突即重复（翻页偏移/标记新增），交给 INSERT OR IGNORE
-            service::upsert_records(&state.pool, &dim.uid, &dim.category, &dim.dim_status, &items)
-                .await?;
-            let fetched_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
-            )
-            .bind(&dim.uid)
-            .bind(&dim.category)
-            .bind(&dim.dim_status)
-            .fetch_one(&state.pool)
-            .await
-            .context("统计维度记录数失败")?;
-
-            // 终点判定：next_start 越过总数；无 total 时只能靠空页终止。
-            // 不以"本页不满 15 条"判定——页面可能因条目被删而少渲染。
-            let next_start = (start + crawler::PAGE_SIZE) as i64;
-            let finished = match total {
-                Some(t) => next_start >= t,
-                None => empty_page,
-            };
-
-            if finished {
-                sqlx::query(
-                    "UPDATE dimensions SET state='ok', fetched_count=?, total=?,
-                            next_start=?, fetched_ms=?, attempts=0, next_sync_ms=NULL,
-                            last_error=NULL, updated_ms=?
-                     WHERE uid=? AND category=? AND dim_status=?",
-                )
-                .bind(fetched_count)
-                .bind(total)
-                .bind(next_start)
-                .bind(now)
-                .bind(now)
-                .bind(&dim.uid)
-                .bind(&dim.category)
-                .bind(&dim.dim_status)
-                .execute(&state.pool)
-                .await?;
-                info!(
-                    uid = %dim.uid,
-                    dimension = format!("{}/{}", dim.category, dim.dim_status),
-                    items = fetched_count,
-                    "维度抓取完成"
-                );
-                service::finalize_linked_tasks(
-                    state, &dim.uid, &dim.category, &dim.dim_status, true, "",
-                )
-                .await?;
-                // 维度完成即入队条目富集（集合差 + INSERT OR IGNORE 跨用户去重）。
-                // 失败不阻断主流程——富集是异步增强，缺席只是少了结构化字段。
-                if state.config.subject_enrich {
-                    if let Err(e) = crate::server::subject::enqueue_missing_subjects(
-                        &state.pool,
-                        &dim.uid,
-                        &dim.category,
-                        state.config.subject_ttl_secs,
-                    )
-                    .await
-                    {
-                        warn!(uid = %dim.uid, error = %e, "条目富集入队失败");
-                    }
-                }
+            // 解析哨兵：豆瓣改版/登录墙/JS challenge 会以 200+正常体量+0 条呈现，
+            // 必须在写库与维度推进前拦截，否则静默清空
+            //（《豆瓣源依赖性与脆弱性分析.md》§3 F1/F2）
+            if let Some(reason) = parse_anomaly(&items, total, start) {
+                handle_fetch_error(state, dim, FetchError::ParseAnomaly(reason)).await?;
             } else {
-                sqlx::query(
-                    "UPDATE dimensions SET state='running', fetched_count=?, total=?,
-                            next_start=?, updated_ms=?
-                     WHERE uid=? AND category=? AND dim_status=?",
-                )
-                .bind(fetched_count)
-                .bind(total)
-                .bind(next_start)
-                .bind(now)
-                .bind(&dim.uid)
-                .bind(&dim.category)
-                .bind(&dim.dim_status)
-                .execute(&state.pool)
-                .await?;
+                process_page(state, dim, start, &html, total, items).await?;
             }
         }
         Err(e) => handle_fetch_error(state, dim, e).await?,
@@ -255,6 +174,137 @@ async fn process_dimension<F: DoubanFetcher>(
         state.notify_progress(&task_id);
     }
     Ok(())
+}
+
+/// 正常页面的入库与维度推进：资料块顺带解析、写库、终点判定。
+/// 由 process_dimension 在解析哨兵通过后调用。
+async fn process_page(
+    state: &AppState,
+    dim: &DueDimension,
+    start: usize,
+    html: &str,
+    total: Option<i64>,
+    items: Vec<Record>,
+) -> Result<()> {
+    let now = ServerConfig::now_ms();
+    let empty_page = items.is_empty();
+
+    // 页面顶部资料块顺带解析：头像/用户名随任意一页抓取即可获得
+    if let Some(profile) = crawler::parse_profile(html) {
+        if let Err(e) = service::upsert_user_profile(&state.pool, &dim.uid, &profile).await {
+            // 资料是顺带产物，失败不阻断条目入库
+            warn!(uid = %dim.uid, error = %e, "用户资料入库失败");
+        }
+    }
+
+    // 本页写库；主键冲突即重复（翻页偏移/标记新增），交给 INSERT OR IGNORE
+    service::upsert_records(&state.pool, &dim.uid, &dim.category, &dim.dim_status, &items)
+        .await?;
+    let fetched_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
+    )
+    .bind(&dim.uid)
+    .bind(&dim.category)
+    .bind(&dim.dim_status)
+    .fetch_one(&state.pool)
+    .await
+    .context("统计维度记录数失败")?;
+
+    // 终点判定：next_start 越过总数；无 total 时只能靠空页终止。
+    // 不以"本页不满 15 条"判定——页面可能因条目被删而少渲染。
+    let next_start = (start + crawler::PAGE_SIZE) as i64;
+    let finished = match total {
+        Some(t) => next_start >= t,
+        None => empty_page,
+    };
+
+    if finished {
+        sqlx::query(
+            "UPDATE dimensions SET state='ok', fetched_count=?, total=?,
+                    next_start=?, fetched_ms=?, attempts=0, next_sync_ms=NULL,
+                    last_error=NULL, updated_ms=?
+             WHERE uid=? AND category=? AND dim_status=?",
+        )
+        .bind(fetched_count)
+        .bind(total)
+        .bind(next_start)
+        .bind(now)
+        .bind(now)
+        .bind(&dim.uid)
+        .bind(&dim.category)
+        .bind(&dim.dim_status)
+        .execute(&state.pool)
+        .await?;
+        info!(
+            uid = %dim.uid,
+            dimension = format!("{}/{}", dim.category, dim.dim_status),
+            items = fetched_count,
+            "维度抓取完成"
+        );
+        service::finalize_linked_tasks(state, &dim.uid, &dim.category, &dim.dim_status, true, "")
+            .await?;
+        // 维度完成即入队条目富集（集合差 + INSERT OR IGNORE 跨用户去重）。
+        // 失败不阻断主流程——富集是异步增强，缺席只是少了结构化字段。
+        if state.config.subject_enrich {
+            if let Err(e) = crate::server::subject::enqueue_missing_subjects(
+                &state.pool,
+                &dim.uid,
+                &dim.category,
+                state.config.subject_ttl_secs,
+            )
+            .await
+            {
+                warn!(uid = %dim.uid, error = %e, "条目富集入队失败");
+            }
+        }
+    } else {
+        sqlx::query(
+            "UPDATE dimensions SET state='running', fetched_count=?, total=?,
+                    next_start=?, updated_ms=?
+             WHERE uid=? AND category=? AND dim_status=?",
+        )
+        .bind(fetched_count)
+        .bind(total)
+        .bind(next_start)
+        .bind(now)
+        .bind(&dim.uid)
+        .bind(&dim.category)
+        .bind(&dim.dim_status)
+        .execute(&state.pool)
+        .await?;
+    }
+    Ok(())
+}
+
+/// 解析哨兵：区分"合法空集"与"页面改版/登录墙导致的静默空页"
+/// （《豆瓣源依赖性与脆弱性分析.md》§3 F1/F2）。
+///
+/// 返回 Some(原因) 表示本页解析结果不可信，维度按 PARSE_ERROR 处理：
+/// - 单页条数超过约定页大小：豆瓣疑似调整分页，next_start 15 步进会漏条目；
+/// - 首页 0 条但 total>0：条目全部被隐藏不合常理，疑似改版/被墙；
+/// - 中段整页 0 条：需连续 15+ 条全部被隐藏才合法，不合常理。
+///
+/// 合法空集不告警：total 未知（空页即终止信号）、total=0，以及尾页探测为空
+/// （隐藏条目使 total 虚高于可见数，见 README 已知限制）。
+fn parse_anomaly(items: &[Record], total: Option<i64>, start: usize) -> Option<String> {
+    if items.len() > crawler::PAGE_SIZE {
+        return Some(format!(
+            "单页 {} 条超过约定页大小 {}，豆瓣疑似调整分页",
+            items.len(),
+            crawler::PAGE_SIZE
+        ));
+    }
+    let Some(t) = total else { return None };
+    if !items.is_empty() || t <= 0 {
+        return None;
+    }
+    if start == 0 {
+        Some(format!("首页解析 0 条但 total={t}"))
+    } else if start + crawler::PAGE_SIZE < t as usize {
+        Some(format!("第 {start} 条起整页为空但 total={t}"))
+    } else {
+        None // 尾页探测为空：隐藏条目虚高 total，合法
+    }
 }
 
 async fn handle_fetch_error(state: &AppState, dim: &DueDimension, e: FetchError) -> Result<()> {
@@ -311,4 +361,54 @@ async fn handle_fetch_error(state: &AppState, dim: &DueDimension, e: FetchError)
         }
     }
     Ok(())
+}
+
+// --------------------------------------------------------------------------- //
+// 解析哨兵单测：合法空集与改版空页的判定边界
+// --------------------------------------------------------------------------- //
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anomaly_on_page_size_breach() {
+        let items = vec![Record::default(); 16];
+        assert!(parse_anomaly(&items, Some(100), 0).is_some());
+    }
+
+    #[test]
+    fn anomaly_on_first_page_empty_with_total() {
+        // 改版/登录墙的典型形态：200 + total>0 + 首页 0 条
+        assert!(parse_anomaly(&[], Some(45), 0).is_some());
+        // 小维度（total ≤ 15）同样不能幸免——全部隐藏不合常理
+        assert!(parse_anomaly(&[], Some(8), 0).is_some());
+    }
+
+    #[test]
+    fn anomaly_on_middle_page_empty() {
+        // start=30，30+15=45 < 100：中段整页为空
+        assert!(parse_anomaly(&[], Some(100), 30).is_some());
+    }
+
+    #[test]
+    fn legit_empty_tail_probe_passes() {
+        // 隐藏条目使 total 虚高：最后一页可见 0 条属正常（start+15 >= total 且已抓过前页）
+        assert!(parse_anomaly(&[], Some(45), 30).is_none());
+        assert!(parse_anomaly(&[], Some(46), 45).is_none());
+    }
+
+    #[test]
+    fn legit_empty_dimension_passes() {
+        // 用户真的没有标记：total 未知（页面无 subject-num）或 0
+        assert!(parse_anomaly(&[], None, 0).is_none());
+        assert!(parse_anomaly(&[], Some(0), 0).is_none());
+    }
+
+    #[test]
+    fn normal_page_never_flagged() {
+        let items = vec![Record::default(); 15];
+        assert!(parse_anomaly(&items, Some(208), 0).is_none());
+        assert!(parse_anomaly(&items, None, 15).is_none());
+    }
 }
