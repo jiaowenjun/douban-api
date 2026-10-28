@@ -23,6 +23,7 @@ import type { MarksResponse, RecordItem } from '../types';
 import { api, getUser, resolveApiUrl, type ApiError } from '../api';
 import { CATEGORY_OPTIONS, STATUS_OPTIONS, dimLabel } from '../labels';
 import { UserAvatar, useUserProfile } from '../user-profile';
+import { SubjectMetaDetail, SubjectNotEnriched } from '../subject-meta';
 
 const PAGE_SIZE = 20;
 
@@ -64,7 +65,7 @@ export default function Marks() {
     if (!query) return;
     setLoading(true);
     try {
-      setData(await api.getMarks(query.uid, query.category, query.status, page, PAGE_SIZE));
+      setData(await api.getMarks(query.uid, query.category, query.status, page, PAGE_SIZE, { expandSubject: true }));
       setError(null);
     } catch (e) {
       setData(null);
@@ -155,6 +156,14 @@ export default function Marks() {
         rowKey={(r) => r.comment_id || r.subject_id}
         loading={loading}
         dataSource={data?.items ?? []}
+        expandable={{
+          expandedRowRender: (r) =>
+            r.subject ? (
+              <SubjectMetaDetail subject={r.subject} />
+            ) : (
+              <SubjectNotEnriched category={r.category} subjectId={r.subject_id} />
+            ),
+        }}
         pagination={
           data
             ? {
@@ -196,6 +205,19 @@ export default function Marks() {
             dataIndex: 'my_rating',
             width: 130,
             render: (v) => (v ? <Rate disabled value={v} allowHalf style={{ fontSize: 14 }} /> : '—'),
+          },
+          {
+            title: '豆瓣评分',
+            width: 90,
+            render: (_, r) =>
+              r.subject?.rating.value != null ? (
+                <span>
+                  <span style={{ color: '#faad14', fontWeight: 600 }}>{r.subject.rating.value.toFixed(1)}</span>
+                  <span style={{ color: token.colorTextTertiary, fontSize: 12 }}> / 10</span>
+                </span>
+              ) : (
+                <span style={{ color: token.colorTextQuaternary }}>—</span>
+              ),
           },
           { title: '日期', dataIndex: 'date', width: 100 },
           {

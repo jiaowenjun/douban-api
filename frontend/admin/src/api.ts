@@ -4,6 +4,8 @@ import type {
   MarksResponse,
   ResultView,
   ServerInfo,
+  Subject,
+  SubjectListResponse,
   Subscription,
   SubscriptionListResponse,
   TaskListResponse,
@@ -135,11 +137,45 @@ export const api = {
 
   getResult: (taskId: string) => request<ResultView>(`/syncs/${taskId}/result`),
 
-  getMarks: (uid: string, category: string, status: string, page: number, pageSize: number) =>
+  getMarks: (
+    uid: string,
+    category: string,
+    status: string,
+    page: number,
+    pageSize: number,
+    opts?: { expandSubject?: boolean },
+  ) =>
     request<MarksResponse>(
       `/users/${encodeURIComponent(uid)}/marks?category=${category}&status=${status}` +
-        `&page=${page}&page_size=${pageSize}`,
+        `&page=${page}&page_size=${pageSize}` +
+        (opts?.expandSubject ? '&expand=subject' : ''),
     ),
+
+  /** 条目元信息（rexxar 富集缓存）：列表（分页 + 类别/标题过滤 + 队列进度计数） */
+  listSubjects: (query: { category?: string; q?: string; page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (query.category && query.category !== 'all') qs.set('category', query.category);
+    if (query.q) qs.set('q', query.q);
+    qs.set('page', String(query.page ?? 1));
+    qs.set('page_size', String(query.pageSize ?? 20));
+    return request<SubjectListResponse>(`/subjects?${qs.toString()}`);
+  },
+
+  getSubject: (category: string, subjectId: string) =>
+    request<Subject>(`/subjects/${encodeURIComponent(category)}/${encodeURIComponent(subjectId)}`),
+
+  /** 无视 TTL 强制重抓单条目（202 异步，worker 空闲时段执行） */
+  refreshSubject: (category: string, subjectId: string) =>
+    request<{ queued: boolean }>(
+      `/subjects/${encodeURIComponent(category)}/${encodeURIComponent(subjectId)}/refresh`,
+      { method: 'POST' },
+    ),
+
+  /** 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等） */
+  backfillSubjects: () =>
+    request<{ queued_jobs: number; uid_category_pairs: number }>('/subjects/backfill', {
+      method: 'POST',
+    }),
 
   getUserProfile: (uid: string) =>
     request<UserProfile>(`/users/${encodeURIComponent(uid)}/profile`),

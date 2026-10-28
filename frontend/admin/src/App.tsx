@@ -14,6 +14,7 @@ import {
 import Overview from './pages/Overview';
 import Tasks from './pages/Tasks';
 import Marks from './pages/Marks';
+import Subjects from './pages/Subjects';
 import { getApiBase, getToken, getUser, parseUserInput, setApiBase, setToken, setUser } from './api';
 import { UserAvatar, useUserProfile } from './user-profile';
 
@@ -89,6 +90,7 @@ function Layout() {
           { path: '/', name: '概览' },
           { path: '/tasks', name: '同步任务' },
           { path: '/marks', name: '数据浏览' },
+          { path: '/subjects', name: '条目元信息' },
         ],
       }}
       menuItemRender={(item, dom) => (
@@ -122,6 +124,7 @@ export default function App() {
           <Route index element={<Overview />} />
           <Route path="tasks" element={<Tasks />} />
           <Route path="marks" element={<Marks />} />
+          <Route path="subjects" element={<Subjects />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

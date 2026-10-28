@@ -1,7 +1,7 @@
 # 豆瓣数据同步服务器 API 设计（v1）
 
-> 状态：**已实现**（v0.2.0，含 SSE 推流、页级进度、16 个 oneshot 集成测试）
-> 日期：2026-10-27
+> 状态：**已实现**（v0.3.0，含 SSE 推流、页级进度、订阅同步、封面代理、条目元信息富集；35 集成 + 6 单元测试全绿）
+> 日期：2026-10-28
 > 前置阅读：[豆瓣API调研报告.md](豆瓣API调研报告.md)（路径②：免登录公开页抓取）、[README.md](README.md)（现有 CLI 能力）
 
 ---
@@ -94,17 +94,20 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 | 3 | GET | `/syncs` | 任务列表（过滤、游标分页；默认不含 auto 任务） |
 | 4 | DELETE | `/syncs/{task_id}` | 删除任务记录（数据保留） |
 | 5 | GET | `/syncs/{task_id}/result` | 结果元数据（维度汇总） |
-| 6 | GET | `/users/{uid}/marks` | 读库内数据（JSON，分页） |
-| 7 | GET | `/syncs/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
-| 8 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
-| 9 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
-| 10 | GET | `/subscriptions` | 订阅列表 |
-| 11 | PUT | `/subscriptions/{uid}` | 创建/更新订阅（RSS 增量 + 定时全量） |
-| 12 | DELETE | `/subscriptions/{uid}` | 取消订阅 |
-| 13 | GET | `/users/{uid}/profile` | 用户资料（头像 + 用户名，随抓取入库） |
-| 14 | GET | `/subjects/{category}/{subject_id}` | 条目结构化元信息（rexxar 富集缓存，跨用户共享） |
-| 15 | POST | `/subjects/{category}/{subject_id}/refresh` | 强制刷新单条目元信息（无视 TTL，优先执行） |
-| 16 | POST | `/subjects/backfill` | 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等） |
+| 6 | GET | `/syncs/{task_id}/events` | 任务进度 SSE 推流（支持 `?token=` 兜底鉴权） |
+| 7 | GET | `/users/{uid}/marks` | 读库内数据（JSON，分页；`?expand=subject` 每项附条目元信息） |
+| 8 | GET | `/users/{uid}/profile` | 用户资料（头像 + 用户名，随抓取入库） |
+| 9 | GET | `/subjects` | 条目元信息列表（分页 + 类别/标题过滤 + 富集进度计数） |
+| 9a | GET | `/subjects/{category}/{subject_id}` | 条目结构化元信息（rexxar 富集缓存，跨用户共享） |
+| 10 | POST | `/subjects/{category}/{subject_id}/refresh` | 强制刷新单条目元信息（无视 TTL，优先执行） |
+| 11 | POST | `/subjects/backfill` | 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等） |
+| 12 | GET | `/covers?u={url}` | 豆瓣封面/头像白名单代理（cache-then-serve，见 4.11） |
+| 13 | GET | `/subscriptions` | 订阅列表 |
+| 14 | PUT | `/subscriptions/{uid}` | 创建/更新订阅（RSS 增量 + 定时全量） |
+| 15 | GET | `/subscriptions/{uid}` | 单个订阅详情（未订阅 404 `SUBSCRIPTION_NOT_FOUND`） |
+| 16 | DELETE | `/subscriptions/{uid}` | 取消订阅 |
+| 17 | GET | `/server/info` | 服务元信息与限速/缓存配置 |
+| 18 | GET | `/healthz` | 健康检查（在 `/api/v1` 之外） |
 
 ## 4. 接口详细设计
 
@@ -382,7 +385,8 @@ GET /healthz    → 200 {"status":"ok"}
 ```
 PUT /api/v1/subscriptions/{uid}
     body: {"rss_interval_secs": 3600, "full_interval_secs": 86400}   # 两者均可省略取默认
-GET  /api/v1/subscriptions
+GET  /api/v1/subscriptions            # 列表：{"subscriptions": [...]}
+GET  /api/v1/subscriptions/{uid}      # 单个详情；未订阅 404 SUBSCRIPTION_NOT_FOUND
 DELETE /api/v1/subscriptions/{uid}
 ```
 
@@ -440,6 +444,8 @@ GET /api/v1/users/{uid}/profile
 ### 4.14 条目元信息（/subjects）
 
 收藏页 intro 是豆瓣服务端拍平的纯文本（无字段级结构），结构化元信息经 m.douban.com rexxar 内部 JSON 接口富集后落 `subjects` 表缓存，**主键 `(category, subject_id)` 不含 uid——跨用户共享，同一部《肖申克的救赎》只请求豆瓣一次**。完整设计见《条目元信息富集方案.md》。
+
+**GET /subjects?category=&q=&page=&page_size=**：分页列出已富集条目（按抓取时间倒序；category 缺省或 `all` 为全部，q 按标题模糊匹配且 `%` 按字面量处理），响应附带全局 `counts`（enriched/pending/not_found/failed），admin「条目元信息」页数据源。
 
 **GET /subjects/{category}/{subject_id}**：返回缓存元信息；未富集 404 `SUBJECT_NOT_FOUND`。
 

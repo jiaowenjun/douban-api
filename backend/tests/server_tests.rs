@@ -1477,3 +1477,73 @@ async fn subject_refresh_and_backfill_endpoints() {
     );
     assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
 }
+
+/// GET /subjects 列表：分页/类别过滤/标题搜索/进度计数
+#[tokio::test]
+async fn subjects_list_endpoint_filters_and_counts() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "1292052").await;
+    seed_record(&state, "wenjun30", "book", "38386470").await;
+    // 制造一个 not_found 终态 job 进计数
+    seed_record(&state, "wenjun30", "music", "41001").await;
+    subject::backfill(&state.pool, 2_592_000).await.unwrap();
+
+    // music/41001 模拟已删除条目（404），其余走 fixture
+    let fetcher = FakeFetcher(|url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            if url.ends_with("/41001") {
+                return Err(FetchError::NotFound);
+            }
+            let id = url.rsplit('/').next().unwrap();
+            return Ok(match id {
+                "1292052" => fixture("rexxar_movie.json"),
+                "38386470" => fixture("rexxar_book.json"),
+                _ => format!(
+                    r#"{{"title": "T-{id}", "pubdate": ["1999-1"], "rating": {{"value": 8.0, "count": 10}}}}"#
+                ),
+            });
+        }
+        Err(FetchError::NotFound)
+    });
+    for _ in 0..10 {
+        if !subject::process_next_job(&state, &fetcher).await.unwrap() {
+            break;
+        }
+    }
+
+    let app = build_app(state.clone());
+    // 全量列表：两条 ok
+    let (status, body) = request(app.clone(), Method::GET, "/api/v1/subjects", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 2);
+    assert_eq!(body["counts"]["enriched"], 2);
+    assert_eq!(body["counts"]["not_found"], 1, "404 job 计入 not_found");
+    assert_eq!(body["items"][0]["url"], "https://movie.douban.com/subject/1292052/");
+
+    // 类别过滤 + 标题搜索
+    let (_, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects?category=book",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["title"], "浮生六记");
+
+    let (_, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects?q=肖申克",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["subject_id"], "1292052");
+
+    // % 通配符按字面量处理
+    let (_, body) = request(app.clone(), Method::GET, "/api/v1/subjects?q=%", None, None).await;
+    assert_eq!(body["total"], 0, "百分号被转义，不匹配全部");
+}

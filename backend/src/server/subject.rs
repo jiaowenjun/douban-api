@@ -424,6 +424,7 @@ fn subject_view(category: &str, subject_id: &str, r: &sqlx::sqlite::SqliteRow) -
         "rating": rating,
         // 与 records.cover 同理：豆瓣图域有 Referer 防盗链，出口改写走本地代理
         "cover": cover_proxy_url(&r.get::<String, _>("cover_url")),
+        "url": r.get::<String, _>("url"),
         "status": r.get::<String, _>("status"),
         "fetched_at": ms_to_rfc3339(fetched_ms),
     });
@@ -435,7 +436,7 @@ fn subject_view(category: &str, subject_id: &str, r: &sqlx::sqlite::SqliteRow) -
 pub async fn get_subject_view(state: &AppState, category: &str, subject_id: &str) -> AppResult<Value> {
     let row = sqlx::query(
         "SELECT title, original_title, year, aka_json, cover_url, rating_value,
-                rating_count, meta_json, status, fetched_ms
+                rating_count, meta_json, status, fetched_ms, url
          FROM subjects WHERE category = ? AND subject_id = ?",
     )
     .bind(category)
@@ -458,7 +459,7 @@ pub async fn load_subject_views(
     let placeholders = vec!["?"; subject_ids.len()].join(",");
     let sql = format!(
         "SELECT subject_id, title, original_title, year, aka_json, cover_url,
-                rating_value, rating_count, meta_json, status, fetched_ms
+                rating_value, rating_count, meta_json, status, fetched_ms, url
          FROM subjects WHERE category = ? AND subject_id IN ({placeholders})"
     );
     let mut q = sqlx::query(&sql).bind(category);
@@ -479,20 +480,117 @@ pub async fn load_subject_views(
         .collect())
 }
 
-/// 全局富集进度计数（sync result 汇总用）
-pub async fn enrichment_counts(pool: &SqlitePool) -> Result<(i64, i64)> {
+/// 全局富集进度计数（sync result 汇总与 /subjects 列表共用）
+pub struct EnrichmentCounts {
+    pub enriched: i64,
+    pub pending: i64,
+    pub not_found: i64,
+    pub failed: i64,
+}
+
+pub async fn enrichment_counts(pool: &SqlitePool) -> Result<EnrichmentCounts> {
     let enriched: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM subjects WHERE status = 'ok'")
             .fetch_one(pool)
             .await
             .context("统计已富集条目失败")?;
-    let pending: i64 = sqlx::query_scalar(
+    let count = |sql: &'static str| sqlx::query_scalar(sql).fetch_one(pool);
+    let pending: i64 = count(
         "SELECT COUNT(*) FROM subject_jobs WHERE state IN ('queued','running')",
     )
-    .fetch_one(pool)
     .await
     .context("统计待富集条目失败")?;
-    Ok((enriched, pending))
+    let not_found: i64 = count("SELECT COUNT(*) FROM subject_jobs WHERE state = 'not_found'")
+        .await
+        .unwrap_or(0);
+    let failed: i64 = count("SELECT COUNT(*) FROM subject_jobs WHERE state = 'error'")
+        .await
+        .unwrap_or(0);
+    Ok(EnrichmentCounts {
+        enriched,
+        pending,
+        not_found,
+        failed,
+    })
+}
+
+/// GET /subjects：分页列出已富集条目（admin 总览页数据源）。
+/// category 为空/"all" 表示全部类别；q 按标题模糊过滤。
+pub async fn list_subjects(
+    state: &AppState,
+    category: Option<&str>,
+    q: &str,
+    page: i64,
+    page_size: i64,
+) -> AppResult<Value> {
+    let page = page.max(1);
+    let page_size = page_size.clamp(1, 200);
+    let offset = (page - 1) * page_size;
+
+    let mut where_clause = String::new();
+    let mut bind_category: Option<String> = None;
+    let has_category = category.is_some_and(|c| !c.is_empty() && c != "all");
+    if has_category {
+        where_clause.push_str(" WHERE category = ?");
+        bind_category = category.map(str::to_string);
+    }
+    if !q.is_empty() {
+        where_clause.push_str(if where_clause.is_empty() { " WHERE" } else { " AND" });
+        where_clause.push_str(" title LIKE ? ESCAPE '\\'");
+    }
+
+    let total: i64 = {
+        let sql = format!("SELECT COUNT(*) FROM subjects{where_clause}");
+        let mut query = sqlx::query_scalar(&sql);
+        if let Some(c) = &bind_category {
+            query = query.bind(c);
+        }
+        if !q.is_empty() {
+            query = query.bind(format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%")));
+        }
+        query.fetch_one(&state.pool).await?
+    };
+
+    let rows = {
+        let sql = format!(
+            "SELECT subject_id, title, original_title, year, aka_json, cover_url,
+                    rating_value, rating_count, meta_json, status, fetched_ms, url, category
+             FROM subjects{where_clause}
+             ORDER BY fetched_ms DESC, rowid DESC
+             LIMIT ? OFFSET ?"
+        );
+        let mut query = sqlx::query(&sql);
+        if let Some(c) = &bind_category {
+            query = query.bind(c);
+        }
+        if !q.is_empty() {
+            query = query.bind(format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%")));
+        }
+        let query = query.bind(page_size).bind(offset);
+        query.fetch_all(&state.pool).await?
+    };
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let cat: String = r.get("category");
+            let id: String = r.get("subject_id");
+            subject_view(&cat, &id, r)
+        })
+        .collect();
+
+    let counts = enrichment_counts(&state.pool).await?;
+    Ok(json!({
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "counts": {
+            "enriched": counts.enriched,
+            "pending": counts.pending,
+            "not_found": counts.not_found,
+            "failed": counts.failed,
+        },
+    }))
 }
 
 // --------------------------------------------------------------------------- //

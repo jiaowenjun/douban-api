@@ -647,8 +647,8 @@ pub async fn task_result(state: &AppState, task_id: &str) -> AppResult<ResultVie
     }
 
     // 全局富集进度（条目元信息跨用户共享，不按任务归属，仅附带给调用方观察）
-    let (subjects_enriched, subjects_pending) =
-        super::subject::enrichment_counts(&state.pool).await?;
+    let counts = super::subject::enrichment_counts(&state.pool).await?;
+    let (subjects_enriched, subjects_pending) = (counts.enriched, counts.pending);
     Ok(ResultView {
         task_id: task_id.to_string(),
         user,

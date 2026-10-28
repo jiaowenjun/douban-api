@@ -81,8 +81,79 @@ export interface ResultView {
   expires_at: string | null;
 }
 
-/** Record 的 12 字段 */
+/** rexxar 富集的类别专属元信息（键随 category 为 movie/book/music） */
+export interface SubjectMetaMovie {
+  directors: string[];
+  actors: string[];
+  genres: string[];
+  countries: string[];
+  languages: string[];
+  durations: string[];
+  pubdate: string[];
+  is_tv: boolean | null;
+  episodes_count: number | null;
+  intro: string;
+}
+
+export interface SubjectMetaBook {
+  authors: string[];
+  translators: string[];
+  press: string[];
+  pubdate: string[];
+  pages: string[];
+  price: string[];
+  subtitle: string;
+  series: string;
+  intro: string;
+}
+
+export interface SubjectMetaMusic {
+  singers: string[];
+  genres: string[];
+  media: string[];
+  discs: string[];
+  pubdate: string[];
+  publisher: string[];
+  version: string[];
+  songs: string[];
+  intro: string;
+}
+
+/** GET /subjects/{category}/{subject_id}（rexxar 富集缓存，跨用户共享） */
+export interface Subject {
+  category: 'movie' | 'book' | 'music';
+  subject_id: string;
+  title: string;
+  original_title: string;
+  aka: string[];
+  year: number | null;
+  rating: { value: number | null; count: number | null };
+  cover: string;
+  url: string;
+  status: string;
+  fetched_at: string;
+  movie?: SubjectMetaMovie;
+  book?: SubjectMetaBook;
+  music?: SubjectMetaMusic;
+}
+
+/** GET /subjects 列表响应 */
+export interface SubjectListResponse {
+  items: Subject[];
+  total: number;
+  page: number;
+  page_size: number;
+  counts: {
+    enriched: number;
+    pending: number;
+    not_found: number;
+    failed: number;
+  };
+}
+
+/** Record 的 12 字段（expand=subject 时附 subject 字段） */
 export interface RecordItem {
+  subject?: Subject | null;
   category: string;
   status: string;
   title: string;

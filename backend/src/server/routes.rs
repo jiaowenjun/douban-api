@@ -1,5 +1,7 @@
 //! HTTP 路由与中间件（鉴权、客户端限流）。
 
+use tower_http::cors::CorsLayer;
+
 use axum::{
     Json, Router,
     body::Bytes,
@@ -23,7 +25,25 @@ use super::service::{self, CreateTaskInput, TERMINAL_STATUSES, TaskView};
 use super::state::AppState;
 use super::subject;
 
+/// CORS 白名单（逗号分隔；空 = 不启用）。跨源部署 admin（如 dist 静态站 + 远端 API）时配置。
+fn cors_layer(origins: &str) -> Option<CorsLayer> {
+    if origins.trim().is_empty() {
+        return None;
+    }
+    let list: Vec<_> = origins
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<axum::http::HeaderValue>().ok())
+        .collect();
+    if list.is_empty() {
+        return None;
+    }
+    Some(CorsLayer::new().allow_origin(list))
+}
+
 pub fn build_app(state: AppState) -> Router {
+    let cors = cors_layer(&state.config.cors_origins);
     // 封面端点单列：仍走鉴权（img 标签带不了 Header，靠 ?token= 兜底），
     // 但豁免限流——一页 20 张封面属正常连发，且磁盘命中后近乎静态文件
     let covers = Router::new()
@@ -42,6 +62,7 @@ pub fn build_app(state: AppState) -> Router {
             "/subjects/{category}/{subject_id}/refresh",
             post(refresh_subject),
         )
+        .route("/subjects", get(list_subjects))
         .route("/subjects/backfill", post(backfill_subjects))
         .route("/users/{uid}/profile", get(get_user_profile))
         .route("/subscriptions", get(list_subscriptions))
@@ -55,7 +76,11 @@ pub fn build_app(state: AppState) -> Router {
         .with_state(state)
         .merge(covers);
 
-    Router::new().route("/healthz", get(healthz)).nest("/api/v1", api)
+    let router = Router::new().route("/healthz", get(healthz)).nest("/api/v1", api);
+    match cors {
+        Some(layer) => router.layer(layer),
+        None => router,
+    }
 }
 
 // --------------------------------------------------------------------------- //
@@ -461,6 +486,37 @@ async fn get_subject(
 ) -> AppResult<Json<Value>> {
     parse_category(&category)?;
     Ok(Json(subject::get_subject_view(&state, &category, &subject_id).await?))
+}
+
+#[derive(serde::Deserialize, Default)]
+struct SubjectsQuery {
+    /// movie/book/music；缺省或 all = 全部
+    category: Option<String>,
+    /// 标题模糊搜索
+    q: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+async fn list_subjects(
+    State(state): State<AppState>,
+    Query(q): Query<SubjectsQuery>,
+) -> AppResult<Json<Value>> {
+    if let Some(c) = q.category.as_deref() {
+        if !c.is_empty() && c != "all" {
+            parse_category(c)?;
+        }
+    }
+    Ok(Json(
+        subject::list_subjects(
+            &state,
+            q.category.as_deref(),
+            q.q.as_deref().unwrap_or("").trim(),
+            q.page.unwrap_or(1),
+            q.page_size.unwrap_or(20),
+        )
+        .await?,
+    ))
 }
 
 /// 强制刷新单个条目（无视 TTL 立即重抓 rexxar）
