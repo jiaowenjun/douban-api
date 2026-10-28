@@ -2,7 +2,7 @@
 
 > 状态：**已实现**（v0.3.0，含 SSE 推流、页级进度、订阅同步、封面代理、条目元信息富集；35 集成 + 6 单元测试全绿）
 > 日期：2026-10-28
-> 前置阅读：[豆瓣API调研报告.md](豆瓣API调研报告.md)（路径②：免登录公开页抓取）、[README.md](README.md)（现有 CLI 能力）
+> 前置阅读：[豆瓣API调研报告.md](豆瓣API调研报告.md)（路径②：免登录公开页抓取）、[README.md](README.md)（现有 CLI 能力）、[豆瓣源依赖性与脆弱性分析.md](豆瓣源依赖性与脆弱性分析.md)（各端点对豆瓣源的依赖与失效模式）
 
 ---
 
@@ -447,7 +447,7 @@ GET /api/v1/users/{uid}/profile
 
 **GET /subjects?category=&q=&page=&page_size=**：分页列出已富集条目（按抓取时间倒序；category 缺省或 `all` 为全部，q 按标题模糊匹配且 `%` 按字面量处理），响应附带全局 `counts`（enriched/pending/not_found/failed），admin「条目元信息」页数据源。
 
-**GET /subjects/{category}/{subject_id}**：返回缓存元信息；未富集 404 `SUBJECT_NOT_FOUND`。
+**GET /subjects/{category}/{subject_id}**：返回缓存元信息（`source:"rexxar"`）；subjects 未富集但 records 有标记时回退 intro 合成视图（`source:"intro"`）；两者皆无才 404 `SUBJECT_NOT_FOUND`。
 
 ```json
 {
@@ -470,7 +470,7 @@ GET /api/v1/users/{uid}/profile
 
 **POST /subjects/backfill** → 200 `{"queued_jobs": N, "uid_category_pairs": M}`：存量数据回填入口，幂等可重跑。
 
-**marks 扩展**：`GET /users/{uid}/marks?…&expand=subject`，items 每项追加 `subject` 对象（未富集条目为 `null`）；不传 expand 响应结构与旧版完全一致。`/syncs/{id}/result` 的 summary 附带全局 `subjects_enriched` / `subjects_pending` 计数。
+**marks 扩展**：`GET /users/{uid}/marks?…&expand=subject`，items 每项追加 `subject` 对象：已富集返回 rexxar 视图（`source:"rexxar"`，含豆瓣评分）；**未富集回退 intro 启发式解析合成视图（`source:"intro"`，无豆瓣评分、fetched_at 为 null）**，不再为 `null`；不传 expand 响应结构与旧版完全一致。intro 解析器为 intro汇总/intro_parser.py 的 Rust 移植（backend/src/intro.rs），291 例黄金用例与 Python 共享基准。`/syncs/{id}/result` 的 summary 附带全局 `subjects_enriched` / `subjects_pending` 计数。
 
 **行为要点**：富集只存封面 URL（`cover_url`，rexxar 中图规格，比收藏页 `records.cover` 小图清晰），图片字节仍由 `/covers` 代理按需回源缓存，两者分工详见《条目元信息富集方案.md》§12；维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队缺失/过期（TTL 默认 30 天，`SYNC_SUBJECT_TTL_SECS`）条目；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
 

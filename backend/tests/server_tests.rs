@@ -1347,12 +1347,20 @@ async fn marks_expand_subject_and_subjects_endpoints() {
     ];
     seed_ok_dimension(&state, Category::Movie, records).await;
 
+    // 99999 的 intro 留空（兜底视图各字段为空数组）；另种一条带真实 intro 的
+    // 记录验证兜底解析（金都：黄绮琳 / 91分钟 / 中国香港）
+    // —— 上面 records 第二条 intro 为空，这里直接改写它的 intro 再测兜底解析
+    sqlx::query("UPDATE records SET intro = ? WHERE subject_id = '99999'")
+        .bind("2019-11-17(香港亚洲电影节) / 2020-06-11(中国香港) / 邓丽欣 / 中国香港 / 黄绮琳 / 91分钟 / 剧情 / 粤语")
+        .execute(&state.pool)
+        .await
+        .unwrap();
     // 只富集 1292052（真实 fixture）
     subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
         .await
         .unwrap();
     let fetcher = fixture_fetcher();
-    // 1292052 与 99999 都会入队；只驱动一次，留下 99999 未富集
+    // 1292052 与 99999 都会入队；只驱动一次，留下 99999 未富集（走 intro 兜底）
     assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
 
     let app = build_app(state.clone());
@@ -1381,7 +1389,16 @@ async fn marks_expand_subject_and_subjects_endpoints() {
     assert_eq!(body["items"][0]["subject"]["title"], "肖申克的救赎");
     assert_eq!(body["items"][0]["subject"]["movie"]["genres"][0], "剧情");
     assert_eq!(body["items"][0]["subject"]["year"], 1994);
-    assert_eq!(body["items"][1]["subject"], Value::Null);
+    assert_eq!(body["items"][0]["subject"]["source"], "rexxar");
+    // 未富集条目：intro 兜底视图（启发式字段、无豆瓣评分）
+    assert_eq!(body["items"][1]["subject"]["source"], "intro");
+    assert_eq!(body["items"][1]["subject"]["year"], 2019);
+    assert_eq!(
+        body["items"][1]["subject"]["movie"]["directors"],
+        serde_json::json!(["黄绮琳"])
+    );
+    assert_eq!(body["items"][1]["subject"]["movie"]["durations"], serde_json::json!(["91分钟"]));
+    assert_eq!(body["items"][1]["subject"]["rating"]["value"], Value::Null);
 
     // 非法 expand 值
     let (status, body) = request(
@@ -1395,7 +1412,7 @@ async fn marks_expand_subject_and_subjects_endpoints() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "INVALID_ARGUMENT");
 
-    // 单条目端点：命中 / 未富集 404
+    // 单条目端点：rexxar 命中 / records 命中走 intro 兜底 / 完全未知 404
     let (status, body) = request(
         app.clone(),
         Method::GET,
@@ -1410,6 +1427,17 @@ async fn marks_expand_subject_and_subjects_endpoints() {
         app.clone(),
         Method::GET,
         "/api/v1/subjects/movie/99999",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["source"], "intro");
+    assert_eq!(body["movie"]["countries"], serde_json::json!(["中国香港"]));
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/movie/88888",
         None,
         None,
     )

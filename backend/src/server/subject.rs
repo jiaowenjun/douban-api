@@ -427,6 +427,7 @@ fn subject_view(category: &str, subject_id: &str, r: &sqlx::sqlite::SqliteRow) -
         "url": r.get::<String, _>("url"),
         "status": r.get::<String, _>("status"),
         "fetched_at": ms_to_rfc3339(fetched_ms),
+        "source": "rexxar",
     });
     // 类别专属节点：键随 category（movie/book/music）
     view[category] = serde_json::from_str::<Value>(&meta_json).unwrap_or(json!({}));
@@ -434,7 +435,7 @@ fn subject_view(category: &str, subject_id: &str, r: &sqlx::sqlite::SqliteRow) -
 }
 
 pub async fn get_subject_view(state: &AppState, category: &str, subject_id: &str) -> AppResult<Value> {
-    let row = sqlx::query(
+    if let Some(row) = sqlx::query(
         "SELECT title, original_title, year, aka_json, cover_url, rating_value,
                 rating_count, meta_json, status, fetched_ms, url
          FROM subjects WHERE category = ? AND subject_id = ?",
@@ -443,28 +444,132 @@ pub async fn get_subject_view(state: &AppState, category: &str, subject_id: &str
     .bind(subject_id)
     .fetch_optional(&state.pool)
     .await?
-    .ok_or_else(|| AppError::SubjectNotFound(format!("{category}/{subject_id}")))?;
-    Ok(subject_view(category, subject_id, &row))
+    {
+        return Ok(subject_view(category, subject_id, &row));
+    }
+    // subjects 未富集：回退 records.intro 合成视图（跨用户任意一条标记即可）
+    let record = sqlx::query(
+        "SELECT subject_id, title, alt_title, subject_url, intro FROM records
+         WHERE category = ? AND subject_id = ? LIMIT 1",
+    )
+    .bind(category)
+    .bind(subject_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    if let Some(r) = record {
+        let rec = crate::crawler::Record {
+            category: category.to_string(),
+            status: String::new(),
+            title: r.get("title"),
+            alt_title: r.get("alt_title"),
+            my_rating: None,
+            date: String::new(),
+            comment: String::new(),
+            subject_url: r.get("subject_url"),
+            subject_id: subject_id.to_string(),
+            cover: String::new(),
+            comment_id: String::new(),
+            intro: r.get("intro"),
+        };
+        return Ok(intro_fallback_view(&rec));
+    }
+    Err(AppError::SubjectNotFound(format!("{category}/{subject_id}")))
 }
 
-/// marks?expand=subject 的批量读：按传入顺序对齐返回（未富集为 None）
+/// intro 兜底视图：subjects 未富集时按 records.intro（Rust 移植解析器）合成，
+/// 形状与 rexxar 视图一致但无豆瓣评分、source="intro"（方案 §9 读侧兜底）。
+fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
+    let category = record.category.as_str();
+    let mut view = json!({
+        "category": category,
+        "subject_id": record.subject_id,
+        "title": record.title,
+        "original_title": "",
+        "aka": [],
+        "year": Value::Null,
+        "rating": {"value": Value::Null, "count": Value::Null},
+        // intro 行无独立封面 URL（records.cover 由 marks 响应自身携带）
+        "cover": "",
+        "url": record.subject_url,
+        "status": "ok",
+        "fetched_at": Value::Null,
+        "source": "intro",
+    });
+    match category {
+        "movie" => {
+            let m = crate::intro::parse_movie(&record.intro, &record.title, &record.alt_title);
+            view["year"] = m.years.iter().min().map(|y| json!(y)).unwrap_or(Value::Null);
+            view["movie"] = json!({
+                "directors": m.director_list,
+                "actors": [],
+                "genres": m.genres,
+                "countries": m.countries,
+                "languages": m.langs,
+                "durations": m.duration.map(|d| vec![format!("{d}分钟")]).unwrap_or_default(),
+                "pubdate": m.dates,
+                "is_tv": Value::Null,
+                "episodes_count": Value::Null,
+                "intro": "",
+            });
+        }
+        "book" => {
+            let b = crate::intro::parse_book(&record.intro);
+            let opt_arr = |v: &String| if v.is_empty() { vec![] } else { vec![v.clone()] };
+            view["year"] = b.pubyear.map(|y| json!(y)).unwrap_or(Value::Null);
+            view["book"] = json!({
+                "authors": b.authors,
+                "translators": [],
+                "press": opt_arr(&b.publisher),
+                "pubdate": opt_arr(&b.pubdate),
+                "pages": [],
+                "price": opt_arr(&b.price_raw),
+                "subtitle": "",
+                "series": "",
+                "intro": "",
+            });
+        }
+        _ => {
+            let m = crate::intro::parse_music(&record.intro);
+            let split_plus = |v: &str| {
+                v.split('+').filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>()
+            };
+            let opt_arr = |v: &String| if v.is_empty() { vec![] } else { vec![v.clone()] };
+            view["year"] = m.year.map(|y| json!(y)).unwrap_or(Value::Null);
+            view["music"] = json!({
+                "singers": opt_arr(&m.artist),
+                "genres": split_plus(&m.genre),
+                "media": split_plus(&m.medium),
+                "discs": [],
+                "pubdate": opt_arr(&m.date),
+                "publisher": [],
+                "version": [],
+                "songs": [],
+                "intro": "",
+            });
+        }
+    }
+    view
+}
+
+/// marks?expand=subject 的批量读：按传入顺序对齐返回；subjects 已富集用 rexxar
+/// 视图，否则回退 intro 解析合成（source="intro"，启发式字段、无豆瓣评分）。
 pub async fn load_subject_views(
     state: &AppState,
     category: &str,
-    subject_ids: &[String],
-) -> Result<Vec<Option<Value>>> {
-    if subject_ids.is_empty() {
+    records: &[crate::crawler::Record],
+) -> Result<Vec<Value>> {
+    if records.is_empty() {
         return Ok(Vec::new());
     }
-    let placeholders = vec!["?"; subject_ids.len()].join(",");
+    let placeholders = vec!["?"; records.len()].join(",");
     let sql = format!(
         "SELECT subject_id, title, original_title, year, aka_json, cover_url,
                 rating_value, rating_count, meta_json, status, fetched_ms, url
          FROM subjects WHERE category = ? AND subject_id IN ({placeholders})"
     );
     let mut q = sqlx::query(&sql).bind(category);
-    for id in subject_ids {
-        q = q.bind(id);
+    for r in records {
+        q = q.bind(&r.subject_id);
     }
     let rows = q.fetch_all(&state.pool).await.context("批量读取条目元信息失败")?;
     let by_id: std::collections::HashMap<String, Value> = rows
@@ -474,9 +579,9 @@ pub async fn load_subject_views(
             (id.clone(), subject_view(category, &id, r))
         })
         .collect();
-    Ok(subject_ids
+    Ok(records
         .iter()
-        .map(|id| by_id.get(id).cloned())
+        .map(|r| by_id.get(&r.subject_id).cloned().unwrap_or_else(|| intro_fallback_view(r)))
         .collect())
 }
 

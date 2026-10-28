@@ -158,10 +158,13 @@ export default function Marks() {
         dataSource={data?.items ?? []}
         expandable={{
           expandedRowRender: (r) =>
-            r.subject ? (
+            r.subject && r.subject.source !== 'intro' ? (
               <SubjectMetaDetail subject={r.subject} />
             ) : (
-              <SubjectNotEnriched category={r.category} subjectId={r.subject_id} />
+              <>
+                {r.subject && <SubjectMetaDetail subject={r.subject} />}
+                <SubjectNotEnriched category={r.category} subjectId={r.subject_id} fromIntro />
+              </>
             ),
         }}
         pagination={

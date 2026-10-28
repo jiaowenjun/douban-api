@@ -131,7 +131,10 @@ export interface Subject {
   cover: string;
   url: string;
   status: string;
-  fetched_at: string;
+  /** intro 兜底视图无抓取时间 */
+  fetched_at: string | null;
+  /** rexxar = 富集缓存；intro = 未富集时的启发式解析兜底（无豆瓣评分） */
+  source?: 'rexxar' | 'intro';
   movie?: SubjectMetaMovie;
   book?: SubjectMetaBook;
   music?: SubjectMetaMusic;

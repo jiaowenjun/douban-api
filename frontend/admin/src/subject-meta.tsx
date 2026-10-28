@@ -120,8 +120,16 @@ export function SubjectMetaDetail({ subject }: { subject: Subject }) {
   );
 }
 
-/** marks 行展开的空态：条目尚未富集，提供「立即富集」按钮（refresh 端点重新排队） */
-export function SubjectNotEnriched({ category, subjectId }: { category: string; subjectId: string }) {
+/** marks 行展开的空态：条目尚未富集（或当前为 intro 启发式兜底），提供「立即富集」 */
+export function SubjectNotEnriched({
+  category,
+  subjectId,
+  fromIntro = false,
+}: {
+  category: string;
+  subjectId: string;
+  fromIntro?: boolean;
+}) {
   const [loading, setLoading] = useState(false);
   const [queued, setQueued] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -136,7 +144,9 @@ export function SubjectNotEnriched({ category, subjectId }: { category: string; 
           '已加入富集队列，worker 空闲时段抓取豆瓣（rexxar），稍后刷新本页查看'
         ) : (
           <>
-            该条目尚未富集结构化元信息。
+            {fromIntro
+              ? '以上为 intro 启发式解析结果（字段可能有误、无豆瓣评分），可富集为 rexxar 权威数据。'
+              : '该条目尚未富集结构化元信息。'}
             <Button
               size="small"
               type="link"

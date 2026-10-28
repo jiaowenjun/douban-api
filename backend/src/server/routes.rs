@@ -445,13 +445,13 @@ async fn get_marks(
 
     let marks = service::read_marks(&state, &uid, category, status, page, page_size).await?;
     let items: Value = if expand_subject {
-        let ids: Vec<String> = marks.items.iter().map(|r| r.subject_id.clone()).collect();
-        let views = subject::load_subject_views(&state, category.key(), &ids).await?;
+        // subjects 已富集返回 rexxar 视图，未富集回退 intro 解析合成（source=intro）
+        let views = subject::load_subject_views(&state, category.key(), &marks.items).await?;
         let mut arr = serde_json::to_value(&marks.items)
             .map_err(|e| AppError::Internal(e.to_string()))?;
         if let Value::Array(list) = &mut arr {
             for (item, view) in list.iter_mut().zip(views) {
-                item["subject"] = view.unwrap_or(Value::Null);
+                item["subject"] = view;
             }
         }
         arr
