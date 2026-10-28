@@ -1,15 +1,2 @@
 @import 'weimo-ui-core/styles/tokens.css';
 @import 'weimo-ui-template/styles/base.css';
-
-/* 库的 base.css 不重置表单控件的 UA 背景（官方示例站靠 Tailwind preflight 兜底），
-   不补这层时按钮会常驻浏览器默认灰底 */
-@layer base {
-  button,
-  input,
-  select,
-  optgroup,
-  textarea,
-  ::file-selector-button {
-    background-color: transparent;
-  }
-}
