@@ -16,12 +16,12 @@ import {
 } from './site/navigation'
 import { MarksPage } from './site/pages/marks-page'
 
-/** 从 /:category/:status 路径解析导航高亮项与顶栏标题 */
+/** 从 /:category 路径解析导航高亮项与顶栏标题 */
 function useMarksViewFromLocation() {
   const { pathname } = useLocation()
-  const [, category, status] = pathname.split('/')
+  const [, category] = pathname.split('/')
 
-  return resolveMarksView(category, status)
+  return resolveMarksView(category)
 }
 
 function SiteShell() {
@@ -42,7 +42,7 @@ function SiteShell() {
     >
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
-        <Route element={<MarksPage />} path="/:category/:status" />
+        <Route element={<MarksPage />} path="/:category" />
         <Route
           element={<Navigate replace to={DEFAULT_MARKS_PATH} />}
           path="*"

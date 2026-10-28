@@ -19,13 +19,13 @@ src/
 ├── App.tsx               # SiteTemplate 外壳 + 路由
 ├── index.css             # tokens.css + base.css（组件自身 CSS 随 JS 自动引入）
 └── site/
-    ├── navigation.ts     # 导航分组（电影/图书/音乐 × 看过在看想看…）与路由参数解析
+    ├── navigation.ts     # 侧边栏导航（电影/图书/音乐三个条目）与路由参数解析
     └── pages/
         └── marks-page.tsx    # 标记列表页占位，待接入 GET /api/v1/users/{uid}/marks
 ```
 
-路由为 `/:category/:status`（category: movie|book|music，status:
-collect|do|wish），非法组合重定向到 `/movie/collect`。
+路由为 `/:category`（category: movie|book|music），只展示「看过」
+（collect）的标记，非法值重定向到 `/movie`。
 
 ## 开发
 

@@ -4,9 +4,18 @@ import type {
 } from 'weimo-ui-template/components/site-template'
 
 export type MarksCategory = 'movie' | 'book' | 'music'
-export type MarksStatus = 'collect' | 'do' | 'wish'
 
-export const DEFAULT_MARKS_PATH = '/movie/collect'
+/** 站点只展示「看过」（collect）的标记 */
+export const MARKS_STATUS = 'collect'
+
+export const DEFAULT_MARKS_PATH = '/movie'
+
+/** 侧边栏条目顺序 */
+export const MARKS_CATEGORIES: readonly MarksCategory[] = [
+  'movie',
+  'book',
+  'music',
+]
 
 export const CATEGORY_NOUNS: Record<MarksCategory, string> = {
   book: '图书',
@@ -14,78 +23,44 @@ export const CATEGORY_NOUNS: Record<MarksCategory, string> = {
   music: '音乐',
 }
 
+/** 页面标题动词：看过的电影 / 读过的图书 / 听过的音乐 */
 const CATEGORY_VERBS: Record<MarksCategory, string> = {
   book: '读',
   movie: '看',
   music: '听',
 }
 
-/** 组内导航短标签：看过 / 在看 / 想看（分组标题已含领域名词） */
-const STATUS_LABELS: Record<MarksStatus, string> = {
-  collect: '过',
-  do: '在',
-  wish: '想',
-}
-
-function statusLabel(category: MarksCategory, status: MarksStatus): string {
-  const verb = CATEGORY_VERBS[category]
-  const prefix = STATUS_LABELS[status]
-
-  return status === 'collect' ? verb + prefix : prefix + verb
-}
-
 function isMarksCategory(value: string): value is MarksCategory {
   return value in CATEGORY_NOUNS
-}
-
-function isMarksStatus(value: string): value is MarksStatus {
-  return value in STATUS_LABELS
 }
 
 export type MarksView = {
   activeItemId: string
   category: MarksCategory
   pageTitle: string
-  status: MarksStatus
 }
 
-/** 校验路由参数并派生导航高亮项与页面标题；非法组合返回 null */
+/** 校验路由参数并派生导航高亮项与页面标题；非法值返回 null */
 export function resolveMarksView(
   category: string | undefined,
-  status: string | undefined,
 ): MarksView | null {
-  if (!category || !status) return null
-  if (!isMarksCategory(category) || !isMarksStatus(status)) return null
-
-  const label = statusLabel(category, status)
+  if (!category || !isMarksCategory(category)) return null
 
   return {
-    activeItemId: `${category}-${status}`,
+    activeItemId: category,
     category,
-    pageTitle: `${label}的${CATEGORY_NOUNS[category]}`,
-    status,
+    pageTitle: `${CATEGORY_VERBS[category]}过的${CATEGORY_NOUNS[category]}`,
   }
 }
 
-function marksItems(
-  category: MarksCategory,
-  statuses: readonly MarksStatus[],
-): SiteNavigationItem[] {
-  return statuses.map((status) => ({
-    href: `#/${category}/${status}`,
-    id: `${category}-${status}`,
-    label: statusLabel(category, status),
-  }))
-}
-
-export const MARKS_NAVIGATION_GROUPS: readonly SiteNavigationGroup[] = (
-  [
-    ['movie', ['collect', 'do', 'wish']],
-    ['book', ['collect', 'do', 'wish']],
-    ['music', ['collect', 'do', 'wish']],
-  ] as const
-).map(([category, statuses]) => ({
-  id: category,
-  items: marksItems(category, statuses),
-  title: CATEGORY_NOUNS[category],
-}))
+export const MARKS_NAVIGATION_GROUPS: readonly SiteNavigationGroup[] = [
+  {
+    id: 'marks',
+    items: MARKS_CATEGORIES.map((category): SiteNavigationItem => ({
+      href: `#/${category}`,
+      id: category,
+      label: CATEGORY_NOUNS[category],
+    })),
+    title: '标记',
+  },
+]
