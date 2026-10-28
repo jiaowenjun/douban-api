@@ -18,9 +18,9 @@ const COVER_C =
 const LONG_TITLE =
   '超级无敌旋风加长导演剪辑终极纪念收藏限量展映完整版电影标题示例'
 const LONG_INTRO =
-  '2026-10-28(中国大陆) / 示例导演 / 示例演员甲 / 示例演员乙 / 示例演员丙 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 爱情 / 汉语普通话 / 粤语 / 这一行简介非常长，用来验证单行截断的省略号是否正常出现'
+  '2026-10-28(中国大陆) / 示例导演 / 示例演员甲 / 示例演员乙 / 示例演员丙 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 爱情 / 汉语普通话 / 粤语 / 这一行简介非常长，用来验证完整展示时能否自然换行、不与封面重叠'
 const LONG_COMMENT =
-  '这条短评特意写得很长很长，用来验证短评区域最多显示三行、超出部分截断省略的排版规则。第一行交代剧情观感，第二行继续铺陈导演技法与视听语言的分析，第三行收束到个人化的情绪与结论。如果还有第四行，那它应该被 line-clamp 裁掉，只会留下省略号——比如现在你看到的这句话，理应出现在第三行行尾的省略号之后，正常情况下已经不可见。'
+  '这条短评特意写得很长很长，用来验证短评区域完整展示、卡片随内容自动撑开高度的排版规则。第一行交代剧情观感，第二行继续铺陈导演技法与视听语言的分析，第三行收束到个人化的情绪与结论，后面还可以有第四行、第五行甚至更多——无论多长都应原样显示，不留省略号，卡片高度由正文决定。'
 
 /** 基准字段：全部可选字段留空，各场景按需覆盖 */
 const BASE_MARK: DoubanMark = {
@@ -51,7 +51,7 @@ const FULL_MARK = mark({
   intro:
     '2026-10-28(中国大陆) / 示例导演 / 示例演员 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 汉语普通话',
   comment:
-    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：标题行左侧为标题、右侧为星级，下方依次为又名、单行简介、最多三行的短评，最后是标记日期。',
+    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：标题行左侧为标题、右侧为星级，下方依次为又名、简介、完整展示的短评，最后是标记日期。',
 })
 
 const RATING_MARKS = [1, 2, 3, 4, 5].map((n) =>
@@ -104,13 +104,13 @@ const MISSING_FIELD_MARKS = [
   }),
 ]
 
-const TRUNCATION_MARKS = [
+const LONG_TEXT_MARKS = [
   mark({
     comment_id: 'demo-long-title',
     title: LONG_TITLE,
     my_rating: 4,
     cover: COVER_A,
-    intro: '标题超长时应单行截断，不把星级挤出屏幕。',
+    intro: '标题超长时自动换行，星级始终保持在标题行右侧。',
   }),
   mark({
     comment_id: 'demo-long-alt',
@@ -216,14 +216,14 @@ export function MarkCardDemoPage() {
       </DemoSection>
 
       <DemoSection
-        description="标题/又名单行截断，简介一行截断，短评三行截断"
-        title="长文本截断"
+        description="标题/又名自动换行，简介与短评不限行数，卡片随正文撑开高度"
+        title="长文本完整展示"
       >
-        <CardList items={TRUNCATION_MARKS} />
+        <CardList items={LONG_TEXT_MARKS} />
       </DemoSection>
 
       <DemoSection
-        description="约 360px 宽容器，模拟窄屏下的截断与占位表现"
+        description="约 360px 宽容器，模拟窄屏下的换行与卡片撑开表现"
         title="窄容器"
       >
         <div className="mark-card-demo__narrow">

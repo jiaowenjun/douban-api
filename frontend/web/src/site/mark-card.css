@@ -37,40 +37,26 @@
 
 .mark-card__title {
   min-width: 0;
-  overflow: hidden;
   color: var(--color-text-primary);
   font-size: var(--font-size-md);
   font-weight: 560;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .mark-card__alt {
-  overflow: hidden;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .mark-card__intro {
-  display: -webkit-box;
-  overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
 }
 
 .mark-card__comment {
-  display: -webkit-box;
-  overflow: hidden;
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-base);
   line-height: var(--font-line-height-reading, 1.6);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .mark-card__date {
