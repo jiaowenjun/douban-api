@@ -15,6 +15,7 @@ import {
   resolveMarksView,
 } from './site/navigation'
 import { MarksPage } from './site/pages/marks-page'
+import { SidebarHeader } from './site/sidebar-header'
 
 /** 从 /:category 路径解析导航高亮项与顶栏标题 */
 function useMarksViewFromLocation() {
@@ -39,6 +40,7 @@ function SiteShell() {
       onNavigate={handleNavigate}
       pageTitle={view?.pageTitle}
       siteName="weimo-douban"
+      sidebarHeader={<SidebarHeader siteName="weimo-douban" />}
     >
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
