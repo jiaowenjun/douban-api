@@ -8,7 +8,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::crawler::{
-    self, Category, Record, Status, collection_url, parse_items, parse_total, referer_for,
+    self, collection_url, parse_items, parse_total, referer_for, Category, Record, Status,
 };
 
 use super::config::ServerConfig;
@@ -198,8 +198,14 @@ async fn process_page(
     }
 
     // 本页写库；主键冲突即重复（翻页偏移/标记新增），交给 INSERT OR IGNORE
-    service::upsert_records(&state.pool, &dim.uid, &dim.category, &dim.dim_status, &items)
-        .await?;
+    service::upsert_records(
+        &state.pool,
+        &dim.uid,
+        &dim.category,
+        &dim.dim_status,
+        &items,
+    )
+    .await?;
     let fetched_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
     )
@@ -244,13 +250,13 @@ async fn process_page(
         service::finalize_linked_tasks(state, &dim.uid, &dim.category, &dim.dim_status, true, "")
             .await?;
         // 维度完成即入队条目富集（集合差 + INSERT OR IGNORE 跨用户去重）。
-        // 失败不阻断主流程——富集是异步增强，缺席只是少了结构化字段。
+        // 只入缺失条目：subjects 已有的不重抓。失败不阻断主流程——
+        // 富集是异步增强，缺席只是少了结构化字段。
         if state.config.subject_enrich {
             if let Err(e) = crate::server::subject::enqueue_missing_subjects(
                 &state.pool,
                 &dim.uid,
                 &dim.category,
-                state.config.subject_ttl_secs,
             )
             .await
             {
@@ -338,8 +344,15 @@ async fn handle_fetch_error(state: &AppState, dim: &DueDimension, e: FetchError)
         if !permanent {
             state.record_crawl_failure();
         }
-        service::finalize_linked_tasks(state, &dim.uid, &dim.category, &dim.dim_status, false, code)
-            .await?;
+        service::finalize_linked_tasks(
+            state,
+            &dim.uid,
+            &dim.category,
+            &dim.dim_status,
+            false,
+            code,
+        )
+        .await?;
     } else {
         let tripped = state.record_crawl_failure();
         let backoff_ms = (dim.attempts + 1) * 20_000 + rand::thread_rng().gen_range(0..5_000);

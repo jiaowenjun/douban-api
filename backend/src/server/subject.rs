@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use rand::Rng;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use sqlx::{Row, SqlitePool};
 
 use crate::crawler::Category;
@@ -46,7 +46,10 @@ pub struct SubjectRow {
 }
 
 fn s(v: &Value, key: &str) -> String {
-    v.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// 取数组中的字符串元素（豆瓣数组偶含非字符串项，逐个过滤）
@@ -97,11 +100,11 @@ pub fn map_rexxar(category: Category, v: &Value) -> SubjectRow {
             meta.insert("languages".into(), json!(arr(v, "languages")));
             meta.insert("durations".into(), json!(arr(v, "durations")));
             meta.insert("pubdate".into(), json!(arr(v, "pubdate")));
-            meta.insert("is_tv".into(), json!(v.get("is_tv").and_then(Value::as_bool)));
             meta.insert(
-                "episodes_count".into(),
-                json!(opt_i64(v, "episodes_count")),
+                "is_tv".into(),
+                json!(v.get("is_tv").and_then(Value::as_bool)),
             );
+            meta.insert("episodes_count".into(), json!(opt_i64(v, "episodes_count")));
             meta.insert("intro".into(), json!(s(v, "intro")));
         }
         Category::Book => {
@@ -130,10 +133,7 @@ pub fn map_rexxar(category: Category, v: &Value) -> SubjectRow {
             meta.insert("pubdate".into(), json!(arr(v, "pubdate")));
             meta.insert("publisher".into(), json!(arr(v, "publisher")));
             meta.insert("version".into(), json!(arr(v, "version")));
-            meta.insert(
-                "songs".into(),
-                json!(arr_name(v, "songs")),
-            );
+            meta.insert("songs".into(), json!(arr_name(v, "songs")));
             meta.insert("intro".into(), json!(s(v, "intro")));
         }
     }
@@ -141,7 +141,8 @@ pub fn map_rexxar(category: Category, v: &Value) -> SubjectRow {
     // movie 的 year 是字符串（"1994"）或数字，两种都收
     let year = match category {
         Category::Movie => v.get("year").and_then(|y| {
-            y.as_i64().or_else(|| y.as_str().and_then(|s| s.parse().ok()))
+            y.as_i64()
+                .or_else(|| y.as_str().and_then(|s| s.parse().ok()))
         }),
         _ => year_from_pubdate(v),
     };
@@ -164,16 +165,13 @@ pub fn map_rexxar(category: Category, v: &Value) -> SubjectRow {
 // 入队：集合差 + INSERT OR IGNORE（跨用户去重的核心，方案 §5.1）
 // --------------------------------------------------------------------------- //
 
-/// 把该用户该类别下"从未富集 / 已过期 / 上次失败"的条目排入富集队列。
-/// 返回本次新排入的 job 数（已被其他用户排过或数据仍新鲜的条目为 0 增量）。
-pub async fn enqueue_missing_subjects(
-    pool: &SqlitePool,
-    uid: &str,
-    category: &str,
-    ttl_secs: i64,
-) -> Result<u64> {
+/// 把该用户该类别下"从未富集"的条目排入富集队列。
+/// 返回本次新排入的 job 数（已在库或已被其他用户排过的条目为 0 增量）。
+///
+/// 只入缺失条目：已在 subjects 中的数据不再自动重抓——rexxar 数据基本不变，
+/// 重抓属显式操作（单条 refresh 或批量 requeue scope=stale，均 priority=0）。
+pub async fn enqueue_missing_subjects(pool: &SqlitePool, uid: &str, category: &str) -> Result<u64> {
     let now = ServerConfig::now_ms();
-    let stale_before = now - ttl_secs * 1000;
     let res = sqlx::query(
         "INSERT OR IGNORE INTO subject_jobs(category, subject_id, created_ms, updated_ms)
          SELECT DISTINCT r.category, r.subject_id, ?, ?
@@ -181,15 +179,12 @@ pub async fn enqueue_missing_subjects(
          LEFT JOIN subjects s
                 ON s.category = r.category AND s.subject_id = r.subject_id
          WHERE r.uid = ? AND r.category = ?
-           AND ( s.category IS NULL
-              OR (s.status = 'ok' AND s.fetched_ms < ?)
-              OR s.status IN ('blocked', 'error') )",
+           AND s.category IS NULL",
     )
     .bind(now)
     .bind(now)
     .bind(uid)
     .bind(category)
-    .bind(stale_before)
     .execute(pool)
     .await
     .context("富集队列入队失败")?;
@@ -198,7 +193,7 @@ pub async fn enqueue_missing_subjects(
 
 /// 存量回填：对 records 里出现的每个 (uid, category) 逐个跑集合差（幂等）。
 /// 返回 (新排入 job 数, 覆盖的 uid×类别对数)。
-pub async fn backfill(pool: &SqlitePool, ttl_secs: i64) -> Result<(u64, usize)> {
+pub async fn backfill(pool: &SqlitePool) -> Result<(u64, usize)> {
     let pairs = sqlx::query("SELECT DISTINCT uid, category FROM records ORDER BY uid, category")
         .fetch_all(pool)
         .await
@@ -207,7 +202,7 @@ pub async fn backfill(pool: &SqlitePool, ttl_secs: i64) -> Result<(u64, usize)> 
     for row in &pairs {
         let uid: String = row.get("uid");
         let category: String = row.get("category");
-        queued += enqueue_missing_subjects(pool, &uid, &category, ttl_secs).await?;
+        queued += enqueue_missing_subjects(pool, &uid, &category).await?;
     }
     Ok((queued, pairs.len()))
 }
@@ -240,6 +235,7 @@ struct SubjectJob {
     category: String,
     subject_id: String,
     attempts: i64,
+    priority: i64,
 }
 
 /// 处理一个到期富集 job；返回是否处理了（供 worker 循环与测试复用）。
@@ -251,6 +247,36 @@ pub async fn process_next_job<F: DoubanFetcher>(state: &AppState, fetcher: &F) -
     let Some(job) = pick_due_job(&state.pool).await? else {
         return Ok(false);
     };
+
+    // 执行守卫：库中已有该条目且非显式强制重抓（priority=0）→ 跳过，不请求豆瓣。
+    // 入队侧虽已收紧为只入缺失条目，守卫保证"已在库 → 零请求"在任何入队路径下都成立
+    //（如清理 job 后被旧路径重排、未来入队逻辑演化）。
+    if job.priority != 0 {
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM subjects WHERE category = ? AND subject_id = ?")
+                .bind(&job.category)
+                .bind(&job.subject_id)
+                .fetch_optional(&state.pool)
+                .await?;
+        if exists.is_some() {
+            sqlx::query(
+                "UPDATE subject_jobs SET state='ok', attempts=0, next_run_ms=NULL,
+                        last_error=NULL, updated_ms=?
+                 WHERE category=? AND subject_id=?",
+            )
+            .bind(ServerConfig::now_ms())
+            .bind(&job.category)
+            .bind(&job.subject_id)
+            .execute(&state.pool)
+            .await?;
+            tracing::info!(
+                subject = format!("{}/{}", job.category, job.subject_id),
+                "跳过富集：subjects 已有该条目（非强制重抓）"
+            );
+            return Ok(true);
+        }
+    }
+
     let now = ServerConfig::now_ms();
     // 标记 running：崩溃后残留的 running 行也会被 pick_due_job 重新拾起
     sqlx::query(
@@ -300,7 +326,7 @@ pub async fn process_next_job<F: DoubanFetcher>(state: &AppState, fetcher: &F) -
 
 async fn pick_due_job(pool: &SqlitePool) -> Result<Option<SubjectJob>> {
     let row = sqlx::query(
-        "SELECT category, subject_id, attempts FROM subject_jobs
+        "SELECT category, subject_id, attempts, priority FROM subject_jobs
          WHERE state IN ('queued','running')
            AND (next_run_ms IS NULL OR next_run_ms <= ?)
          ORDER BY priority ASC, updated_ms ASC, rowid ASC
@@ -314,6 +340,7 @@ async fn pick_due_job(pool: &SqlitePool) -> Result<Option<SubjectJob>> {
         category: r.get("category"),
         subject_id: r.get("subject_id"),
         attempts: r.get("attempts"),
+        priority: r.get("priority"),
     }))
 }
 
@@ -402,6 +429,260 @@ async fn upsert_subject_row(
 }
 
 // --------------------------------------------------------------------------- //
+// 任务管理：队列视图与批量操作（admin「富集任务」页）
+// --------------------------------------------------------------------------- //
+
+/// GET /subjects/jobs：分页列出富集 job。标题/封面优先取 subjects，
+/// 未富集条目回退 records（跨用户任一条标记行）；附各状态计数。
+/// states 为空表示全部；活动状态（running/queued）排前。
+pub async fn list_jobs(
+    state: &AppState,
+    states: &[String],
+    category: Option<&str>,
+    q: &str,
+    page: i64,
+    page_size: i64,
+) -> AppResult<Value> {
+    let page = page.max(1);
+    let page_size = page_size.clamp(1, 200);
+    let offset = (page - 1) * page_size;
+    let has_category = category.is_some_and(|c| !c.is_empty() && c != "all");
+
+    let mut where_clause = String::new();
+    if !states.is_empty() {
+        let placeholders = vec!["?"; states.len()].join(",");
+        where_clause.push_str(&format!(" WHERE j.state IN ({placeholders})"));
+    }
+    if has_category {
+        where_clause.push_str(if where_clause.is_empty() {
+            " WHERE"
+        } else {
+            " AND"
+        });
+        where_clause.push_str(" j.category = ?");
+    }
+    // 搜索命中任一即可：条目 ID / 已富集标题 / 任一用户标记行的标题
+    let like = q.replace('\\', "\\\\").replace('%', "\\%");
+    let has_q = !q.is_empty();
+    if has_q {
+        where_clause.push_str(if where_clause.is_empty() {
+            " WHERE"
+        } else {
+            " AND"
+        });
+        where_clause.push_str(
+            " (j.subject_id LIKE ? ESCAPE '\\' OR s.title LIKE ? ESCAPE '\\' \
+              OR EXISTS (SELECT 1 FROM records r WHERE r.category = j.category \
+                         AND r.subject_id = j.subject_id AND r.title LIKE ? ESCAPE '\\'))",
+        );
+    }
+
+    let total: i64 = {
+        let sql = format!("SELECT COUNT(*) FROM subject_jobs j LEFT JOIN subjects s ON s.category = j.category AND s.subject_id = j.subject_id{where_clause}");
+        let mut query = sqlx::query_scalar(&sql);
+        for st in states {
+            query = query.bind(st);
+        }
+        if has_category {
+            query = query.bind(category.unwrap());
+        }
+        if has_q {
+            for _ in 0..3 {
+                query = query.bind(format!("%{like}%"));
+            }
+        }
+        query.fetch_one(&state.pool).await?
+    };
+
+    let rows = {
+        let sql = format!(
+            "SELECT j.category, j.subject_id, j.state, j.attempts, j.priority,
+                    j.next_run_ms, j.created_ms, j.updated_ms, j.last_error,
+                    s.title AS enriched_title, s.cover_url, s.fetched_ms,
+                    (SELECT r.title FROM records r
+                      WHERE r.category = j.category AND r.subject_id = j.subject_id LIMIT 1
+                    ) AS record_title,
+                    (SELECT r.cover FROM records r
+                      WHERE r.category = j.category AND r.subject_id = j.subject_id LIMIT 1
+                    ) AS record_cover
+             FROM subject_jobs j
+             LEFT JOIN subjects s ON s.category = j.category AND s.subject_id = j.subject_id
+             {where_clause}
+             ORDER BY CASE j.state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                      j.updated_ms DESC, j.rowid DESC
+             LIMIT ? OFFSET ?"
+        );
+        let mut query = sqlx::query(&sql);
+        for st in states {
+            query = query.bind(st);
+        }
+        if has_category {
+            query = query.bind(category.unwrap());
+        }
+        if has_q {
+            for _ in 0..3 {
+                query = query.bind(format!("%{like}%"));
+            }
+        }
+        let query = query.bind(page_size).bind(offset);
+        query.fetch_all(&state.pool).await?
+    };
+    let stale_before = ServerConfig::now_ms() - state.config.subject_ttl_secs * 1000;
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let fetched_ms: Option<i64> = r.try_get("fetched_ms").ok().flatten();
+            let enriched_title: Option<String> = r.try_get("enriched_title").ok().flatten();
+            let record_title: Option<String> = r.try_get("record_title").ok().flatten();
+            let cover_url: Option<String> = r.try_get("cover_url").ok().flatten();
+            let record_cover: Option<String> = r.try_get("record_cover").ok().flatten();
+            let title = enriched_title
+                .filter(|t| !t.is_empty())
+                .or_else(|| record_title.filter(|t| !t.is_empty()));
+            let cover = cover_url
+                .filter(|c| !c.is_empty())
+                .or_else(|| record_cover.filter(|c| !c.is_empty()))
+                .map(|c| cover_proxy_url(&c))
+                .unwrap_or_default();
+            json!({
+                "category": r.get::<String, _>("category"),
+                "subject_id": r.get::<String, _>("subject_id"),
+                "title": title,
+                "cover": cover,
+                "state": r.get::<String, _>("state"),
+                "attempts": r.get::<i64, _>("attempts"),
+                // priority=0 为显式强制重抓（单条 refresh / 批量 requeue），插队执行
+                "forced": r.get::<i64, _>("priority") == 0,
+                "next_run_at": r.try_get::<Option<i64>, _>("next_run_ms")
+                    .ok().flatten().map(ms_to_rfc3339),
+                "created_at": ms_to_rfc3339(r.get::<i64, _>("created_ms")),
+                "updated_at": ms_to_rfc3339(r.get::<i64, _>("updated_ms")),
+                "last_error": r.try_get::<Option<String>, _>("last_error").ok().flatten(),
+                "fetched_at": fetched_ms.map(ms_to_rfc3339),
+                // 库中数据已过 TTL：仅作展示与「重抓过期」范围的提示
+                "stale": fetched_ms.is_some_and(|ms| ms < stale_before),
+            })
+        })
+        .collect();
+
+    let mut counts = std::collections::BTreeMap::new();
+    for st in ["queued", "running", "ok", "error", "not_found"] {
+        counts.insert(st.to_string(), 0i64);
+    }
+    for row in sqlx::query("SELECT state, COUNT(*) AS n FROM subject_jobs GROUP BY state")
+        .fetch_all(&state.pool)
+        .await?
+    {
+        let st: String = row.get("state");
+        let n: i64 = row.get("n");
+        counts.insert(st, n);
+    }
+    let total_jobs: i64 = counts.values().sum();
+    Ok(json!({
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "counts": serde_json::to_value(&counts).unwrap_or(json!({})),
+        "counts_total": total_jobs,
+    }))
+}
+
+/// DELETE /subjects/jobs/{category}/{subject_id}：删除单个 job（任意状态）。
+/// 删除 queued 即取消该条目；删除终态失败 job 后，下次同步可重新入队。
+pub async fn delete_job(pool: &SqlitePool, category: &str, subject_id: &str) -> AppResult<()> {
+    let res = sqlx::query("DELETE FROM subject_jobs WHERE category=? AND subject_id=?")
+        .bind(category)
+        .bind(subject_id)
+        .execute(pool)
+        .await
+        .context("删除富集 job 失败")?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::JobNotFound(format!("{category}/{subject_id}")));
+    }
+    Ok(())
+}
+
+/// POST /subjects/jobs/clear：按状态批量删除 job。
+/// states 由路由层校验非空且均为合法状态；「中断队列」= ["queued","running"]。
+/// 正在抓取中的 job（至多一个，单 worker）删除后本次结果仍会写库，仅 job 行消失。
+pub async fn clear_jobs(
+    pool: &SqlitePool,
+    states: &[String],
+    category: Option<&str>,
+) -> Result<u64> {
+    let placeholders = vec!["?"; states.len()].join(",");
+    let mut sql = format!("DELETE FROM subject_jobs WHERE state IN ({placeholders})");
+    if category.is_some_and(|c| !c.is_empty() && c != "all") {
+        sql.push_str(" AND category = ?");
+    }
+    let mut query = sqlx::query(&sql);
+    for st in states {
+        query = query.bind(st);
+    }
+    if let Some(c) = category {
+        query = query.bind(c);
+    }
+    Ok(query.execute(pool).await?.rows_affected())
+}
+
+/// POST /subjects/jobs/requeue：批量重排。
+/// - failed / not_found：对应终态 job 重新排队（priority=0 插队；not_found 多为
+///   条目被豆瓣删除，重排仅在怀疑误判时使用）；
+/// - stale：subjects 中已过 TTL 的条目强制重抓（priority=0 绕过执行守卫）——
+///   这是"重新抓取库中已有条目"唯一的批量入口。
+pub async fn requeue_jobs(state: &AppState, scope: &str, category: Option<&str>) -> Result<u64> {
+    let now = ServerConfig::now_ms();
+    let has_category = category.is_some_and(|c| !c.is_empty() && c != "all");
+    match scope {
+        "failed" | "not_found" => {
+            let from = if scope == "failed" {
+                "error"
+            } else {
+                "not_found"
+            };
+            let mut sql = format!(
+                "UPDATE subject_jobs SET state='queued', attempts=0, next_run_ms=NULL,
+                        last_error=NULL, priority=0, updated_ms=?
+                 WHERE state = '{from}'"
+            );
+            if has_category {
+                sql.push_str(" AND category = ?");
+            }
+            let mut query = sqlx::query(&sql).bind(now);
+            if let Some(c) = category {
+                query = query.bind(c);
+            }
+            Ok(query.execute(&state.pool).await?.rows_affected())
+        }
+        "stale" => {
+            let stale_before = now - state.config.subject_ttl_secs * 1000;
+            let mut sql = String::from(
+                "INSERT INTO subject_jobs (category, subject_id, state, priority, created_ms, updated_ms)
+                 SELECT category, subject_id, 'queued', 0, ?, ? FROM subjects
+                 WHERE status = 'ok' AND fetched_ms < ?",
+            );
+            if has_category {
+                sql.push_str(" AND category = ?");
+            }
+            // 已在排队/执行中的 job 不动（避免重置退避计时）；终态行改为重排
+            sql.push_str(
+                " ON CONFLICT(category, subject_id) DO UPDATE SET \
+                   state='queued', attempts=0, next_run_ms=NULL, last_error=NULL, \
+                   priority=0, updated_ms=excluded.updated_ms \
+                   WHERE subject_jobs.state NOT IN ('queued','running')",
+            );
+            let mut query = sqlx::query(&sql).bind(now).bind(now).bind(stale_before);
+            if let Some(c) = category {
+                query = query.bind(c);
+            }
+            Ok(query.execute(&state.pool).await?.rows_affected())
+        }
+        _ => unreachable!("scope 已在路由层校验"),
+    }
+}
+
+// --------------------------------------------------------------------------- //
 // 读侧：API 视图
 // --------------------------------------------------------------------------- //
 
@@ -434,7 +715,11 @@ fn subject_view(category: &str, subject_id: &str, r: &sqlx::sqlite::SqliteRow) -
     view
 }
 
-pub async fn get_subject_view(state: &AppState, category: &str, subject_id: &str) -> AppResult<Value> {
+pub async fn get_subject_view(
+    state: &AppState,
+    category: &str,
+    subject_id: &str,
+) -> AppResult<Value> {
     if let Some(row) = sqlx::query(
         "SELECT title, original_title, year, aka_json, cover_url, rating_value,
                 rating_count, meta_json, status, fetched_ms, url
@@ -473,7 +758,9 @@ pub async fn get_subject_view(state: &AppState, category: &str, subject_id: &str
         };
         return Ok(intro_fallback_view(&rec));
     }
-    Err(AppError::SubjectNotFound(format!("{category}/{subject_id}")))
+    Err(AppError::SubjectNotFound(format!(
+        "{category}/{subject_id}"
+    )))
 }
 
 /// intro 兜底视图：subjects 未富集时按 records.intro（Rust 移植解析器）合成，
@@ -498,7 +785,12 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
     match category {
         "movie" => {
             let m = crate::intro::parse_movie(&record.intro, &record.title, &record.alt_title);
-            view["year"] = m.years.iter().min().map(|y| json!(y)).unwrap_or(Value::Null);
+            view["year"] = m
+                .years
+                .iter()
+                .min()
+                .map(|y| json!(y))
+                .unwrap_or(Value::Null);
             view["movie"] = json!({
                 "directors": m.director_list,
                 "actors": [],
@@ -514,7 +806,13 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
         }
         "book" => {
             let b = crate::intro::parse_book(&record.intro);
-            let opt_arr = |v: &String| if v.is_empty() { vec![] } else { vec![v.clone()] };
+            let opt_arr = |v: &String| {
+                if v.is_empty() {
+                    vec![]
+                } else {
+                    vec![v.clone()]
+                }
+            };
             view["year"] = b.pubyear.map(|y| json!(y)).unwrap_or(Value::Null);
             view["book"] = json!({
                 "authors": b.authors,
@@ -531,9 +829,18 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
         _ => {
             let m = crate::intro::parse_music(&record.intro);
             let split_plus = |v: &str| {
-                v.split('+').filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>()
+                v.split('+')
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
             };
-            let opt_arr = |v: &String| if v.is_empty() { vec![] } else { vec![v.clone()] };
+            let opt_arr = |v: &String| {
+                if v.is_empty() {
+                    vec![]
+                } else {
+                    vec![v.clone()]
+                }
+            };
             view["year"] = m.year.map(|y| json!(y)).unwrap_or(Value::Null);
             view["music"] = json!({
                 "singers": opt_arr(&m.artist),
@@ -571,7 +878,10 @@ pub async fn load_subject_views(
     for r in records {
         q = q.bind(&r.subject_id);
     }
-    let rows = q.fetch_all(&state.pool).await.context("批量读取条目元信息失败")?;
+    let rows = q
+        .fetch_all(&state.pool)
+        .await
+        .context("批量读取条目元信息失败")?;
     let by_id: std::collections::HashMap<String, Value> = rows
         .iter()
         .map(|r| {
@@ -581,7 +891,12 @@ pub async fn load_subject_views(
         .collect();
     Ok(records
         .iter()
-        .map(|r| by_id.get(&r.subject_id).cloned().unwrap_or_else(|| intro_fallback_view(r)))
+        .map(|r| {
+            by_id
+                .get(&r.subject_id)
+                .cloned()
+                .unwrap_or_else(|| intro_fallback_view(r))
+        })
         .collect())
 }
 
@@ -594,17 +909,15 @@ pub struct EnrichmentCounts {
 }
 
 pub async fn enrichment_counts(pool: &SqlitePool) -> Result<EnrichmentCounts> {
-    let enriched: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM subjects WHERE status = 'ok'")
-            .fetch_one(pool)
-            .await
-            .context("统计已富集条目失败")?;
+    let enriched: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM subjects WHERE status = 'ok'")
+        .fetch_one(pool)
+        .await
+        .context("统计已富集条目失败")?;
     let count = |sql: &'static str| sqlx::query_scalar(sql).fetch_one(pool);
-    let pending: i64 = count(
-        "SELECT COUNT(*) FROM subject_jobs WHERE state IN ('queued','running')",
-    )
-    .await
-    .context("统计待富集条目失败")?;
+    let pending: i64 =
+        count("SELECT COUNT(*) FROM subject_jobs WHERE state IN ('queued','running')")
+            .await
+            .context("统计待富集条目失败")?;
     let not_found: i64 = count("SELECT COUNT(*) FROM subject_jobs WHERE state = 'not_found'")
         .await
         .unwrap_or(0);
@@ -640,7 +953,11 @@ pub async fn list_subjects(
         bind_category = category.map(str::to_string);
     }
     if !q.is_empty() {
-        where_clause.push_str(if where_clause.is_empty() { " WHERE" } else { " AND" });
+        where_clause.push_str(if where_clause.is_empty() {
+            " WHERE"
+        } else {
+            " AND"
+        });
         where_clause.push_str(" title LIKE ? ESCAPE '\\'");
     }
 
@@ -708,10 +1025,8 @@ mod tests {
     use serde_json::json;
 
     fn fixture(name: &str) -> Value {
-        serde_json::from_str(
-            &std::fs::read_to_string(format!("tests/fixtures/{name}")).unwrap(),
-        )
-        .unwrap()
+        serde_json::from_str(&std::fs::read_to_string(format!("tests/fixtures/{name}")).unwrap())
+            .unwrap()
     }
 
     #[test]

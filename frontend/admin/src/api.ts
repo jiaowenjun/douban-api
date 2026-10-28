@@ -5,6 +5,7 @@ import type {
   ResultView,
   ServerInfo,
   Subject,
+  SubjectJobListResponse,
   SubjectListResponse,
   Subscription,
   SubscriptionListResponse,
@@ -171,10 +172,48 @@ export const api = {
       { method: 'POST' },
     ),
 
-  /** 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等） */
+  /** 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等；只入缺失条目） */
   backfillSubjects: () =>
     request<{ queued_jobs: number; uid_category_pairs: number }>('/subjects/backfill', {
       method: 'POST',
+    }),
+
+  /** 富集任务列表（state 逗号分隔多值过滤；附各状态计数） */
+  listSubjectJobs: (query: {
+    state?: string;
+    category?: string;
+    q?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (query.state && query.state !== 'all') qs.set('state', query.state);
+    if (query.category && query.category !== 'all') qs.set('category', query.category);
+    if (query.q) qs.set('q', query.q);
+    qs.set('page', String(query.page ?? 1));
+    qs.set('page_size', String(query.pageSize ?? 20));
+    return request<SubjectJobListResponse>(`/subjects/jobs?${qs.toString()}`);
+  },
+
+  /** 删除单个富集任务（queued 即取消该条目；终态删除后可在下次同步重新入队） */
+  deleteSubjectJob: (category: string, subjectId: string) =>
+    request<void>(
+      `/subjects/jobs/${encodeURIComponent(category)}/${encodeURIComponent(subjectId)}`,
+      { method: 'DELETE' },
+    ),
+
+  /** 按状态批量删除任务；中断队列 = states ['queued','running'] */
+  clearSubjectJobs: (body: { states: string[]; category?: string }) =>
+    request<{ deleted: number }>('/subjects/jobs/clear', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /** 批量重排：failed（重试失败终态）/ not_found（重试已删除条目）/ stale（强制重抓过期条目） */
+  requeueSubjectJobs: (scope: 'failed' | 'not_found' | 'stale', category?: string) =>
+    request<{ queued: number }>('/subjects/jobs/requeue', {
+      method: 'POST',
+      body: JSON.stringify({ scope, category }),
     }),
 
   getUserProfile: (uid: string) =>

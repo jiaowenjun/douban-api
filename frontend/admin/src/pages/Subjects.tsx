@@ -256,9 +256,9 @@ export default function Subjects() {
       />
       {data && data.counts.pending > 0 && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          队列中 {data.counts.pending} 个条目将在 worker 空闲时段抓取，可稍后点击「刷新」；也可在
-          <Typography.Link onClick={() => navigate('/tasks')}>同步任务</Typography.Link>
-          页查看抓取活动
+          队列中 {data.counts.pending} 个条目将在 worker 空闲时段抓取，可稍后点击「刷新」；可在
+          <Typography.Link onClick={() => navigate('/subjects/jobs')}>富集任务</Typography.Link>
+          页查看与管理队列
         </Typography.Text>
       )}
     </PageContainer>

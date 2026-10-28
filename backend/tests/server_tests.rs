@@ -2,12 +2,18 @@
 //! 不起端口、不碰真实豆瓣（经 FakeFetcher 注入脱敏后的真实页面 fixture）。
 
 use axum::{
+    body::{to_bytes, Body},
+    http::{header, Method, Request, StatusCode},
     Router,
-    body::{Body, to_bytes},
-    http::{Method, Request, StatusCode, header},
 };
+use serde_json::{json, Value};
+use std::net::IpAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use tempfile::TempDir;
+use tower::ServiceExt;
 use weimo_douban::crawler::{
-    Category, Record, Status, parse_feed, parse_items, parse_profile, parse_total,
+    parse_feed, parse_items, parse_profile, parse_total, Category, Record, Status,
 };
 use weimo_douban::server::{
     config::ServerConfig,
@@ -16,15 +22,8 @@ use weimo_douban::server::{
     routes::build_app,
     service,
     state::AppState,
-    subject,
-    worker,
+    subject, worker,
 };
-use serde_json::{Value, json};
-use std::net::IpAddr;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
-use tempfile::TempDir;
-use tower::ServiceExt;
 
 // --------------------------------------------------------------------------- //
 // 基础设施
@@ -85,8 +84,10 @@ fn fixture_fetcher() -> FakeFetcher<impl Fn(&str) -> Result<String, FetchError>>
                 "3221720" => fixture("rexxar_music.json"),
                 _ => {
                     let title = format!("T-{id}");
-                    format!(r#"{{"title": "{title}", "pubdate": ["1999-1"],
-                              "rating": {{"value": 8.0, "count": 10}}}}"#)
+                    format!(
+                        r#"{{"title": "{title}", "pubdate": ["1999-1"],
+                              "rating": {{"value": 8.0, "count": 10}}}}"#
+                    )
                 }
             });
         }
@@ -150,7 +151,10 @@ async fn seed_record(state: &AppState, uid: &str, category: &str, subject_id: &s
 }
 
 async fn count(state: &AppState, sql: &str) -> i64 {
-    sqlx::query_scalar(sql).fetch_one(&state.pool).await.unwrap()
+    sqlx::query_scalar(sql)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap()
 }
 
 /// 驱动 worker 直到没有到期维度（每页含 ≤1s 抖动休眠，页数少耗时可忽略）
@@ -233,12 +237,18 @@ async fn get_task_view(state: &AppState, task_id: &str) -> Value {
 
 #[test]
 fn parser_music_old_structure() {
-    let items = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let items = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     assert_eq!(items.len(), 15);
     // 音乐短评在无 class 的 <li> 里；被点过「有用」的短评 li 内含
     // <span class="color_gray">N 有用</span>，正文取 li 的直接文本子节点
     assert_eq!(items.iter().filter(|r| !r.comment.is_empty()).count(), 15);
-    assert!(items.iter().all(|r| r.comment.is_empty() || r.comment.contains("测试短评")));
+    assert!(items
+        .iter()
+        .all(|r| r.comment.is_empty() || r.comment.contains("测试短评")));
     assert!(items.iter().all(|r| !r.comment.contains("有用")));
     let bb = items.iter().find(|r| r.title == "Beethoven Blues").unwrap();
     assert_eq!(bb.comment, "（测试短评占位文本）");
@@ -247,7 +257,9 @@ fn parser_music_old_structure() {
     let first = &items[0];
     assert_eq!(first.title, "歌之女");
     assert_eq!(first.my_rating, Some(5));
-    assert!(first.subject_url.starts_with("https://music.douban.com/subject/"));
+    assert!(first
+        .subject_url
+        .starts_with("https://music.douban.com/subject/"));
     assert!(!first.subject_id.is_empty());
     assert!(first.cover.starts_with("https://img"));
     assert_eq!(parse_total(&fixture("music_collect_p1.html")), Some(29));
@@ -255,7 +267,11 @@ fn parser_music_old_structure() {
 
 #[test]
 fn parser_book_new_structure() {
-    let items = parse_items(&fixture("book_collect_p1.html"), Category::Book, Status::Collect);
+    let items = parse_items(
+        &fixture("book_collect_p1.html"),
+        Category::Book,
+        Status::Collect,
+    );
     assert_eq!(items.len(), 15);
     // 图书为 li.subject-item 新结构，副书名在标题链接内的 span
     let fy = items.iter().find(|r| r.title == "浮生六记").unwrap();
@@ -269,11 +285,17 @@ fn parser_user_profile_from_both_structures() {
     // 图书/电影：#db-usr-profile .pic img（src 头像 + alt 用户名）
     let book = parse_profile(&fixture("book_collect_p1.html")).unwrap();
     assert_eq!(book.username, "芝麻");
-    assert_eq!(book.avatar, "https://img2.doubanio.com/icon/u189180823-11.jpg");
+    assert_eq!(
+        book.avatar,
+        "https://img2.doubanio.com/icon/u189180823-11.jpg"
+    );
     // 音乐：.music-user-profile img.avatar + .username
     let music = parse_profile(&fixture("music_collect_p1.html")).unwrap();
     assert_eq!(music.username, "芝麻");
-    assert_eq!(music.avatar, "https://img2.doubanio.com/icon/u189180823-11.jpg");
+    assert_eq!(
+        music.avatar,
+        "https://img2.doubanio.com/icon/u189180823-11.jpg"
+    );
     // 两种结构都不在的页面返回 None
     assert!(parse_profile("<html><body>empty</body></html>").is_none());
 }
@@ -285,7 +307,11 @@ fn parser_user_profile_from_both_structures() {
 #[tokio::test]
 async fn cached_dimension_creates_completed_task_instantly() {
     let (_dir, state) = setup().await;
-    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let records = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     seed_ok_dimension(&state, Category::Music, records).await;
 
     let (code, v) = post_sync(
@@ -303,8 +329,14 @@ async fn cached_dimension_creates_completed_task_instantly() {
     // 结果汇总（数据本体经 /users/{uid}/marks 浏览）
     let task_id = v["task_id"].as_str().unwrap().to_string();
     let app = build_app(state.clone());
-    let (code, result) =
-        request(app, Method::GET, &format!("/api/v1/syncs/{task_id}/result"), None, None).await;
+    let (code, result) = request(
+        app,
+        Method::GET,
+        &format!("/api/v1/syncs/{task_id}/result"),
+        None,
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(result["summary"]["total"], 15);
     assert_eq!(result["summary"]["with_comment"], 15);
@@ -317,11 +349,7 @@ async fn cached_dimension_creates_completed_task_instantly() {
 #[tokio::test]
 async fn worker_crawls_book_dimension_to_completion() {
     let (_dir, state) = setup().await;
-    let (code, v) = post_sync(
-        &state,
-        json!({"user": "wenjun30", "categories": ["book"]}),
-    )
-    .await;
+    let (code, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["book"]})).await;
     assert_eq!(code, StatusCode::ACCEPTED);
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
@@ -393,15 +421,13 @@ async fn worker_upserts_user_profile_and_endpoint_serves_it() {
 #[tokio::test]
 async fn worker_crawls_music_with_dedup_and_percent_progress() {
     let (_dir, state) = setup().await;
-    let (_, v) = post_sync(
-        &state,
-        json!({"user": "wenjun30", "categories": ["music"]}),
-    )
-    .await;
+    let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     // 抓完第一页后中断检查中间进度
-    assert!(worker::process_next_due(&state, &fixture_fetcher()).await.unwrap());
+    assert!(worker::process_next_due(&state, &fixture_fetcher())
+        .await
+        .unwrap());
     let view = get_task_view(&state, &task_id).await;
     assert_eq!(view["status"], "running");
     let p = &view["progress"][0];
@@ -466,7 +492,10 @@ async fn retry_exhaustion_fails_dimension_and_trips_circuit() {
             .execute(&state.pool)
             .await
             .unwrap();
-        assert!(worker::process_next_due(&state, &fetcher).await.unwrap(), "第 {attempt} 次应处理");
+        assert!(
+            worker::process_next_due(&state, &fetcher).await.unwrap(),
+            "第 {attempt} 次应处理"
+        );
     }
 
     let view = get_task_view(&state, &task_id).await;
@@ -509,7 +538,14 @@ async fn auth_required_when_token_configured() {
     .await;
     assert_eq!(code, StatusCode::UNAUTHORIZED);
 
-    let (code, _) = request(app, Method::GET, "/api/v1/server/info", None, Some("s3cret")).await;
+    let (code, _) = request(
+        app,
+        Method::GET,
+        "/api/v1/server/info",
+        None,
+        Some("s3cret"),
+    )
+    .await;
     assert_eq!(code, StatusCode::OK);
 }
 
@@ -535,7 +571,14 @@ async fn invalid_arguments_return_400_envelope() {
 
     // 非法 JSON body
     let app = build_app(state.clone());
-    let (code, v) = request(app, Method::POST, "/api/v1/syncs", Some("{bad json".into()), None).await;
+    let (code, v) = request(
+        app,
+        Method::POST,
+        "/api/v1/syncs",
+        Some("{bad json".into()),
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
     assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
 }
@@ -543,7 +586,11 @@ async fn invalid_arguments_return_400_envelope() {
 #[tokio::test]
 async fn marks_pagination_and_not_cached() {
     let (_dir, state) = setup().await;
-    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let records = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     seed_ok_dimension(&state, Category::Music, records.clone()).await;
 
     let app = build_app(state.clone());
@@ -596,16 +643,24 @@ async fn request_bytes(app: Router, uri: &str) -> (StatusCode, Vec<u8>, header::
         .unwrap();
     let status = resp.status();
     let headers = resp.headers().clone();
-    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec();
+    let bytes = to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .to_vec();
     (status, bytes, headers)
 }
 
-const IMG3_COVER: &str = "https%3A%2F%2Fimg3.doubanio.com%2Fview%2Fphoto%2Fs_ratio_poster%2Fpublic%2Fp2935834896.webp";
+const IMG3_COVER: &str =
+    "https%3A%2F%2Fimg3.doubanio.com%2Fview%2Fphoto%2Fs_ratio_poster%2Fpublic%2Fp2935834896.webp";
 
 #[tokio::test]
 async fn marks_cover_rewritten_to_proxy() {
     let (_dir, state) = setup().await;
-    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let records = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     seed_ok_dimension(&state, Category::Music, records).await;
 
     let app = build_app(state);
@@ -620,7 +675,10 @@ async fn marks_cover_rewritten_to_proxy() {
     assert_eq!(code, StatusCode::OK);
     // 浏览器直连 img2/img3 被 Referer 防盗链 403，响应里必须是本地代理端点
     let cover = v["items"][0]["cover"].as_str().unwrap();
-    assert!(cover.starts_with("/api/v1/covers?u=https%3A%2F%2Fimg"), "实际值: {cover}");
+    assert!(
+        cover.starts_with("/api/v1/covers?u=https%3A%2F%2Fimg"),
+        "实际值: {cover}"
+    );
 }
 
 #[tokio::test]
@@ -639,7 +697,12 @@ async fn cover_serves_from_disk_cache() {
     assert_eq!(bytes, seeded);
     assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "image/webp");
     assert!(
-        headers.get(header::CACHE_CONTROL).unwrap().to_str().unwrap().contains("immutable"),
+        headers
+            .get(header::CACHE_CONTROL)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("immutable"),
         "应允许浏览器长缓存"
     );
 }
@@ -653,7 +716,14 @@ async fn cover_rejects_non_whitelisted_url() {
         "https%3A%2F%2Fimg3.doubanio.com%2Fsecret%2Fp1.webp",
         "not%20a%20url",
     ] {
-        let (code, v) = request(app.clone(), Method::GET, &format!("/api/v1/covers?u={bad}"), None, None).await;
+        let (code, v) = request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/v1/covers?u={bad}"),
+            None,
+            None,
+        )
+        .await;
         assert_eq!(code, StatusCode::BAD_REQUEST, "应拒绝: {bad}");
         assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
     }
@@ -679,18 +749,34 @@ async fn cover_requires_token_when_configured() {
 #[tokio::test]
 async fn delete_task_keeps_records_and_returns_404() {
     let (_dir, state) = setup().await;
-    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let records = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     seed_ok_dimension(&state, Category::Music, records).await;
     let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     let app = build_app(state.clone());
-    let (code, _) =
-        request(app.clone(), Method::DELETE, &format!("/api/v1/syncs/{task_id}"), None, None).await;
+    let (code, _) = request(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/v1/syncs/{task_id}"),
+        None,
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::NO_CONTENT);
 
-    let (code, v) =
-        request(app.clone(), Method::GET, &format!("/api/v1/syncs/{task_id}"), None, None).await;
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/syncs/{task_id}"),
+        None,
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::NOT_FOUND);
     assert_eq!(v["error"]["code"], "TASK_NOT_FOUND");
 
@@ -728,7 +814,11 @@ async fn rate_allow_fixed_window() {
 #[tokio::test]
 async fn sse_emits_done_for_terminal_task() {
     let (_dir, state) = setup().await;
-    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let records = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     seed_ok_dimension(&state, Category::Music, records).await;
     let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
@@ -745,7 +835,11 @@ async fn sse_emits_done_for_terminal_task() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
-        resp.headers().get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
+        resp.headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "text/event-stream"
     );
     // 终态任务：推 done 事件后流关闭，body 可完整读取
@@ -758,11 +852,7 @@ async fn sse_emits_done_for_terminal_task() {
 #[tokio::test]
 async fn sse_follows_crawl_to_completion() {
     let (_dir, state) = setup().await;
-    let (_, v) = post_sync(
-        &state,
-        json!({"user": "wenjun30", "categories": ["music"]}),
-    )
-    .await;
+    let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
     let task_id = v["task_id"].as_str().unwrap().to_string();
 
     // 先建立 SSE 连接（订阅在响应返回前已建立），再驱动抓取；
@@ -790,7 +880,11 @@ async fn sse_follows_crawl_to_completion() {
 #[tokio::test]
 async fn sse_auth_via_query_param_for_eventsource() {
     let (_dir, state) = setup_with_token("s3cret").await;
-    let records = parse_items(&fixture("music_collect_p1.html"), Category::Music, Status::Collect);
+    let records = parse_items(
+        &fixture("music_collect_p1.html"),
+        Category::Music,
+        Status::Collect,
+    );
     seed_ok_dimension(&state, Category::Music, records).await;
 
     // 创建任务需带鉴权头
@@ -881,7 +975,14 @@ async fn subscription_crud_and_auth() {
     let (dir, state) = setup_with_token("s3cret").await;
     let app = build_app(state.clone());
 
-    let (code, _) = request(app.clone(), Method::GET, "/api/v1/subscriptions", None, None).await;
+    let (code, _) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subscriptions",
+        None,
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::UNAUTHORIZED);
 
     let (code, body) = request(
@@ -898,7 +999,14 @@ async fn subscription_crud_and_auth() {
     assert_eq!(body["full_interval_secs"], 7200);
     assert!(body["next_rss_at"].is_string());
 
-    let (code, body) = request(app.clone(), Method::GET, "/api/v1/subscriptions", None, Some("s3cret")).await;
+    let (code, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subscriptions",
+        None,
+        Some("s3cret"),
+    )
+    .await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body["subscriptions"].as_array().unwrap().len(), 1);
 
@@ -1087,8 +1195,10 @@ async fn full_tick_creates_auto_task_and_recrawls() {
     let fetcher = fixture_fetcher();
     assert!(service::subscription_tick(&state, &fetcher).await.unwrap());
 
-    let (source, status): (String, String) =
-        sqlx::query_as("SELECT source, status FROM tasks").fetch_one(&state.pool).await.unwrap();
+    let (source, status): (String, String) = sqlx::query_as("SELECT source, status FROM tasks")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert_eq!((source.as_str(), status.as_str()), ("auto", "queued"));
 
     // 驱动 worker 抓完（music fixture 共 4 页）
@@ -1100,12 +1210,11 @@ async fn full_tick_creates_auto_task_and_recrawls() {
     assert_eq!(status, "completed");
 
     // 旧假记录被 refresh 清掉，records 为 fixture 数据
-    let old_left: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM records WHERE subject_id IN ('999001','999002')",
-    )
-    .fetch_one(&state.pool)
-    .await
-    .unwrap();
+    let old_left: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE subject_id IN ('999001','999002')")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
     assert_eq!(old_left, 0);
     let n: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM records WHERE uid='wenjun30' AND category='music'",
@@ -1113,21 +1222,36 @@ async fn full_tick_creates_auto_task_and_recrawls() {
     .fetch_one(&state.pool)
     .await
     .unwrap();
-    assert_eq!(n, 28, "music fixture 实际渲染 28 条（1 条隐藏，与 worker 测试一致）");
+    assert_eq!(
+        n, 28,
+        "music fixture 实际渲染 28 条（1 条隐藏，与 worker 测试一致）"
+    );
 
     // 列表默认只看 manual（不占注意力）；?source=auto 可见
     let app = build_app(state.clone());
     let (code, body) = request(app.clone(), Method::GET, "/api/v1/syncs", None, None).await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body["tasks"].as_array().unwrap().len(), 0);
-    let (code, body) =
-        request(app.clone(), Method::GET, "/api/v1/syncs?source=auto", None, None).await;
+    let (code, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/syncs?source=auto",
+        None,
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::OK);
     assert_eq!(body["tasks"].as_array().unwrap().len(), 1);
     assert_eq!(body["tasks"][0]["source"], "auto");
     // 非法 source 过滤值
-    let (code, _) =
-        request(app.clone(), Method::GET, "/api/v1/syncs?source=nope", None, None).await;
+    let (code, _) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/syncs?source=nope",
+        None,
+        None,
+    )
+    .await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
 
     // 订阅 full 节奏已推进
@@ -1172,10 +1296,16 @@ async fn full_tick_single_flight() {
     let fetcher = fixture_fetcher();
     assert!(service::subscription_tick(&state, &fetcher).await.unwrap());
 
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks").fetch_one(&state.pool).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert_eq!(n, 1, "已有进行中的 auto 任务时不重复创建");
     // records 未被 refresh 清空
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records").fetch_one(&state.pool).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert_eq!(n, 1);
     drop(dir);
 }
@@ -1206,10 +1336,10 @@ async fn enrichment_dedups_across_users() {
     });
 
     // 两次维度完成钩子（模拟 A、B 先后同步）
-    let qa = subject::enqueue_missing_subjects(&state.pool, "userA", "movie", 2_592_000)
+    let qa = subject::enqueue_missing_subjects(&state.pool, "userA", "movie")
         .await
         .unwrap();
-    let qb = subject::enqueue_missing_subjects(&state.pool, "userB", "movie", 2_592_000)
+    let qb = subject::enqueue_missing_subjects(&state.pool, "userB", "movie")
         .await
         .unwrap();
     assert_eq!(qa, 2, "A 首次同步：两个条目全部入队");
@@ -1222,7 +1352,11 @@ async fn enrichment_dedups_across_users() {
             break;
         }
     }
-    assert_eq!(calls.load(Ordering::Relaxed), 2, "rexxar 恰好请求 2 次（1292052 不因 B 重复请求）");
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        2,
+        "rexxar 恰好请求 2 次（1292052 不因 B 重复请求）"
+    );
     assert_eq!(
         count(&state, "SELECT COUNT(*) FROM subjects WHERE status='ok'").await,
         2
@@ -1232,11 +1366,11 @@ async fn enrichment_dedups_across_users() {
         2
     );
 
-    // 数据新鲜期内 B 再次入队：集合差为空
-    let qb2 = subject::enqueue_missing_subjects(&state.pool, "userB", "movie", 2_592_000)
+    // 已有缓存条目不再入队：集合差只看缺失（重抓属显式操作）
+    let qb2 = subject::enqueue_missing_subjects(&state.pool, "userB", "movie")
         .await
         .unwrap();
-    assert_eq!(qb2, 0, "新鲜期内重复同步零请求");
+    assert_eq!(qb2, 0, "库中已有的条目重复同步零入队");
     for _ in 0..10 {
         if !subject::process_next_job(&state, &fetcher).await.unwrap() {
             break;
@@ -1250,7 +1384,7 @@ async fn enrichment_dedups_across_users() {
 async fn enrichment_404_is_terminal_not_found() {
     let (_dir, state) = setup().await;
     seed_record(&state, "wenjun30", "movie", "41001").await;
-    let queued = subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
+    let queued = subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
         .await
         .unwrap();
     assert_eq!(queued, 1);
@@ -1264,7 +1398,11 @@ async fn enrichment_404_is_terminal_not_found() {
     });
     assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
     assert_eq!(
-        count(&state, "SELECT COUNT(*) FROM subject_jobs WHERE state='not_found'").await,
+        count(
+            &state,
+            "SELECT COUNT(*) FROM subject_jobs WHERE state='not_found'"
+        )
+        .await,
         1
     );
     assert_eq!(count(&state, "SELECT COUNT(*) FROM subjects").await, 0);
@@ -1277,7 +1415,7 @@ async fn enrichment_404_is_terminal_not_found() {
 async fn enrichment_transient_error_backs_off() {
     let (_dir, state) = setup().await;
     seed_record(&state, "wenjun30", "movie", "42001").await;
-    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
         .await
         .unwrap();
 
@@ -1297,14 +1435,16 @@ async fn enrichment_transient_error_backs_off() {
         .fetch_one(&state.pool)
         .await
         .unwrap();
-    let next_run: Option<i64> =
-        sqlx::query_scalar("SELECT next_run_ms FROM subject_jobs")
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    let next_run: Option<i64> = sqlx::query_scalar("SELECT next_run_ms FROM subject_jobs")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert_eq!(state_str, "queued");
     assert_eq!(attempts, 1);
-    assert!(next_run.unwrap_or(0) > ServerConfig::now_ms(), "退避时间在未来");
+    assert!(
+        next_run.unwrap_or(0) > ServerConfig::now_ms(),
+        "退避时间在未来"
+    );
     // 未到期：不再拾起
     assert!(!subject::process_next_job(&state, &fetcher).await.unwrap());
     assert_eq!(state.circuit_remaining_ms() >= 0, true);
@@ -1356,7 +1496,7 @@ async fn marks_expand_subject_and_subjects_endpoints() {
         .await
         .unwrap();
     // 只富集 1292052（真实 fixture）
-    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
         .await
         .unwrap();
     let fetcher = fixture_fetcher();
@@ -1397,7 +1537,10 @@ async fn marks_expand_subject_and_subjects_endpoints() {
         body["items"][1]["subject"]["movie"]["directors"],
         serde_json::json!(["黄绮琳"])
     );
-    assert_eq!(body["items"][1]["subject"]["movie"]["durations"], serde_json::json!(["91分钟"]));
+    assert_eq!(
+        body["items"][1]["subject"]["movie"]["durations"],
+        serde_json::json!(["91分钟"])
+    );
     assert_eq!(body["items"][1]["subject"]["rating"]["value"], Value::Null);
 
     // 非法 expand 值
@@ -1499,11 +1642,366 @@ async fn subject_refresh_and_backfill_endpoints() {
     assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(body["queued"], true);
     assert_eq!(
-        count(&state, "SELECT COUNT(*) FROM subject_jobs WHERE state='queued' AND priority=0")
-            .await,
+        count(
+            &state,
+            "SELECT COUNT(*) FROM subject_jobs WHERE state='queued' AND priority=0"
+        )
+        .await,
         1
     );
     assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+}
+
+/// 执行守卫：库中已有条目且非显式强制（priority=0）→ 跳过，不请求豆瓣；
+/// refresh 端点（priority=0）显式重抓则绕过守卫正常请求
+#[tokio::test]
+async fn enrichment_skips_in_db_subjects_unless_forced() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "1292052").await;
+    // 直接造 subjects 行 + 普通 priority=1 的 job（模拟旧路径排队 / job 清理后被重排）
+    sqlx::query(
+        "INSERT INTO subjects (category, subject_id, title, fetched_ms)
+         VALUES ('movie', '1292052', '旧标题', 1)",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    let now = ServerConfig::now_ms();
+    sqlx::query(
+        "INSERT INTO subject_jobs (category, subject_id, state, priority, created_ms, updated_ms)
+         VALUES ('movie', '1292052', 'queued', 1, ?, ?)",
+    )
+    .bind(now)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = calls.clone();
+    let fetcher = FakeFetcher(move |url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            counter.fetch_add(1, Ordering::Relaxed);
+            return Ok(r#"{"title": "新标题", "pubdate": ["1999-1"]}"#.to_string());
+        }
+        Err(FetchError::NotFound)
+    });
+
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+    assert_eq!(calls.load(Ordering::Relaxed), 0, "库中已有 → 不发请求");
+    let job_state: String = sqlx::query_scalar("SELECT state FROM subject_jobs")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(job_state, "ok", "跳过的 job 直接标记完成");
+    let fetched_ms: i64 = sqlx::query_scalar("SELECT fetched_ms FROM subjects")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(fetched_ms, 1, "跳过时不得改写库中数据");
+
+    // 入队侧同样只入缺失：records 有标记但 subjects 已有 → 零新增
+    let queued = subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
+        .await
+        .unwrap();
+    assert_eq!(queued, 0);
+
+    // 显式强制重抓（refresh 端点 → priority=0）：绕过守卫真实请求
+    let app = build_app(state.clone());
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/movie/1292052/refresh",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["queued"], true);
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+    assert_eq!(calls.load(Ordering::Relaxed), 1, "强制重抓正常请求一次");
+    let title: String = sqlx::query_scalar("SELECT title FROM subjects")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(title, "新标题");
+}
+
+/// 入队语义回归：过期但仍在库的条目不自动重抓（只入缺失）
+#[tokio::test]
+async fn enrichment_enqueue_only_missing_even_if_stale() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "1292052").await;
+    seed_record(&state, "wenjun30", "movie", "55555").await;
+    // fetched_ms = 1：远早于任何 TTL，属"过期但仍在库"
+    sqlx::query(
+        "INSERT INTO subjects (category, subject_id, title, fetched_ms)
+         VALUES ('movie', '1292052', '旧数据', 1)",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let queued = subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
+        .await
+        .unwrap();
+    assert_eq!(
+        queued, 1,
+        "只入缺失的 55555；在库的 1292052 即使过期也不入队"
+    );
+    let job_id: String = sqlx::query_scalar("SELECT subject_id FROM subject_jobs")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(job_id, "55555");
+}
+
+/// 任务管理端点：列表（过滤/搜索/计数/标题兜底）、单条删除、批量清理（中断）、重排
+#[tokio::test]
+async fn subject_jobs_management_endpoints() {
+    let (_dir, state) = setup().await;
+    let app = build_app(state.clone());
+    let now = ServerConfig::now_ms();
+
+    // 数据面：movie/1292052 已富集（过期）；movie/777 待执行；book/888 失败终态；music/999 已删除终态
+    seed_record(&state, "wenjun30", "movie", "1292052").await;
+    seed_record(&state, "wenjun30", "movie", "777").await;
+    seed_record(&state, "wenjun30", "book", "888").await;
+    seed_record(&state, "wenjun30", "music", "999").await;
+    sqlx::query(
+        "INSERT INTO subjects (category, subject_id, title, fetched_ms)
+         VALUES ('movie', '1292052', '肖申克的救赎', 1)",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    for (cat, id, st) in [
+        ("movie", "1292052", "ok"),
+        ("movie", "777", "queued"),
+        ("book", "888", "error"),
+        ("music", "999", "not_found"),
+    ] {
+        sqlx::query(
+            "INSERT INTO subject_jobs (category, subject_id, state, attempts, priority,
+                                       created_ms, updated_ms, last_error)
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+        )
+        .bind(cat)
+        .bind(id)
+        .bind(st)
+        .bind(if st == "error" { 5 } else { 0 })
+        .bind(now)
+        .bind(now)
+        .bind(if st == "error" {
+            Some("BLOCKED: 403")
+        } else {
+            None::<&str>
+        })
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+
+    // 列表：活动状态在前，未富集条目标题回退 records（t-777）
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/jobs",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 4);
+    assert_eq!(body["counts_total"], 4);
+    assert_eq!(body["counts"]["queued"], 1);
+    assert_eq!(body["counts"]["ok"], 1);
+    assert_eq!(body["counts"]["error"], 1);
+    assert_eq!(body["counts"]["not_found"], 1);
+    assert_eq!(body["items"][0]["subject_id"], "777", "活动状态排前");
+    assert_eq!(body["items"][0]["title"], "t-777", "未富集标题回退 records");
+    let enriched = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["subject_id"] == "1292052")
+        .unwrap();
+    assert_eq!(enriched["title"], "肖申克的救赎");
+    assert_eq!(enriched["stale"], true, "fetched_ms=1 已过 TTL");
+    assert_eq!(enriched["forced"], false);
+    assert!(enriched["fetched_at"].is_string());
+
+    // 状态过滤（多值）+ 类别过滤 + 标题/ID 搜索 + 非法值 400
+    let (_, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/jobs?state=queued,running",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(body["total"], 1);
+    let (_, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/jobs?category=book",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["last_error"], "BLOCKED: 403");
+    let (_, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/jobs?q=肖申克",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["subject_id"], "1292052");
+    let (_, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/jobs?q=888",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(body["total"], 1);
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/jobs?state=bogus",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "INVALID_ARGUMENT");
+
+    // 单条删除：queued 的 777（即"取消"该条目）；重复删 404
+    let (status, _) = request(
+        app.clone(),
+        Method::DELETE,
+        "/api/v1/subjects/jobs/movie/777",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, body) = request(
+        app.clone(),
+        Method::DELETE,
+        "/api/v1/subjects/jobs/movie/777",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "JOB_NOT_FOUND");
+
+    // 批量清理已完成：只清 ok，其余不动
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/clear",
+        Some(r#"{"states": ["ok"]}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["deleted"], 1);
+    assert_eq!(count(&state, "SELECT COUNT(*) FROM subject_jobs").await, 2);
+
+    // 重排失败：error 终态 → queued、attempts 清零、priority=0（显式插队）
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/requeue",
+        Some(r#"{"scope": "failed"}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["queued"], 1);
+    let (st, attempts, priority): (String, i64, i64) = sqlx::query_as(
+        "SELECT state, attempts, priority FROM subject_jobs WHERE category='book' AND subject_id='888'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!((st.as_str(), attempts, priority), ("queued", 0, 0));
+
+    // 重抓过期：subjects 中过 TTL 的 1292052（job 行刚被清理）重新入队且为强制
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/requeue",
+        Some(r#"{"scope": "stale"}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["queued"], 1);
+    let (st, priority): (String, i64) = sqlx::query_as(
+        "SELECT state, priority FROM subject_jobs WHERE category='movie' AND subject_id='1292052'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!((st.as_str(), priority), ("queued", 0));
+    // 再跑一次：已排队的不动（幂等，0 增量）
+    let (_, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/requeue",
+        Some(r#"{"scope": "stale"}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(body["queued"], 0, "已在排队的 job 不被重置");
+
+    // 中断队列：清空全部待执行（book/888、movie/1292052 两个 queued）
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/clear",
+        Some(r#"{"states": ["queued", "running"]}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["deleted"], 2);
+    assert_eq!(
+        count(
+            &state,
+            "SELECT COUNT(*) FROM subject_jobs WHERE state IN ('queued','running')"
+        )
+        .await,
+        0
+    );
+
+    // 非法入参：空 states / 非法 scope
+    let (status, _) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/clear",
+        Some(r#"{"states": []}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/jobs/requeue",
+        Some(r#"{"scope": "everything"}"#.to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 /// GET /subjects 列表：分页/类别过滤/标题搜索/进度计数
@@ -1514,7 +2012,7 @@ async fn subjects_list_endpoint_filters_and_counts() {
     seed_record(&state, "wenjun30", "book", "38386470").await;
     // 制造一个 not_found 终态 job 进计数
     seed_record(&state, "wenjun30", "music", "41001").await;
-    subject::backfill(&state.pool, 2_592_000).await.unwrap();
+    subject::backfill(&state.pool).await.unwrap();
 
     // music/41001 模拟已删除条目（404），其余走 fixture
     let fetcher = FakeFetcher(|url: &str| {
@@ -1546,7 +2044,10 @@ async fn subjects_list_endpoint_filters_and_counts() {
     assert_eq!(body["total"], 2);
     assert_eq!(body["counts"]["enriched"], 2);
     assert_eq!(body["counts"]["not_found"], 1, "404 job 计入 not_found");
-    assert_eq!(body["items"][0]["url"], "https://movie.douban.com/subject/1292052/");
+    assert_eq!(
+        body["items"][0]["url"],
+        "https://movie.douban.com/subject/1292052/"
+    );
 
     // 类别过滤 + 标题搜索
     let (_, body) = request(
@@ -1585,8 +2086,7 @@ async fn parse_sentinel_flags_silent_empty_page_as_error() {
     let (_dir, state) = setup().await;
     // 模拟豆瓣改版/登录墙：200 + total=55 + 页面无条目结构
     //（改版前这里会静默标 ok + 0 条，见《豆瓣源依赖性与脆弱性分析.md》§3 F1）
-    let broken =
-        "<html><body><span class=\"subject-num\">1-15&nbsp;/&nbsp;55</span></body></html>";
+    let broken = "<html><body><span class=\"subject-num\">1-15&nbsp;/&nbsp;55</span></body></html>";
     let fetcher = FakeFetcher(move |_url: &str| Ok(broken.to_string()));
     let (code, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["book"]})).await;
     assert_eq!(code, StatusCode::ACCEPTED);

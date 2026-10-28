@@ -100,7 +100,11 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 | 9 | GET | `/subjects` | 条目元信息列表（分页 + 类别/标题过滤 + 富集进度计数） |
 | 9a | GET | `/subjects/{category}/{subject_id}` | 条目结构化元信息（rexxar 富集缓存，跨用户共享） |
 | 10 | POST | `/subjects/{category}/{subject_id}/refresh` | 强制刷新单条目元信息（无视 TTL，优先执行） |
-| 11 | POST | `/subjects/backfill` | 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等） |
+| 11 | POST | `/subjects/backfill` | 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等，只入缺失） |
+| 11a | GET | `/subjects/jobs` | 富集任务列表（状态过滤/搜索/分页 + 各状态计数） |
+| 11b | DELETE | `/subjects/jobs/{category}/{subject_id}` | 删除单个富集任务（queued 即取消） |
+| 11c | POST | `/subjects/jobs/clear` | 按状态批量删除任务（中断队列 = queued+running） |
+| 11d | POST | `/subjects/jobs/requeue` | 批量重排（failed / not_found / stale 强制重抓过期） |
 | 12 | GET | `/covers?u={url}` | 豆瓣封面/头像白名单代理（cache-then-serve，见 4.11） |
 | 13 | GET | `/subscriptions` | 订阅列表 |
 | 14 | PUT | `/subscriptions/{uid}` | 创建/更新订阅（RSS 增量 + 定时全量） |
@@ -466,13 +470,22 @@ GET /api/v1/users/{uid}/profile
 
 类别专属节点键随 category 变化（`movie`/`book`/`music`）：book 为 `authors/translators/press/pubdate/pages/price/series` 等（author 与 translator 分列是 rexxar 的语义优势，intro 文本无法区分）；music 为 `singers/genres/media/discs/songs` 等。
 
-**POST /subjects/{category}/{subject_id}/refresh** → 202 `{"queued": true}`：重排富集 job（priority=0），worker 空闲时段执行。
+**POST /subjects/{category}/{subject_id}/refresh** → 202 `{"queued": true}`：重排富集 job（priority=0，显式强制），worker 空闲时段优先执行。
 
-**POST /subjects/backfill** → 200 `{"queued_jobs": N, "uid_category_pairs": M}`：存量数据回填入口，幂等可重跑。
+**POST /subjects/backfill** → 200 `{"queued_jobs": N, "uid_category_pairs": M}`：存量数据回填入口，幂等可重跑；**只入缺失条目**——subjects 已有的（即使已过 TTL）不再自动重抓，重抓属显式操作。
+
+**富集任务管理（admin「富集任务」页数据源）**：
+
+- **GET /subjects/jobs?state=&category=&q=&page=&page_size=** → 分页列出富集 job；state 支持逗号分隔多值（queued/running/ok/error/not_found，缺省全部），q 匹配条目 ID / 已富集标题 / 任一用户标记行标题；标题与封面优先取 subjects、未富集回退 records；响应附各状态 `counts` 与 `counts_total`，条目含 `forced`（priority=0 显式强制）与 `stale`（已过 TTL）标记；排序活动状态（running/queued）在前。
+- **DELETE /subjects/jobs/{category}/{subject_id}** → 204：删除单个 job（任意状态）。queued 即取消该条目；终态失败 job 删除后可在下次同步重新入队；不存在 404 `JOB_NOT_FOUND`。
+- **POST /subjects/jobs/clear** body `{"states": ["queued","running"], "category": "movie"?}` → `{"deleted": N}`：按状态批量删除。**中断队列 = states ["queued","running"]**；正在抓取的一条（单 worker 至多一个）会完成并把结果写库，仅 job 行消失；category 可选（缺省/all 为全部）。
+- **POST /subjects/jobs/requeue** body `{"scope": "failed"|"not_found"|"stale", "category": …}` → `{"queued": N}`：failed / not_found 把对应终态 job 重排（attempts 清零、priority=0 插队）；**stale 为强制重抓库中已过 TTL 条目——"重新抓取已有条目"的唯一批量入口**（priority=0 绕过执行守卫；已在排队/执行中的 job 不被重置，幂等）。
+
+**跳过语义（核心行为变更）**：worker 执行富集 job 前有守卫——subjects 已有该条目且 job 非显式强制（priority≠0）→ 跳过，不发请求、直接标记完成且不改写库中数据。配合入队侧只入缺失条目，保证「库中已有 → 零请求」在任何入队路径下成立；重抓必须显式触发（单条 refresh / 批量 requeue scope=stale）。`SYNC_SUBJECT_TTL_SECS` 语义相应调整：不再驱动自动重抓，仅定义"过期"阈值（stale 标记与 requeue scope=stale 的范围）。
 
 **marks 扩展**：`GET /users/{uid}/marks?…&expand=subject`，items 每项追加 `subject` 对象：已富集返回 rexxar 视图（`source:"rexxar"`，含豆瓣评分）；**未富集回退 intro 启发式解析合成视图（`source:"intro"`，无豆瓣评分、fetched_at 为 null）**，不再为 `null`；不传 expand 响应结构与旧版完全一致。intro 解析器为 intro汇总/intro_parser.py 的 Rust 移植（backend/src/intro.rs），291 例黄金用例与 Python 共享基准。`/syncs/{id}/result` 的 summary 附带全局 `subjects_enriched` / `subjects_pending` 计数。
 
-**行为要点**：富集只存封面 URL（`cover_url`，rexxar 中图规格，比收藏页 `records.cover` 小图清晰），图片字节仍由 `/covers` 代理按需回源缓存，两者分工详见《条目元信息富集方案.md》§12；维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队缺失/过期（TTL 默认 30 天，`SYNC_SUBJECT_TTL_SECS`）条目；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
+**行为要点**：富集只存封面 URL（`cover_url`，rexxar 中图规格，比收藏页 `records.cover` 小图清晰），图片字节仍由 `/covers` 代理按需回源缓存，两者分工详见《条目元信息富集方案.md》§12；维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队**缺失**条目（subjects 已有的不重抓，重抓需显式触发，见上方「跳过语义」）；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
 
 ## 5. 数据模型
 

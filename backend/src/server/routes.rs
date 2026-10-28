@@ -3,25 +3,25 @@
 use tower_http::cors::CorsLayer;
 
 use axum::{
-    Json, Router,
     body::Bytes,
     extract::{ConnectInfo, Path, Query, State},
-    http::{StatusCode, header},
+    http::{header, StatusCode},
     middleware::{self, Next},
     response::{
-        IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
     },
-    routing::{get, post},
+    routing::{delete, get, post},
+    Json, Router,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 
 use crate::crawler::{Category, Status};
 
 use super::error::{AppError, AppResult};
-use super::service::{self, CreateTaskInput, TERMINAL_STATUSES, TaskView};
+use super::service::{self, CreateTaskInput, TaskView, TERMINAL_STATUSES};
 use super::state::AppState;
 use super::subject;
 
@@ -48,7 +48,10 @@ pub fn build_app(state: AppState) -> Router {
     // 但豁免限流——一页 20 张封面属正常连发，且磁盘命中后近乎静态文件
     let covers = Router::new()
         .route("/covers", get(get_cover))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state.clone());
 
     let api = Router::new()
@@ -64,19 +67,36 @@ pub fn build_app(state: AppState) -> Router {
         )
         .route("/subjects", get(list_subjects))
         .route("/subjects/backfill", post(backfill_subjects))
+        .route("/subjects/jobs", get(list_subject_jobs))
+        .route("/subjects/jobs/clear", post(clear_subject_jobs))
+        .route("/subjects/jobs/requeue", post(requeue_subject_jobs))
+        .route(
+            "/subjects/jobs/{category}/{subject_id}",
+            delete(delete_subject_job),
+        )
         .route("/users/{uid}/profile", get(get_user_profile))
         .route("/subscriptions", get(list_subscriptions))
         .route(
             "/subscriptions/{uid}",
-            get(get_subscription_route).put(put_subscription).delete(delete_subscription),
+            get(get_subscription_route)
+                .put(put_subscription)
+                .delete(delete_subscription),
         )
         .route("/server/info", get(server_info))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
-        .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
         .with_state(state)
         .merge(covers);
 
-    let router = Router::new().route("/healthz", get(healthz)).nest("/api/v1", api);
+    let router = Router::new()
+        .route("/healthz", get(healthz))
+        .nest("/api/v1", api);
     match cors {
         Some(layer) => router.layer(layer),
         None => router,
@@ -101,16 +121,12 @@ async fn auth_middleware(
             .is_some_and(|v| v == expected);
         // 浏览器 EventSource 无法设置自定义 Header，允许 ?token= 查询参数兜底
         let query_ok = !header_ok
-            && req
-                .uri()
-                .query()
-                .is_some_and(|q| {
-                    q.split('&').any(|kv| {
-                        kv.split_once('=').is_some_and(|(k, v)| {
-                            k == "token" && urldecode(v) == state.config.token
-                        })
-                    })
-                });
+            && req.uri().query().is_some_and(|q| {
+                q.split('&').any(|kv| {
+                    kv.split_once('=')
+                        .is_some_and(|(k, v)| k == "token" && urldecode(v) == state.config.token)
+                })
+            });
         if !header_ok && !query_ok {
             return Err(AppError::Unauthorized(
                 "缺少或错误的 Bearer Token（支持 Authorization 头或 ?token= 参数）".to_string(),
@@ -224,17 +240,16 @@ where
 }
 
 /// 创建同步任务。body 手动解析以保证错误信封统一（400 而非 axum 默认 422）。
-async fn create_sync(
-    State(state): State<AppState>,
-    body: Bytes,
-) -> AppResult<Response> {
+async fn create_sync(State(state): State<AppState>, body: Bytes) -> AppResult<Response> {
     let req: CreateReq =
         serde_json::from_slice(&body).map_err(|e| AppError::InvalidArgument(e.to_string()))?;
     let user = req
         .user
         .ok_or_else(|| AppError::InvalidArgument("缺少 user 字段".to_string()))?;
     if req.wait_timeout > 30 {
-        return Err(AppError::InvalidArgument("wait_timeout 最大 30 秒".to_string()));
+        return Err(AppError::InvalidArgument(
+            "wait_timeout 最大 30 秒".to_string(),
+        ));
     }
 
     let categories = parse_enum_list(req.categories, &Category::ALL, |c| c.key(), "categories")?;
@@ -265,8 +280,7 @@ async fn create_sync(
         }
     }
 
-    let mut body = serde_json::to_value(&view)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let mut body = serde_json::to_value(&view).map_err(|e| AppError::Internal(e.to_string()))?;
     body["cached_dimensions"] = json!(outcome.cached_dimensions);
     body["created_dimensions"] = json!(outcome.created_dimensions);
 
@@ -301,9 +315,11 @@ async fn get_sync_events(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> AppResult<
-    Sse<axum::response::sse::KeepAliveStream<
-        tokio_stream::wrappers::ReceiverStream<Result<Event, Infallible>>,
-    >>,
+    Sse<
+        axum::response::sse::KeepAliveStream<
+            tokio_stream::wrappers::ReceiverStream<Result<Event, Infallible>>,
+        >,
+    >,
 > {
     // 校验任务存在（404 快速失败）；订阅必须发生在 spawn 之前，
     // 保证响应返回时已建立订阅，连接期间的通知不会丢失
@@ -313,9 +329,15 @@ async fn get_sync_events(
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
     tokio::spawn(async move {
         loop {
-            let Ok(view) = service::get_task(&state, &task_id).await else { return };
+            let Ok(view) = service::get_task(&state, &task_id).await else {
+                return;
+            };
             if TERMINAL_STATUSES.contains(&view.status.as_str()) {
-                let name = if view.status == "failed" { "error" } else { "done" };
+                let name = if view.status == "failed" {
+                    "error"
+                } else {
+                    "done"
+                };
                 let _ = tx.send(task_event(name, &view)).await;
                 return;
             }
@@ -334,8 +356,7 @@ async fn get_sync_events(
         }
     });
 
-    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
-        .keep_alive(KeepAlive::default()))
+    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -354,7 +375,9 @@ async fn list_syncs(
 ) -> AppResult<Json<Value>> {
     if let Some(s) = &q.status {
         if !["queued", "running", "completed", "partial", "failed"].contains(&s.as_str()) {
-            return Err(AppError::InvalidArgument(format!("非法 status 过滤值: {s}")));
+            return Err(AppError::InvalidArgument(format!(
+                "非法 status 过滤值: {s}"
+            )));
         }
     }
     let source = match q.source.as_deref() {
@@ -447,8 +470,8 @@ async fn get_marks(
     let items: Value = if expand_subject {
         // subjects 已富集返回 rexxar 视图，未富集回退 intro 解析合成（source=intro）
         let views = subject::load_subject_views(&state, category.key(), &marks.items).await?;
-        let mut arr = serde_json::to_value(&marks.items)
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut arr =
+            serde_json::to_value(&marks.items).map_err(|e| AppError::Internal(e.to_string()))?;
         if let Value::Array(list) = &mut arr {
             for (item, view) in list.iter_mut().zip(views) {
                 item["subject"] = view;
@@ -485,7 +508,9 @@ async fn get_subject(
     Path((category, subject_id)): Path<(String, String)>,
 ) -> AppResult<Json<Value>> {
     parse_category(&category)?;
-    Ok(Json(subject::get_subject_view(&state, &category, &subject_id).await?))
+    Ok(Json(
+        subject::get_subject_view(&state, &category, &subject_id).await?,
+    ))
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -533,11 +558,132 @@ async fn refresh_subject(
     ))
 }
 
-/// 存量回填：对 records 已有的全部 (uid, category) 跑富集集合差（幂等可重跑）
+/// 存量回填：对 records 已有的全部 (uid, category) 跑富集集合差（幂等可重跑）。
+/// 只入缺失条目——subjects 已有的不重抓（重抓需显式 refresh / requeue）。
 async fn backfill_subjects(State(state): State<AppState>) -> AppResult<Json<Value>> {
-    let (queued, pairs) = subject::backfill(&state.pool, state.config.subject_ttl_secs).await?;
+    let (queued, pairs) = subject::backfill(&state.pool).await?;
     state.wake_worker();
-    Ok(Json(json!({"queued_jobs": queued, "uid_category_pairs": pairs})))
+    Ok(Json(
+        json!({"queued_jobs": queued, "uid_category_pairs": pairs}),
+    ))
+}
+
+// --------------------------------------------------------------------------- //
+// /subjects/jobs（富集任务管理：查看 / 中断 / 删除 / 重排）
+// --------------------------------------------------------------------------- //
+
+const JOB_STATES: [&str; 5] = ["queued", "running", "ok", "error", "not_found"];
+
+#[derive(serde::Deserialize)]
+struct JobsQuery {
+    /// 逗号分隔的状态过滤（queued/running/ok/error/not_found）；缺省 = 全部
+    state: Option<String>,
+    /// movie/book/music；缺省或 all = 全部
+    category: Option<String>,
+    /// 条目 ID / 标题模糊搜索
+    q: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+}
+
+async fn list_subject_jobs(
+    State(state): State<AppState>,
+    Query(q): Query<JobsQuery>,
+) -> AppResult<Json<Value>> {
+    let states: Vec<String> = match q.state.as_deref() {
+        None | Some("") | Some("all") => vec![],
+        Some(s) => {
+            let mut out = Vec::new();
+            for part in s.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !JOB_STATES.contains(&part) {
+                    return Err(AppError::InvalidArgument(format!(
+                        "非法 state 过滤值: {part}（允许值: {}）",
+                        JOB_STATES.join("/")
+                    )));
+                }
+                out.push(part.to_string());
+            }
+            out
+        }
+    };
+    if let Some(c) = q.category.as_deref() {
+        if !c.is_empty() && c != "all" {
+            parse_category(c)?;
+        }
+    }
+    Ok(Json(
+        subject::list_jobs(
+            &state,
+            &states,
+            q.category.as_deref(),
+            q.q.as_deref().unwrap_or("").trim(),
+            q.page.unwrap_or(1),
+            q.page_size.unwrap_or(20),
+        )
+        .await?,
+    ))
+}
+
+async fn delete_subject_job(
+    State(state): State<AppState>,
+    Path((category, subject_id)): Path<(String, String)>,
+) -> AppResult<StatusCode> {
+    parse_category(&category)?;
+    subject::delete_job(&state.pool, &category, &subject_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClearJobsReq {
+    /// 待删除的状态集合（必填）：中断队列传 ["queued","running"]
+    states: Vec<String>,
+    /// 可选类别过滤
+    #[serde(default)]
+    category: Option<String>,
+}
+
+async fn clear_subject_jobs(State(state): State<AppState>, body: Bytes) -> AppResult<Json<Value>> {
+    let req: ClearJobsReq =
+        serde_json::from_slice(&body).map_err(|e| AppError::InvalidArgument(e.to_string()))?;
+    if req.states.is_empty() {
+        return Err(AppError::InvalidArgument("states 不能为空数组".to_string()));
+    }
+    for st in &req.states {
+        if !JOB_STATES.contains(&st.as_str()) {
+            return Err(AppError::InvalidArgument(format!(
+                "非法 state: {st}（允许值: {}）",
+                JOB_STATES.join("/")
+            )));
+        }
+    }
+    let deleted = subject::clear_jobs(&state.pool, &req.states, req.category.as_deref()).await?;
+    Ok(Json(json!({"deleted": deleted})))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequeueJobsReq {
+    /// failed（重试 error 终态）/ not_found（重试已删除条目）/ stale（强制重抓过期条目）
+    scope: String,
+    #[serde(default)]
+    category: Option<String>,
+}
+
+async fn requeue_subject_jobs(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> AppResult<Json<Value>> {
+    let req: RequeueJobsReq =
+        serde_json::from_slice(&body).map_err(|e| AppError::InvalidArgument(e.to_string()))?;
+    if !["failed", "not_found", "stale"].contains(&req.scope.as_str()) {
+        return Err(AppError::InvalidArgument(
+            "非法 scope（允许值: failed/not_found/stale）".to_string(),
+        ));
+    }
+    let queued = subject::requeue_jobs(&state, &req.scope, req.category.as_deref()).await?;
+    state.wake_worker();
+    Ok(Json(json!({"queued": queued})))
 }
 
 // --------------------------------------------------------------------------- //
@@ -605,16 +751,11 @@ async fn put_subscription(
     let req: SubscriptionReq = if body.is_empty() {
         SubscriptionReq::default()
     } else {
-        serde_json::from_slice(&body)
-            .map_err(|e| AppError::InvalidArgument(e.to_string()))?
+        serde_json::from_slice(&body).map_err(|e| AppError::InvalidArgument(e.to_string()))?
     };
-    let view = service::upsert_subscription(
-        &state,
-        &uid,
-        req.rss_interval_secs,
-        req.full_interval_secs,
-    )
-    .await?;
+    let view =
+        service::upsert_subscription(&state, &uid, req.rss_interval_secs, req.full_interval_secs)
+            .await?;
     Ok((StatusCode::CREATED, Json(view)))
 }
 
@@ -625,9 +766,7 @@ async fn get_subscription_route(
     Ok(Json(service::get_subscription(&state, &uid).await?))
 }
 
-async fn list_subscriptions(
-    State(state): State<AppState>,
-) -> AppResult<Json<Value>> {
+async fn list_subscriptions(State(state): State<AppState>) -> AppResult<Json<Value>> {
     let subs = service::list_subscriptions(&state).await?;
     Ok(Json(json!({ "subscriptions": subs })))
 }

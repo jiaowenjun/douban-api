@@ -1,7 +1,7 @@
 //! SQLite 连接与建表（weimo-ocr 风格：内嵌 bootstrap SQL，不用 sqlx migrate）。
 
 use anyhow::{Context, Result};
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 
 const BOOTSTRAP_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS tasks (
@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS subject_jobs (
 CREATE INDEX IF NOT EXISTS idx_task_dims_dim ON task_dims(uid, category, dim_status);
 CREATE INDEX IF NOT EXISTS idx_dimensions_due ON dimensions(state, next_sync_ms);
 CREATE INDEX IF NOT EXISTS idx_records_dim_date ON records(uid, category, dim_status, date DESC);
+CREATE INDEX IF NOT EXISTS idx_records_subject ON records(category, subject_id);
 CREATE INDEX IF NOT EXISTS idx_subjects_retry ON subjects(status, next_retry_ms);
 CREATE INDEX IF NOT EXISTS idx_subject_jobs_due ON subject_jobs(state, next_run_ms);
 "#;

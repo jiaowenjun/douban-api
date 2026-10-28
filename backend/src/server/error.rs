@@ -1,6 +1,10 @@
 //! 统一错误——信封 `{"error":{"code","message"}}`，映射设计文档第 9 节的错误码表。
 
-use axum::{Json, http::StatusCode, response::{IntoResponse, Response}};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::Serialize;
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -21,6 +25,8 @@ pub enum AppError {
     DimensionNotCached,
     #[error("条目元信息不存在或尚未富集: {0}")]
     SubjectNotFound(String),
+    #[error("富集任务不存在: {0}")]
+    JobNotFound(String),
     #[error("任务未完成（当前状态: {0}）")]
     TaskNotFinished(String),
     #[error("请求过于频繁，请稍后再试")]
@@ -54,6 +60,7 @@ impl AppError {
             AppError::UserNotFound(_) => "USER_NOT_FOUND",
             AppError::DimensionNotCached => "DIMENSION_NOT_CACHED",
             AppError::SubjectNotFound(_) => "SUBJECT_NOT_FOUND",
+            AppError::JobNotFound(_) => "JOB_NOT_FOUND",
             AppError::TaskNotFinished(_) => "TASK_NOT_FINISHED",
             AppError::TooManyRequests => "TOO_MANY_REQUESTS",
             AppError::TooManyTasks => "TOO_MANY_TASKS",
@@ -66,11 +73,12 @@ impl AppError {
         match self {
             AppError::InvalidArgument(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-            AppError::TaskNotFound(_) | AppError::SubscriptionNotFound(_)
-            | AppError::UserNotFound(_) | AppError::DimensionNotCached
-            | AppError::SubjectNotFound(_) => {
-                StatusCode::NOT_FOUND
-            }
+            AppError::TaskNotFound(_)
+            | AppError::SubscriptionNotFound(_)
+            | AppError::UserNotFound(_)
+            | AppError::DimensionNotCached
+            | AppError::SubjectNotFound(_)
+            | AppError::JobNotFound(_) => StatusCode::NOT_FOUND,
             AppError::TaskNotFinished(_) => StatusCode::CONFLICT,
             AppError::TooManyRequests | AppError::TooManyTasks => StatusCode::TOO_MANY_REQUESTS,
             AppError::CoverUpstream(_) => StatusCode::BAD_GATEWAY,

@@ -154,6 +154,41 @@ export interface SubjectListResponse {
   };
 }
 
+/** 富集 job 状态：queued/running 活动态，ok/error/not_found 终态 */
+export type SubjectJobState = 'queued' | 'running' | 'ok' | 'error' | 'not_found';
+
+/** GET /subjects/jobs 列表项（富集任务管理） */
+export interface SubjectJob {
+  category: 'movie' | 'book' | 'music';
+  subject_id: string;
+  /** 已富集取 subjects.title，否则回退任一用户标记行标题；两者皆无为 null */
+  title: string | null;
+  /** 本地封面代理相对路径（img 标签需经 resolveApiUrl 处理），无则为空串 */
+  cover: string;
+  state: SubjectJobState;
+  attempts: number;
+  /** true = 显式强制重抓（单条 refresh / 批量重排），插队执行且绕过"已在库跳过"守卫 */
+  forced: boolean;
+  next_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+  last_error: string | null;
+  /** subjects 已富集时的抓取时间；未富集为 null */
+  fetched_at: string | null;
+  /** 库中数据已过 TTL（仅提示，重抓需显式操作） */
+  stale: boolean;
+}
+
+/** GET /subjects/jobs 列表响应 */
+export interface SubjectJobListResponse {
+  items: SubjectJob[];
+  total: number;
+  page: number;
+  page_size: number;
+  counts: Record<SubjectJobState, number>;
+  counts_total: number;
+}
+
 /** Record 的 12 字段（expand=subject 时附 subject 字段） */
 export interface RecordItem {
   subject?: Subject | null;
