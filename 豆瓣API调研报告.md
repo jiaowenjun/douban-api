@@ -14,7 +14,7 @@
    - 普通用户一键备份 → 「豆伴」（doufen-org/tofu，Chrome 扩展）
    - 开发者命令行导出 → zcyoung2000/douban-backup、zx2592/douban_backup
    - 全自动持续同步 → lizheming/doumark-action（GitHub Action → CSV/Notion/NeoDB）
-4. **所有方案均为非官方**，接口随时可能变更，需注意限速与账号风险。
+4. **所有方案均为非官方**，接口随时可能变更，需注意限速与账号风险（rexxar 条目接口的实测限流行为见 §2.1.1）。
 
 ---
 
@@ -93,6 +93,46 @@ GitHub 上的 [douban 官方组织](https://github.com/douban)确实存在且活
 | `bid` | 设备/浏览器标识，先访问一次 `www.douban.com` 即可获得 |
 
 获取方式：浏览器登录豆瓣 → F12 打开开发者工具 → Network 面板复制任意请求的完整 Cookie 串。部分工具（如 zcyoung2000/douban-backup）支持自动读取本地浏览器的 Cookie。
+
+#### 2.1.1 实测行为记录：rexxar 端点级突发限流（2026-10-28）
+
+> 条目详情（公开数据，免 Cookie）请求 `https://m.douban.com/rexxar/api/v2/{category}/{id}`（移动端 UA + `Referer: https://m.douban.com/`）时的实测限流行为。背景：weimo-douban 后端富集期间生产日志出现 movie 条目批量 HTTP 400、全局熔断每 10 分钟一轮的循环；以下三组实验确诊根因。工程应对见《豆瓣源依赖性与脆弱性分析.md》F8。
+
+**实验一：单发对照**——日志中失败的条目（狩猎 6985810 / Hello！树先生 4135710 / 肖申克的救赎 1292052）在封锁解除后逐个单发：**全部 200**，响应 11-17KB 完整 JSON。→ 400 不是条目级确定性失败（条目未下架、请求构造无误）。
+
+**实验二：突发复现**——1s 间隔连发 8 个 movie 请求（随机 ID）：前 3 个 404（ID 不存在），**第 4 个起全部 400**。→ 连发 4-8 个请求即触发封锁，且 **404 同样累积计数**（批量探测不存在条目会更快触发）。
+
+**实验三：恢复探测与端点隔离**——封锁后立即探测：movie 400，而**同一 IP、同样请求头下 music/book 端点 200**（端点级隔离，非 IP 全局封禁）；此后每 60-120s 探测一次 movie，封锁约 **5-6 分钟**自动解除（240s 仍 400，360s 已 200），无需换 IP/Cookie。
+
+**安全间隔验证**——恢复后 20s 间隔连发 5 个 movie 请求全部 200；生产侧观察：3-4s 间隔下 music/book 长跑数百次无恙，movie 则成功数个后必再触发。→ **三类端点阈值差异极大，不能共用同一固定间隔**。
+
+| 观察项 | 实测值 |
+|---|---|
+| 触发形态 | movie 端点连发 4-8 个请求（含 404）后，后续请求全部 400 |
+| 封锁时长 | ~5-6 分钟自动解除（240s 仍封锁 / 360s 已恢复） |
+| 作用域 | 端点级 × IP 级：`/movie/` 被封时 `/music/`、`/book/` 同 IP 正常 |
+| 错误码形态 | **HTTP 400**（而非常规限流码 403/429），极易误判为客户端请求错误或条目失效 |
+| movie 安全间隔 | 20s 稳定；3-4s 必触发 |
+| music/book 容忍度 | 3-4s 间隔数百次无恙 |
+
+**对使用者的启示**：
+
+- 400 ≠ 请求构造错误 / 条目失效——先怀疑突发限流，用"封锁解除后单发对照"验证
+- 重试退避必须跨过封锁窗（≥ 分钟量级指数退避），线性短退避（20s×n）会在封锁窗内烧光重试次数
+- 按 category 分别限速与冷却：被限流的端点单独冷却，不要拖累其他端点或全局暂停
+- 404 批量探测同样累积触发封锁
+
+复现命令：
+
+```bash
+UA="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+# 突发复现：1s 间隔连发 8 个（前几个 404 也计），第 4-8 个起观察 400
+for i in 1 2 3 4 5 6 7 8; do
+  curl -s -o /dev/null -w "%{http_code}\n" -H "User-Agent: $UA" -H "Referer: https://m.douban.com/" \
+    "https://m.douban.com/rexxar/api/v2/movie/$((35600000 + RANDOM % 800000))"
+  sleep 1
+done
+```
 
 ### 2.2 路径二：公开收藏页 HTML 抓取（免登录）
 
@@ -274,6 +314,7 @@ Chrome / Edge 扩展，专注**观影记录导出与 [Letterboxd](https://letter
 | 官方 API 文档（历史地址） | `https://developers.douban.com/wiki/?title=api_v2` | ❌ 已关停，仅存档意义 |
 | 文档镜像（在线） | https://goddlts.github.io/douban-api-docs/ | 社区整理 |
 | rexxar 内部接口 | `https://m.douban.com/rexxar/api/v2/...` | 需构造请求头；个人数据需 Cookie |
+| rexxar 条目详情（公开，免 Cookie） | `https://m.douban.com/rexxar/api/v2/{movie\|book\|music}/{id}` | 移动端 UA + `Referer: https://m.douban.com/`；⚠️ **movie 端点严格突发限流**（连发 4-8 个即 400 封锁 ~5-6 分钟，404 亦累积，详见 §2.1.1） |
 | rexxar 榜单示例 | `https://m.douban.com/rexxar/api/v2/subject/recent_hot/` | 公开数据，无需登录 |
 | 电影收藏页（看过） | `https://movie.douban.com/people/{uid}/collect` | 公开页，`wish`/`do` 对应想看/在看 |
 | 图书收藏页（读过） | `https://book.douban.com/people/{uid}/collect` | 同上 |
