@@ -1,0 +1,235 @@
+import { Link } from 'react-router'
+
+import type { DoubanMark } from '../api'
+import { MarkCard } from '../mark-card'
+import './mark-card-demo.css'
+
+/** 演示页路由（HashRouter 下即 #/demo/mark-card）；纯 mock 数据，不请求后端 */
+export const DEMO_MARK_CARD_PATH = '/demo/mark-card'
+
+/** 演示封面：取自后端 covers 代理的真实地址，便于核对封面图样式 */
+const COVER_A =
+  '/api/v1/covers?u=https%3A%2F%2Fimg9.doubanio.com%2Fview%2Fphoto%2Fs_ratio_poster%2Fpublic%2Fp2935834896.webp'
+const COVER_B =
+  '/api/v1/covers?u=https%3A%2F%2Fimg9.doubanio.com%2Fview%2Fphoto%2Fs_ratio_poster%2Fpublic%2Fp2885402364.webp'
+const COVER_C =
+  '/api/v1/covers?u=https%3A%2F%2Fimg3.doubanio.com%2Fview%2Fphoto%2Fs_ratio_poster%2Fpublic%2Fp2574853860.webp'
+
+const LONG_TITLE =
+  '超级无敌旋风加长导演剪辑终极纪念收藏限量展映完整版电影标题示例'
+const LONG_INTRO =
+  '2026-10-28(中国大陆) / 示例导演 / 示例演员甲 / 示例演员乙 / 示例演员丙 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 爱情 / 汉语普通话 / 粤语 / 这一行简介非常长，用来验证单行截断的省略号是否正常出现'
+const LONG_COMMENT =
+  '这条短评特意写得很长很长，用来验证短评区域最多显示三行、超出部分截断省略的排版规则。第一行交代剧情观感，第二行继续铺陈导演技法与视听语言的分析，第三行收束到个人化的情绪与结论。如果还有第四行，那它应该被 line-clamp 裁掉，只会留下省略号——比如现在你看到的这句话，理应出现在第三行行尾的省略号之后，正常情况下已经不可见。'
+
+/** 基准字段：全部可选字段留空，各场景按需覆盖 */
+const BASE_MARK: DoubanMark = {
+  category: 'movie',
+  status: 'collect',
+  title: '示例电影',
+  alt_title: '',
+  my_rating: null,
+  date: '2026-10-28',
+  comment: '',
+  subject_url: 'https://movie.douban.com/subject/37322586/',
+  subject_id: '0',
+  cover: '',
+  comment_id: 'demo-0',
+  intro: '',
+}
+
+function mark(overrides: Partial<DoubanMark>): DoubanMark {
+  return { ...BASE_MARK, ...overrides }
+}
+
+const FULL_MARK = mark({
+  comment_id: 'demo-full',
+  title: '完整字段示例',
+  alt_title: 'A Full-Featured Example',
+  my_rating: 5,
+  cover: COVER_A,
+  intro:
+    '2026-10-28(中国大陆) / 示例导演 / 示例演员 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 汉语普通话',
+  comment:
+    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：标题行左侧为标题、右侧为星级，下方依次为又名、单行简介、最多三行的短评，最后是标记日期。',
+})
+
+const RATING_MARKS = [1, 2, 3, 4, 5].map((n) =>
+  mark({
+    comment_id: `demo-rating-${n}`,
+    title: `评分 ${n} 星`,
+    my_rating: n,
+    cover: COVER_B,
+  }),
+)
+
+const MISSING_FIELD_MARKS = [
+  mark({
+    comment_id: 'demo-no-rating',
+    title: '无评分',
+    cover: COVER_C,
+    intro: '未打分时标题行右侧不出现星级。',
+  }),
+  mark({
+    comment_id: 'demo-no-alt',
+    title: '无又名',
+    my_rating: 4,
+    cover: COVER_A,
+    intro: '外文名缺失时直接进入简介行。',
+  }),
+  mark({
+    comment_id: 'demo-no-intro',
+    title: '无简介',
+    my_rating: 3,
+    cover: COVER_B,
+    comment: '演职员等简介缺失时直接显示短评。',
+  }),
+  mark({
+    comment_id: 'demo-no-comment',
+    title: '无短评',
+    my_rating: 2,
+    cover: COVER_C,
+    intro: '只标记不评论的常见形态。',
+  }),
+  mark({
+    comment_id: 'demo-no-cover',
+    title: '无封面',
+    my_rating: 5,
+    intro: '封面缺失时显示虚线占位框，占位尺寸与真实封面一致。',
+    comment: '封面为空串时的兜底形态。',
+  }),
+  mark({
+    comment_id: 'demo-minimal',
+    title: '极简（仅标题与日期）',
+  }),
+]
+
+const TRUNCATION_MARKS = [
+  mark({
+    comment_id: 'demo-long-title',
+    title: LONG_TITLE,
+    my_rating: 4,
+    cover: COVER_A,
+    intro: '标题超长时应单行截断，不把星级挤出屏幕。',
+  }),
+  mark({
+    comment_id: 'demo-long-alt',
+    title: '超长又名',
+    alt_title: `${LONG_TITLE} English Extended Edition`,
+    my_rating: 3,
+    cover: COVER_B,
+  }),
+  mark({
+    comment_id: 'demo-long-intro',
+    title: '超长简介',
+    intro: LONG_INTRO,
+    my_rating: 5,
+    cover: COVER_C,
+  }),
+  mark({
+    comment_id: 'demo-long-comment',
+    title: '超长短评',
+    comment: LONG_COMMENT,
+    my_rating: 5,
+    cover: COVER_A,
+  }),
+]
+
+const NARROW_MARKS = [
+  mark({
+    comment_id: 'demo-narrow-full',
+    title: '窄容器 · 完整字段',
+    alt_title: 'Narrow Viewport',
+    my_rating: 5,
+    cover: COVER_B,
+    intro: LONG_INTRO,
+    comment: LONG_COMMENT,
+  }),
+  mark({
+    comment_id: 'demo-narrow-minimal',
+    title: '窄容器 · 极简',
+    date: '2026-10-01',
+  }),
+]
+
+function CardList({ items }: { items: DoubanMark[] }) {
+  return (
+    <ul className="mark-card-demo__list">
+      {items.map((item) => (
+        <MarkCard key={item.comment_id} mark={item} />
+      ))}
+    </ul>
+  )
+}
+
+function DemoSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="mark-card-demo__section">
+      <h2 className="mark-card-demo__section-title">{title}</h2>
+      {description ? (
+        <p className="mark-card-demo__section-desc">{description}</p>
+      ) : null}
+      {children}
+    </section>
+  )
+}
+
+/** MarkCard 组件演示页：静态 mock 数据覆盖各字段组合与极端情况，
+ *  供调整卡片样式时对照；配合顶栏主题切换可核对明暗两套配色 */
+export function MarkCardDemoPage() {
+  return (
+    <section className="mark-card-demo">
+      <h1 className="mark-card-demo__title">MarkCard 组件演示</h1>
+      <p className="mark-card-demo__desc">
+        纯静态 mock，不请求后端；真实数据列表见
+        <Link to="/movie">看过的电影</Link>。卡片组件在
+        <code>site/mark-card.tsx</code>。
+      </p>
+
+      <DemoSection
+        description="所有字段齐备时的基准形态"
+        title="完整字段"
+      >
+        <CardList items={[FULL_MARK]} />
+      </DemoSection>
+
+      <DemoSection
+        description="金色覆盖层按 1/5 比例裁切，验证各档填充宽度"
+        title="评分 1–5 星"
+      >
+        <CardList items={RATING_MARKS} />
+      </DemoSection>
+
+      <DemoSection
+        description="可选字段逐一缺失，直到只剩标题与日期"
+        title="字段缺省"
+      >
+        <CardList items={MISSING_FIELD_MARKS} />
+      </DemoSection>
+
+      <DemoSection
+        description="标题/又名单行截断，简介一行截断，短评三行截断"
+        title="长文本截断"
+      >
+        <CardList items={TRUNCATION_MARKS} />
+      </DemoSection>
+
+      <DemoSection
+        description="约 360px 宽容器，模拟窄屏下的截断与占位表现"
+        title="窄容器"
+      >
+        <div className="mark-card-demo__narrow">
+          <CardList items={NARROW_MARKS} />
+        </div>
+      </DemoSection>
+    </section>
+  )
+}
