@@ -472,7 +472,7 @@ GET /api/v1/users/{uid}/profile
 
 **marks 扩展**：`GET /users/{uid}/marks?…&expand=subject`，items 每项追加 `subject` 对象（未富集条目为 `null`）；不传 expand 响应结构与旧版完全一致。`/syncs/{id}/result` 的 summary 附带全局 `subjects_enriched` / `subjects_pending` 计数。
 
-**行为要点**：维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队缺失/过期（TTL 默认 30 天，`SYNC_SUBJECT_TTL_SECS`）条目；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
+**行为要点**：富集只存封面 URL（`cover_url`，rexxar 中图规格，比收藏页 `records.cover` 小图清晰），图片字节仍由 `/covers` 代理按需回源缓存，两者分工详见《条目元信息富集方案.md》§12；维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队缺失/过期（TTL 默认 30 天，`SYNC_SUBJECT_TTL_SECS`）条目；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
 
 ## 5. 数据模型
 
