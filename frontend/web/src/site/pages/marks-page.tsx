@@ -7,6 +7,7 @@ import { TextButton } from 'weimo-ui-core/components/text-button'
 import { fetchDoubanMarks } from '../api'
 import type { DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
+import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
 
@@ -26,25 +27,6 @@ type MarksState =
       loadingMore: boolean
       moreError: string | null
     }
-
-/** 评分星级：底色五星 + 按比例裁切的金色覆盖层（豆瓣式两段 ★★★★★ 叠加） */
-function RatingStars({ value }: { value: number }) {
-  const label = `我的评分：${value} 星`
-  return (
-    <span aria-label={label} className="marks-rating" title={label}>
-      <span aria-hidden="true" className="marks-rating__base">
-        ★★★★★
-      </span>
-      <span
-        aria-hidden="true"
-        className="marks-rating__fill"
-        style={{ width: `${(value / 5) * 100}%` }}
-      >
-        ★★★★★
-      </span>
-    </span>
-  )
-}
 
 /** RFC3339 → YYYY-MM-DD（cached_at 只取日期粒度即可） */
 function formatDate(iso: string): string {
@@ -194,46 +176,7 @@ export function MarksPage() {
         </p>
         <ul className="marks-list">
           {state.items.map((mark) => (
-            <li
-              className="marks-item"
-              key={mark.comment_id || mark.subject_id}
-            >
-              <a
-                className="marks-item__link"
-                href={mark.subject_url}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {mark.cover ? (
-                  <img
-                    alt=""
-                    className="marks-item__cover"
-                    loading="lazy"
-                    src={mark.cover}
-                  />
-                ) : (
-                  <div className="marks-item__cover marks-item__cover--empty" />
-                )}
-                <div className="marks-item__body">
-                  <div className="marks-item__title-row">
-                    <span className="marks-item__title">{mark.title}</span>
-                    {mark.my_rating ? (
-                      <RatingStars value={mark.my_rating} />
-                    ) : null}
-                  </div>
-                  {mark.alt_title ? (
-                    <div className="marks-item__alt">{mark.alt_title}</div>
-                  ) : null}
-                  {mark.intro ? (
-                    <div className="marks-item__intro">{mark.intro}</div>
-                  ) : null}
-                  {mark.comment ? (
-                    <p className="marks-item__comment">{mark.comment}</p>
-                  ) : null}
-                  <div className="marks-item__date">{mark.date}</div>
-                </div>
-              </a>
-            </li>
+            <MarkCard key={mark.comment_id || mark.subject_id} mark={mark} />
           ))}
         </ul>
         {hasMore ? (

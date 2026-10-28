@@ -1,0 +1,108 @@
+/* 书影音标记卡片：封面 + 标题/评分/短评（列表条目） */
+
+.mark-card__link {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-divider, var(--color-border));
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.mark-card__link:hover {
+  background: var(--color-bg-hover);
+}
+
+.mark-card__cover {
+  width: 44px;
+  height: 66px;
+  flex: none;
+  border-radius: var(--radius-xs, 4px);
+  object-fit: cover;
+  background: var(--color-bg-raised);
+}
+
+.mark-card__cover--empty {
+  border: 1px dashed var(--color-border);
+}
+
+.mark-card__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  align-content: start;
+}
+
+.mark-card__title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mark-card__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark-card__alt {
+  overflow: hidden;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark-card__intro {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.mark-card__comment {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+  line-height: var(--font-line-height-reading, 1.6);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.mark-card__date {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 评分：底色五星 + 金色按比例裁切覆盖层 */
+.mark-card-rating {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.mark-card-rating__base {
+  color: var(--color-border-emphasis);
+}
+
+.mark-card-rating__fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  /* 星级金：token 体系暂无 warning 类颜色 */
+  color: #f5a623;
+}
