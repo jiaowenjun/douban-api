@@ -55,7 +55,7 @@ pub struct ServerConfig {
     pub rate_per_minute: u32,
 
     /// 订阅默认 RSS 增量轮询间隔（秒），创建订阅时未指定则用此值
-    #[arg(long, env = "SYNC_SUB_RSS_INTERVAL_SECS", default_value_t = 600)]
+    #[arg(long, env = "SYNC_SUB_RSS_INTERVAL_SECS", default_value_t = 3_600)]
     pub sub_rss_interval_secs: i64,
 
     /// 订阅默认全量同步间隔（秒）

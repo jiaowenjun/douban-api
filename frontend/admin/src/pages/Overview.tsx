@@ -212,7 +212,7 @@ export default function Overview() {
         <Space wrap style={{ marginBottom: 12 }}>
           <span>订阅用户 {getUser() ? `@${getUser()}` : '（未设置，点右上角「连接」填写）'}</span>
           <InputNumber
-            placeholder="增量间隔（秒，默认 600）"
+            placeholder="增量间隔（秒，默认 3600）"
             style={{ width: 180 }}
             min={60}
             value={subRss}

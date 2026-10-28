@@ -377,12 +377,12 @@ GET /healthz    → 200 {"status":"ok"}
 
 ```
 PUT /api/v1/subscriptions/{uid}
-    body: {"rss_interval_secs": 600, "full_interval_secs": 86400}   # 两者均可省略取默认
+    body: {"rss_interval_secs": 3600, "full_interval_secs": 86400}   # 两者均可省略取默认
 GET  /api/v1/subscriptions
 DELETE /api/v1/subscriptions/{uid}
 ```
 
-约束：`rss_interval_secs ≥ 60`、`full_interval_secs ≥ 3600` 且 `full ≥ rss`（违反返回 400）。重复 PUT 只改间隔并重新启用，不重置既有节奏。默认值由服务端配置 `SYNC_SUB_RSS_INTERVAL_SECS`（600）/ `SYNC_SUB_FULL_INTERVAL_SECS`（86400）决定。
+约束：`rss_interval_secs ≥ 60`、`full_interval_secs ≥ 3600` 且 `full ≥ rss`（违反返回 400）。重复 PUT 只改间隔并重新启用，不重置既有节奏。默认值由服务端配置 `SYNC_SUB_RSS_INTERVAL_SECS`（3600）/ `SYNC_SUB_FULL_INTERVAL_SECS`（86400）决定。
 
 PUT 响应 `201` / GET 响应 `200`：
 
@@ -390,7 +390,7 @@ PUT 响应 `201` / GET 响应 `200`：
 {
   "uid": "wenjun30",
   "enabled": true,
-  "rss_interval_secs": 600,
+  "rss_interval_secs": 3600,
   "full_interval_secs": 86400,
   "next_rss_at": "2026-10-27T09:10:00Z",
   "next_full_at": "2026-10-28T09:00:00Z",
