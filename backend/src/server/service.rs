@@ -1327,7 +1327,7 @@ pub async fn server_info(state: &AppState) -> AppResult<Value> {
             .fetch_one(&state.pool)
             .await?;
     Ok(json!({
-        "name": "douban-sync-server",
+        "name": "weimo-douban-server",
         "version": env!("CARGO_PKG_VERSION"),
         "crawl": {
             "min_interval_seconds": state.config.crawl_min_interval_secs,

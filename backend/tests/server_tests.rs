@@ -6,8 +6,8 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header},
 };
-use douban_sync::crawler::{Category, Record, Status, parse_feed, parse_items, parse_total};
-use douban_sync::server::{
+use weimo_douban::crawler::{Category, Record, Status, parse_feed, parse_items, parse_total};
+use weimo_douban::server::{
     config::ServerConfig,
     db,
     fetcher::{DoubanFetcher, FetchError},
@@ -150,7 +150,7 @@ async fn request(
 /// 预置一份"已成功缓存"的维度（记录直插 records 表，与 worker 写入路径一致）
 async fn seed_ok_dimension(state: &AppState, category: Category, records: Vec<Record>) {
     let now = ServerConfig::now_ms();
-    let page_size = douban_sync::crawler::PAGE_SIZE as i64;
+    let page_size = weimo_douban::crawler::PAGE_SIZE as i64;
     let len = records.len() as i64;
     service::upsert_records(&state.pool, "wenjun30", category.key(), "collect", &records)
         .await

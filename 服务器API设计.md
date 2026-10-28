@@ -349,7 +349,7 @@ GET /api/v1/server/info
 
 ```json
 {
-  "name": "douban-sync-server",
+  "name": "weimo-douban-server",
   "version": "0.3.0",
   "crawl": { "min_interval_seconds": 2.0, "max_concurrent_users": 2,
              "circuit_breaker": { "threshold": 5, "cooldown_seconds": 600 } },

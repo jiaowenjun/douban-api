@@ -1,4 +1,4 @@
-# douban-api
+# weimo-douban
 
 免登录获取豆瓣用户的**公开书影音标记与短评**并同步入库，对外提供 HTTP API（电影/图书/音乐 × 看过·读过·听过/在看·在读·在听/想看·想读·想听）。
 
@@ -8,7 +8,7 @@
 
 Rust 实现（reqwest + scraper + clap），编译为单二进制服务器，无需运行时环境：
 
-- `douban-sync-server`——axum 同步服务器（异步任务 + 维度缓存 + 订阅增量 + 全局限速），API 规范见 [服务器API设计.md](服务器API设计.md)
+- `weimo-douban-server`——axum 同步服务器（异步任务 + 维度缓存 + 订阅增量 + 全局限速），API 规范见 [服务器API设计.md](服务器API设计.md)
 
 ## 使用
 
@@ -19,7 +19,7 @@ SYNC_SERVER_BIND=0.0.0.0:8080 \
 SYNC_SERVER_DATA_DIR=./data \
 SYNC_SERVER_TOKEN=my-secret \        # 留空则不启用鉴权
 SYNC_DOUBAN_COOKIE='dbcl2="xxx"' \   # 可选：登录抓取，补全豆瓣隐藏条目
-./target/release/douban-sync-server
+./target/release/weimo-douban-server
 ```
 
 核心流程（异步任务模型，细节见设计文档）：

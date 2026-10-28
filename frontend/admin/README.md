@@ -1,6 +1,6 @@
 # 豆瓣数据同步服务器 · 管理后台
 
-基于 [Ant Design Pro Components](https://procomponents.ant.design/)（ProLayout / ProTable / ModalForm）+ Vite + React + pnpm 的服务器管理页面，对接 `douban-sync-server` 的 `/api/v1` 接口。
+基于 [Ant Design Pro Components](https://procomponents.ant.design/)（ProLayout / ProTable / ModalForm）+ Vite + React + pnpm 的服务器管理页面，对接 `weimo-douban-server` 的 `/api/v1` 接口。
 
 ## 功能（刻意保持精简）
 
@@ -20,7 +20,7 @@
 
 ```bash
 # 1. 启动后端（backend/ 目录，默认 127.0.0.1:8080）
-cd backend && cargo run --bin douban-sync-server
+cd backend && cargo run --bin weimo-douban-server
 
 # 2. 启动前端（另一个终端，Vite 已配置 /api 与 /healthz 代理到 8080）
 cd frontend/admin && pnpm install && pnpm dev
@@ -35,7 +35,7 @@ pnpm build   # tsc 类型检查 + vite 打包到 dist/
 
 `dist/` 是纯静态文件，部署方式任选：
 
-- **同源部署（推荐，免 CORS）**：用 nginx / Caddy 等静态服务器托管 `dist/`，并把 `/api` 与 `/healthz` 反代到 `douban-sync-server`；SPA 需配置历史回退（try_files → index.html）。
+- **同源部署（推荐，免 CORS）**：用 nginx / Caddy 等静态服务器托管 `dist/`，并把 `/api` 与 `/healthz` 反代到 `weimo-douban-server`；SPA 需配置历史回退（try_files → index.html）。
 - **跨源部署**：任意静态托管 + 右上角「连接」里填 API 完整地址 + 服务器开 `SYNC_SERVER_CORS_ORIGINS`。
 
 ## 代码结构

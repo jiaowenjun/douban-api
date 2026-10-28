@@ -4,7 +4,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "douban-sync-server", about = "免登录豆瓣书影音同步服务器（抓取入库 + API 查询）")]
+#[command(name = "weimo-douban-server", about = "免登录豆瓣书影音同步服务器（抓取入库 + API 查询）")]
 pub struct ServerConfig {
     /// 监听地址
     #[arg(long, env = "SYNC_SERVER_BIND", default_value = "0.0.0.0:8080")]

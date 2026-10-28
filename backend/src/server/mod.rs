@@ -38,7 +38,7 @@ pub async fn run_server() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&config.bind)
         .await
         .with_context(|| format!("监听 {} 失败", config.bind))?;
-    tracing::info!("douban-sync-server listening on {}", config.bind);
+    tracing::info!("weimo-douban-server listening on {}", config.bind);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

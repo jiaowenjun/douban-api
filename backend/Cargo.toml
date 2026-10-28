@@ -1,15 +1,15 @@
 [package]
-name = "douban-sync"
+name = "weimo-douban"
 version = "0.3.0"
 edition = "2021"
 description = "免登录豆瓣书影音同步服务器（抓取入库 + API 查询）"
 
 [lib]
-name = "douban_sync"
+name = "weimo_douban"
 path = "src/lib.rs"
 
 [[bin]]
-name = "douban-sync-server"
+name = "weimo-douban-server"
 path = "src/bin/server.rs"
 
 [dependencies]

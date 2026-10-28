@@ -248,7 +248,7 @@ Chrome / Edge 扩展，专注**观影记录导出与 [Letterboxd](https://letter
 
 ### 4.2 自研参考路线
 
-若要在本仓库（`douban-api`）自行实现，建议：
+若要在本仓库（`weimo-douban`）自行实现，建议：
 
 1. **首选免登录路线**（路径②）：抓取 `movie/book/music.douban.com/people/{uid}/{wish|do|collect}` 分页 HTML，解析出条目、星级、短评、日期、标签。参考 [zh3li/douban-scraper](https://github.com/zh3li/douban-scraper) 的分页与断点续爬实现。
 2. **需要更干净的结构化数据时**（路径①）：用登录 Cookie 访问 `m.douban.com/rexxar/api/v2/...` 内部接口。参考 [zcyoung2000/douban-backup](https://github.com/zcyoung2000/douban-backup) 的 Cookie 获取（自动读浏览器）与请求构造。
