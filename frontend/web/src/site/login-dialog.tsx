@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { UserRound } from 'lucide-react'
 
 import {
   Dialog,
@@ -21,7 +22,7 @@ type LoginDialogProps = {
 
 /** 登录对话框：输入豆瓣用户 ID 作为站点身份，已登录时可切换或退出 */
 export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
-  const { uid, signIn, signOut } = useDoubanUser()
+  const { uid, profile, signIn, signOut } = useDoubanUser()
   const [draft, setDraft] = useState('')
   // 每次打开时把草稿重置为当前 uid（render 期调整，避免 effect 级联渲染）
   const [prevOpen, setPrevOpen] = useState(open)
@@ -69,6 +70,27 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
+            {uid ? (
+              <div className="login-dialog__account">
+                {profile?.avatar ? (
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="login-dialog__account-avatar"
+                    src={profile.avatar}
+                  />
+                ) : (
+                  <UserRound
+                    aria-hidden="true"
+                    className="login-dialog__account-avatar"
+                  />
+                )}
+                <span className="login-dialog__account-name">
+                  {profile?.username || uid}
+                </span>
+                <span className="login-dialog__account-uid">@{uid}</span>
+              </div>
+            ) : null}
             <label className="login-dialog__field">
               <span className="login-dialog__label">豆瓣 ID</span>
               <input

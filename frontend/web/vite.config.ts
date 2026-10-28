@@ -8,4 +8,11 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+  server: {
+    // 开发期把后端 API 代理到本地同步服务器（用户资料 / marks / 封面代理），
+    // 部署时由反向代理承担同源转发
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true },
+    },
+  },
 })

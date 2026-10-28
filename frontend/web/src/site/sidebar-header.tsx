@@ -12,10 +12,11 @@ type SidebarHeaderProps = {
   siteName: string
 }
 
-/** 侧边栏顶部栏：站点名 + 登录入口，样式对齐 weimo-biji 的 biji-side-bar__header；
+/** 侧边栏顶部栏：站点名 + 登录入口（登录后显示豆瓣用户名与头像），
+    样式对齐 weimo-biji 的 biji-side-bar__header；
     附带钉在侧边栏底部的 DEBUG 子容器描边开关 */
 export function SidebarHeader({ siteName }: SidebarHeaderProps) {
-  const { uid } = useDoubanUser()
+  const { uid, profile } = useDoubanUser()
   const [loginOpen, setLoginOpen] = useState(false)
 
   return (
@@ -23,14 +24,34 @@ export function SidebarHeader({ siteName }: SidebarHeaderProps) {
       <div className="sidebar-header">
         <div className="sidebar-header__identity">{siteName}</div>
         <div className="sidebar-header__actions">
+          {uid ? (
+            <span className="sidebar-header__username" title={uid}>
+              {profile?.username || uid}
+            </span>
+          ) : null}
           <GhostIconButton
-            aria-label={uid ? `豆瓣账号：${uid}，点击管理` : '登录豆瓣账号'}
+            aria-label={
+              uid ? `豆瓣账号：${uid}，点击管理` : '登录豆瓣账号'
+            }
             className="sidebar-header__button"
             onClick={() => setLoginOpen(true)}
             size="sm"
-            tooltip={uid ? uid : '登录'}
+            tooltip={
+              uid
+                ? profile?.username
+                  ? `${profile.username}（${uid}）`
+                  : uid
+                : '登录'
+            }
           >
-            {uid ? (
+            {profile?.avatar ? (
+              <img
+                alt=""
+                aria-hidden="true"
+                className="sidebar-header__avatar"
+                src={profile.avatar}
+              />
+            ) : uid ? (
               <UserRound aria-hidden="true" />
             ) : (
               <LogIn aria-hidden="true" />

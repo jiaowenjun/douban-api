@@ -7,6 +7,44 @@
   flex-direction: column;
 }
 
+/* 当前账号行：头像 + 用户名 + @uid（后端未同步过该用户时无头像/用户名，回退 uid） */
+.login-dialog__account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-card);
+}
+
+.login-dialog__account-avatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-round);
+  object-fit: cover;
+  color: var(--color-text-secondary);
+}
+
+.login-dialog__account-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-dialog__account-uid {
+  margin-left: auto;
+  flex: none;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
 .login-dialog__field {
   display: grid;
   gap: 6px;

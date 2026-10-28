@@ -1,10 +1,14 @@
 import { createContext, useContext } from 'react'
 
+import type { DoubanProfile } from './api'
+
 export const DOUBAN_UID_STORAGE_KEY = 'weimo-douban:uid'
 
 export type DoubanUserValue = {
   /** 当前登录的豆瓣用户 ID，未登录为 null */
   uid: string | null
+  /** 登录用户的豆瓣资料（头像/用户名）；未登录或后端未同步过该用户时为 null */
+  profile: DoubanProfile | null
   signIn: (uid: string) => void
   signOut: () => void
 }
