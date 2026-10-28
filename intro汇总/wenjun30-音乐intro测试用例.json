@@ -1,0 +1,478 @@
+{
+  "source": "backend/data/douban_export.db records(uid=wenjun30, dim_status=collect)",
+  "snapshot_time": "2026-10-28 16:39",
+  "parser": "intro_parser.py（intro汇总 目录，与汇总文档同源）",
+  "usage": "对每条 case：以 intro 为输入调用对应解析函数，结果应与 expected 深度相等；run_intro_tests.py 为现成校验脚本",
+  "category": "music",
+  "count": 28,
+  "pattern_index": {
+    "艺人别名逗号相连": [
+      "U001",
+      "U005",
+      "U007",
+      "U008",
+      "U012",
+      "U018",
+      "U024",
+      "U027"
+    ],
+    "仅年份发行日(1994)": [
+      "U002",
+      "U004",
+      "U013",
+      "U017",
+      "U028"
+    ],
+    "年月发行日(1999-1)": [
+      "U003",
+      "U006"
+    ],
+    "缺专辑形态字段": [
+      "U008",
+      "U009"
+    ],
+    "Import版本属性": [
+      "U008"
+    ],
+    "艺人带括号注记(科尔托 (Alfred Cortot))": [
+      "U009"
+    ],
+    "中英双语艺人(王菲 Faye Wong)": [
+      "U009",
+      "U018",
+      "U021",
+      "U024"
+    ],
+    "数字介质(数字(Digital)归一)": [
+      "U015",
+      "U019",
+      "U021",
+      "U024"
+    ],
+    "Live形态": [
+      "U027"
+    ]
+  },
+  "cases": [
+    {
+      "id": "U001",
+      "subject_id": "10764441",
+      "title": "白银饭店",
+      "intro": "张玮玮,郭龙 / 2012-05-26 / 专辑 / CD / 民谣",
+      "expected": {
+        "artist": "张玮玮",
+        "artist_raw": "张玮玮,郭龙",
+        "date": "2012-05-26",
+        "year": 2012,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U002",
+      "subject_id": "1404202",
+      "title": "露天电影院",
+      "intro": "郁冬 / 1995 / 专辑 / CD / 民谣",
+      "expected": {
+        "artist": "郁冬",
+        "artist_raw": "郁冬",
+        "date": "1995",
+        "year": 1995,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U003",
+      "subject_id": "1405324",
+      "title": "我去2000年",
+      "intro": "朴树 / 1999-1 / 专辑 / CD / 流行",
+      "expected": {
+        "artist": "朴树",
+        "artist_raw": "朴树",
+        "date": "1999-1",
+        "year": 1999,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "流行"
+      }
+    },
+    {
+      "id": "U004",
+      "subject_id": "1407472",
+      "title": "孤独的人是可耻的",
+      "intro": "张楚 / 1994 / 专辑 / CD / 摇滚",
+      "expected": {
+        "artist": "张楚",
+        "artist_raw": "张楚",
+        "date": "1994",
+        "year": 1994,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "摇滚"
+      }
+    },
+    {
+      "id": "U005",
+      "subject_id": "1432159",
+      "title": "Brahms: 21 Hungarian Dances",
+      "intro": "Johannes Brahms,Claudio Abbado,Albert Parlow,Andreas Hallen,Andreas Hallén,Antonin Dvorák,Hans Gál,Johannes Brahms,Martin Schmeling,Wiener Philharmoniker / 1990-10-25 / 选集 / CD / 古典",
+      "expected": {
+        "artist": "Johannes Brahms",
+        "artist_raw": "Johannes Brahms,Claudio Abbado,Albert Parlow,Andreas Hallen,Andreas Hallén,Antonin Dvorák,Hans Gál,Johannes Brahms,Martin Schmeling,Wiener Philharmoniker",
+        "date": "1990-10-25",
+        "year": 1990,
+        "mtype": "选集",
+        "medium": "CD",
+        "genre": "古典"
+      }
+    },
+    {
+      "id": "U006",
+      "subject_id": "1436969",
+      "title": "Songs From a Room",
+      "intro": "Leonard Cohen / 1969-04 / 专辑 / 黑胶 / 民谣",
+      "expected": {
+        "artist": "Leonard Cohen",
+        "artist_raw": "Leonard Cohen",
+        "date": "1969-04",
+        "year": 1969,
+        "mtype": "专辑",
+        "medium": "黑胶",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U007",
+      "subject_id": "1796126",
+      "title": "Schubert: Winterreise",
+      "intro": "Franz Schubert,Dietrich Fischer-Dieskau,Alferd Brendel / 2000-12-18 / 专辑 / CD / 古典",
+      "expected": {
+        "artist": "Franz Schubert",
+        "artist_raw": "Franz Schubert,Dietrich Fischer-Dieskau,Alferd Brendel",
+        "date": "2000-12-18",
+        "year": 2000,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "古典"
+      }
+    },
+    {
+      "id": "U008",
+      "subject_id": "1944812",
+      "title": "Beethoven: Violin Concerto; 2 Romances",
+      "intro": "Henryk Szeryng,Royal Concertgebouw Orchestra,Bernard Haitink / 1994-08-16 / Import / Audio CD / 古典",
+      "expected": {
+        "artist": "Henryk Szeryng",
+        "artist_raw": "Henryk Szeryng,Royal Concertgebouw Orchestra,Bernard Haitink",
+        "date": "1994-08-16",
+        "year": 1994,
+        "mtype": "",
+        "medium": "Import+CD",
+        "genre": "古典"
+      }
+    },
+    {
+      "id": "U009",
+      "subject_id": "1998684",
+      "title": "Chopin: Preludes, Impromtus, Barcarolle & Berceuse - Alfred Cortot",
+      "intro": "科尔托 (Alfred Cortot) / 2006-10-03 / Audio CD / 古典",
+      "expected": {
+        "artist": "科尔托",
+        "artist_raw": "科尔托 (Alfred Cortot)",
+        "date": "2006-10-03",
+        "year": 2006,
+        "mtype": "",
+        "medium": "CD",
+        "genre": "古典"
+      }
+    },
+    {
+      "id": "U010",
+      "subject_id": "20445348",
+      "title": "白色太陽槍",
+      "intro": "The Lee's / 2012-11-23 / 专辑 / CD / 摇滚",
+      "expected": {
+        "artist": "The Lee's",
+        "artist_raw": "The Lee's",
+        "date": "2012-11-23",
+        "year": 2012,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "摇滚"
+      }
+    },
+    {
+      "id": "U011",
+      "subject_id": "2285015",
+      "title": "1,2,3,4,5,6, cheese！",
+      "intro": "The Pancakes / 2007-10-19 / 专辑 / CD / 民谣",
+      "expected": {
+        "artist": "The Pancakes",
+        "artist_raw": "The Pancakes",
+        "date": "2007-10-19",
+        "year": 2007,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U012",
+      "subject_id": "25983210",
+      "title": "红楼梦电视连续剧主题歌",
+      "intro": "陈力,王洁实 / 1988-09-08 / 专辑 / 磁带 / 流行",
+      "expected": {
+        "artist": "陈力",
+        "artist_raw": "陈力,王洁实",
+        "date": "1988-09-08",
+        "year": 1988,
+        "mtype": "专辑",
+        "medium": "磁带",
+        "genre": "流行"
+      }
+    },
+    {
+      "id": "U013",
+      "subject_id": "26926369",
+      "title": "唐朝",
+      "intro": "唐朝乐队 / 1992 / 专辑 / 磁带 / 摇滚",
+      "expected": {
+        "artist": "唐朝乐队",
+        "artist_raw": "唐朝乐队",
+        "date": "1992",
+        "year": 1992,
+        "mtype": "专辑",
+        "medium": "磁带",
+        "genre": "摇滚"
+      }
+    },
+    {
+      "id": "U014",
+      "subject_id": "27074916",
+      "title": "不能發出聲音",
+      "intro": "柯泯薰 / 2017-06-30 / 专辑 / CD / 流行",
+      "expected": {
+        "artist": "柯泯薰",
+        "artist_raw": "柯泯薰",
+        "date": "2017-06-30",
+        "year": 2017,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "流行"
+      }
+    },
+    {
+      "id": "U015",
+      "subject_id": "27189068",
+      "title": "在上空",
+      "intro": "张阿牧 / 2013-11-25 / 专辑 / 数字(Digital) / 民谣",
+      "expected": {
+        "artist": "张阿牧",
+        "artist_raw": "张阿牧",
+        "date": "2013-11-25",
+        "year": 2013,
+        "mtype": "专辑",
+        "medium": "数字",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U016",
+      "subject_id": "30458290",
+      "title": "Piano Recital 1962",
+      "intro": "Wilhelm Kempff / 2019-02-08 / 专辑 / CD / 古典",
+      "expected": {
+        "artist": "Wilhelm Kempff",
+        "artist_raw": "Wilhelm Kempff",
+        "date": "2019-02-08",
+        "year": 2019,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "古典"
+      }
+    },
+    {
+      "id": "U017",
+      "subject_id": "3188497",
+      "title": "上海老歌 1931-1949",
+      "intro": "Various Artists / 2009 / 选集 / CD / 轻音乐",
+      "expected": {
+        "artist": "Various Artists",
+        "artist_raw": "Various Artists",
+        "date": "2009",
+        "year": 2009,
+        "mtype": "选集",
+        "medium": "CD",
+        "genre": "轻音乐"
+      }
+    },
+    {
+      "id": "U018",
+      "subject_id": "3221720",
+      "title": "歌之女",
+      "intro": "梅艷芳,Anita Mui / 1995-8-1 / 专辑 / CD / 流行",
+      "expected": {
+        "artist": "梅艷芳",
+        "artist_raw": "梅艷芳,Anita Mui",
+        "date": "1995-8-1",
+        "year": 1995,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "流行"
+      }
+    },
+    {
+      "id": "U019",
+      "subject_id": "3238292",
+      "title": "自己的主人 EP",
+      "intro": "张浅潜 / 2008-10-08 / EP / 数字 / 民谣",
+      "expected": {
+        "artist": "张浅潜",
+        "artist_raw": "张浅潜",
+        "date": "2008-10-08",
+        "year": 2008,
+        "mtype": "EP",
+        "medium": "数字",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U020",
+      "subject_id": "34433555",
+      "title": "Tony Takitani",
+      "intro": "Ryuichi Sakamoto / 2005-07-19 / 专辑 / CD / 原声",
+      "expected": {
+        "artist": "Ryuichi Sakamoto",
+        "artist_raw": "Ryuichi Sakamoto",
+        "date": "2005-07-19",
+        "year": 2005,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "原声"
+      }
+    },
+    {
+      "id": "U021",
+      "subject_id": "34842139",
+      "title": "我和我的祖国",
+      "intro": "王菲 Faye Wong / 2019-09-25 / 单曲 / 数字(Digital) / 原声",
+      "expected": {
+        "artist": "王菲",
+        "artist_raw": "王菲 Faye Wong",
+        "date": "2019-09-25",
+        "year": 2019,
+        "mtype": "单曲",
+        "medium": "数字",
+        "genre": "原声"
+      }
+    },
+    {
+      "id": "U022",
+      "subject_id": "34918548",
+      "title": "星月之河",
+      "intro": "张浅潜 / 2019-12-16 / 专辑 / CD / 流行",
+      "expected": {
+        "artist": "张浅潜",
+        "artist_raw": "张浅潜",
+        "date": "2019-12-16",
+        "year": 2019,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "流行"
+      }
+    },
+    {
+      "id": "U023",
+      "subject_id": "35142457",
+      "title": "我爱台湾",
+      "intro": "左小祖咒 / 2020-07-14 / 专辑 / CD / 民谣",
+      "expected": {
+        "artist": "左小祖咒",
+        "artist_raw": "左小祖咒",
+        "date": "2020-07-14",
+        "year": 2020,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "民谣"
+      }
+    },
+    {
+      "id": "U024",
+      "subject_id": "35505672",
+      "title": "Aqua",
+      "intro": "Manon Clément,坂本龙一 Sakamoto Ryūichi / 2017-07-17 / 单曲 / 数字(Digital) / 轻音乐",
+      "expected": {
+        "artist": "Manon Clément",
+        "artist_raw": "Manon Clément,坂本龙一 Sakamoto Ryūichi",
+        "date": "2017-07-17",
+        "year": 2017,
+        "mtype": "单曲",
+        "medium": "数字",
+        "genre": "轻音乐"
+      }
+    },
+    {
+      "id": "U025",
+      "subject_id": "37073045",
+      "title": "Beethoven Blues",
+      "intro": "Jon Batiste / 2024-11-15 / 专辑 / 黑胶 / 爵士",
+      "expected": {
+        "artist": "Jon Batiste",
+        "artist_raw": "Jon Batiste",
+        "date": "2024-11-15",
+        "year": 2024,
+        "mtype": "专辑",
+        "medium": "黑胶",
+        "genre": "爵士"
+      }
+    },
+    {
+      "id": "U026",
+      "subject_id": "4167202",
+      "title": "Forever Road",
+      "intro": "曾轶可 / 2009-12-18 / 专辑 / CD / 流行",
+      "expected": {
+        "artist": "曾轶可",
+        "artist_raw": "曾轶可",
+        "date": "2009-12-18",
+        "year": 2009,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "流行"
+      }
+    },
+    {
+      "id": "U027",
+      "subject_id": "4192996",
+      "title": "Mahler: Symphony No. 5",
+      "intro": "Klaus Tennstedt,London Philharmonic Orchestra / 1989-11-13 / Live / Audio CD / 古典",
+      "expected": {
+        "artist": "Klaus Tennstedt",
+        "artist_raw": "Klaus Tennstedt,London Philharmonic Orchestra",
+        "date": "1989-11-13",
+        "year": 1989,
+        "mtype": "Live",
+        "medium": "CD",
+        "genre": "古典"
+      }
+    },
+    {
+      "id": "U028",
+      "subject_id": "6064100",
+      "title": "Glenn Gould Plays Beethoven's 5th Symphony Transcribed For Piano By Franz Liszt",
+      "intro": "Glenn Gould / 1968 / 专辑 / CD / 古典",
+      "expected": {
+        "artist": "Glenn Gould",
+        "artist_raw": "Glenn Gould",
+        "date": "1968",
+        "year": 1968,
+        "mtype": "专辑",
+        "medium": "CD",
+        "genre": "古典"
+      }
+    }
+  ]
+}
