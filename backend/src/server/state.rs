@@ -22,6 +22,9 @@ pub struct AppState {
     consecutive_failures: Arc<AtomicU32>,
     /// 熔断截止时间（epoch ms）
     blocked_until_ms: Arc<AtomicI64>,
+    /// rexxar 各端点（category 维度）的自适应请求间隔秒数（AIMD，见下）。
+    /// 实例级（非进程级 static）：并行测试的 AppState 互不污染
+    subject_pacing: Arc<Mutex<HashMap<String, f64>>>,
     rate_table: &'static Mutex<HashMap<IpAddr, (u64, u32)>>,
 }
 
@@ -38,6 +41,7 @@ impl AppState {
             progress_tx,
             consecutive_failures: Arc::new(AtomicU32::new(0)),
             blocked_until_ms: Arc::new(AtomicI64::new(0)),
+            subject_pacing: Arc::new(Mutex::new(HashMap::new())),
             rate_table: RATE_TABLE.get_or_init(|| Mutex::new(HashMap::new())),
         }
     }
@@ -87,6 +91,45 @@ impl AppState {
     pub fn circuit_remaining_ms(&self) -> i64 {
         let until = self.blocked_until_ms.load(Ordering::Relaxed);
         (until - ServerConfig::now_ms()).max(0)
+    }
+
+    // ---- rexxar 类别自适应限速（AIMD） ----
+    // 豆瓣 rexxar 对单端点（category 维度）有独立的 IP 级突发限流：
+    // movie 端点 ~4s 间隔连发 4-8 个即 400 封锁约 5-6 分钟（404 同样累积），
+    // music/book 在 3-4s 间隔下长跑无恙（2026-10-28 实测，详见
+    // 《豆瓣源依赖性与脆弱性分析.md》）。固定间隔无法同时适配三类端点，
+    // 按类别 AIMD：被限流 ×3（上限 90s）、成功 ×0.9（下限 = 配置最小间隔）。
+    // 进程内存态，重启回到配置默认值重新自适应。
+
+    /// 富集成功后收缩该类别间隔（×0.9，下限为配置最小间隔），返回新值
+    pub fn subject_interval_after_success(&self, category: &str) -> f64 {
+        let floor = self.config.subject_min_interval_secs.max(0.5);
+        let mut table = self.subject_pacing.lock().unwrap();
+        let cur = table.get(category).copied().unwrap_or(floor);
+        let next = (cur * 0.9).max(floor);
+        table.insert(category.to_string(), next);
+        next
+    }
+
+    /// 富集被限流（4xx）后放大该类别间隔（×3，上限 90s），返回新值
+    pub fn subject_interval_after_block(&self, category: &str) -> f64 {
+        let floor = self.config.subject_min_interval_secs.max(0.5);
+        let mut table = self.subject_pacing.lock().unwrap();
+        let cur = table.get(category).copied().unwrap_or(floor);
+        let next = (cur * 3.0).min(90.0);
+        table.insert(category.to_string(), next);
+        next
+    }
+
+    /// 当前类别间隔（缺省 = 配置最小间隔；只读，供测试断言）
+    pub fn subject_interval(&self, category: &str) -> f64 {
+        let floor = self.config.subject_min_interval_secs.max(0.5);
+        self.subject_pacing
+            .lock()
+            .unwrap()
+            .get(category)
+            .copied()
+            .unwrap_or(floor)
     }
 
     // ---- 客户端限流（固定窗口） ----

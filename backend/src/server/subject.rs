@@ -21,7 +21,7 @@ pub const MOBILE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS
      AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
 
 /// 单条目富集最大尝试次数（含首次），对齐维度抓取的 MAX_ATTEMPTS
-const MAX_ATTEMPTS: i64 = 5;
+pub const MAX_ATTEMPTS: i64 = 5;
 
 pub fn rexxar_url(category: &str, subject_id: &str) -> String {
     format!("https://m.douban.com/rexxar/api/v2/{category}/{subject_id}")
@@ -291,18 +291,19 @@ pub async fn process_next_job<F: DoubanFetcher>(state: &AppState, fetcher: &F) -
     match fetcher.fetch_subject(&job.category, &job.subject_id).await {
         Ok(value) => {
             state.record_crawl_success();
-            // 全局节流：与页面抓取共用令牌桶语义，取两类间隔的较大值
+            // 全局节流：与页面抓取共用令牌桶语义；rexxar 另按类别 AIMD 自适应
+            //（movie 端点限流远严于 music/book，成功后间隔缓慢收缩）
             let interval = state
-                .config
-                .crawl_min_interval_secs
-                .max(state.config.subject_min_interval_secs)
+                .subject_interval_after_success(&job.category)
+                .max(state.config.crawl_min_interval_secs)
                 + rand::thread_rng().gen_range(0.0..1.0);
             tokio::time::sleep(std::time::Duration::from_secs_f64(interval)).await;
 
             let category = Category::from_key(&job.category)
                 .with_context(|| format!("未知 category: {}", job.category))?;
             let row = map_rexxar(category, &value);
-            upsert_subject_row(&state.pool, &job.category, &job.subject_id, &row).await?;
+            upsert_subject_row(&state.pool, &job.category, &job.subject_id, &row, "rexxar")
+                .await?;
             sqlx::query(
                 "UPDATE subject_jobs SET state='ok', attempts=0, next_run_ms=NULL,
                         last_error=NULL, updated_ms=?
@@ -344,8 +345,16 @@ async fn pick_due_job(pool: &SqlitePool) -> Result<Option<SubjectJob>> {
     }))
 }
 
-/// 失败处理对齐维度抓取：404 永久终态 not_found；其余线性退避，
-/// 超限终态 error；可重试失败计入全局熔断。
+/// 失败处理对齐维度抓取，并在 rexxar 限流特性上加固（2026-10-28 实测：
+/// movie 端点连发 4-8 个请求即 400 封锁约 5-6 分钟，404 同样累积触发；
+/// 见《豆瓣源依赖性与脆弱性分析.md》）：
+/// - 404 → 永久终态 not_found（顺带推迟同类 job——404 也会累积触发封锁）；
+/// - 限流（4xx）→ 该类别 AIMD 升档 + 类别冷却（同类 job 全部推迟），
+///   避免同类连发把全局熔断每 10 分钟拖停一轮；
+/// - 指数退避 20s·3^(n-1)，跨过封锁窗口，不再于封锁期内烧光尝试次数；
+/// - 重试耗尽 → 不终态 error 而是**落 intro 兜底行**（source='intro'），
+///   数据降级但齐整、不再重试；records 无该条目（理论不可达）才维持 error；
+/// - 可重试失败仍计入全局熔断（类别冷却已把同类失败隔开，熔断是最后防线）。
 async fn handle_job_error(state: &AppState, job: &SubjectJob, e: FetchError) -> Result<()> {
     let now = ServerConfig::now_ms();
     tracing::warn!(
@@ -354,16 +363,57 @@ async fn handle_job_error(state: &AppState, job: &SubjectJob, e: FetchError) -> 
         error = %e,
         "条目富集失败"
     );
+    let attempts = job.attempts + 1;
     let permanent = !e.is_transient();
-    let over_limit = job.attempts + 1 >= MAX_ATTEMPTS;
-    let (job_state, next_run) = if permanent {
-        ("not_found", None) // 404：条目已被豆瓣删除，终态
-    } else if over_limit {
-        ("error", None) // 重试耗尽终态
+
+    if permanent {
+        // 404：条目已被豆瓣删除，终态。不计熔断（非拒绝服务），
+        // 但 404 连发同样会触发端点封锁，顺带推迟同类 job
+        defer_category_jobs(state, &job.category).await?;
+        sqlx::query(
+            "UPDATE subject_jobs SET state='not_found', attempts=?, next_run_ms=NULL,
+                    last_error=?, updated_ms=?
+             WHERE category=? AND subject_id=?",
+        )
+        .bind(attempts)
+        .bind(format!("{}: {e}", e.code()))
+        .bind(now)
+        .bind(&job.category)
+        .bind(&job.subject_id)
+        .execute(&state.pool)
+        .await?;
+        return Ok(());
+    }
+
+    // 限流实锤（4xx）：类别 AIMD 升档 + 同类冷却，保证后续失败被其他类别的
+    // 成功隔开（成功会重置熔断连续计数），不再形成"5 连败 → 全局停 10 分钟"循环
+    let mut defer_until: Option<i64> = None;
+    if matches!(e, FetchError::Blocked(_)) {
+        state.subject_interval_after_block(&job.category);
+        defer_until = Some(defer_category_jobs(state, &job.category).await?);
+    }
+
+    let over_limit = attempts >= MAX_ATTEMPTS;
+    let (job_state, next_run, last_error) = if over_limit {
+        match write_intro_fallback(state, job).await? {
+            true => (
+                "ok",
+                None,
+                format!("已降级 intro 兜底（重试耗尽）: {}: {e}", e.code()),
+            ),
+            false => ("error", None, format!("{}: {e}", e.code())),
+        }
     } else {
+        // 指数退避：20s / 60s / 180s / 540s（第 5 次耗尽走兜底）
+        let backoff_ms =
+            20_000 * 3_i64.pow((attempts as u32).saturating_sub(1)) + rand::thread_rng().gen_range(0..5_000);
+        let next = now + backoff_ms;
+        // 被限流时自身重试也须等类别冷却结束（它就是下一轮的探测请求）
+        let next = defer_until.map_or(next, |until| next.max(until));
         (
             "queued",
-            Some(now + (job.attempts + 1) * 20_000 + rand::thread_rng().gen_range(0..5_000)),
+            Some(next),
+            format!("{}: {e}", e.code()),
         )
     };
 
@@ -372,21 +422,81 @@ async fn handle_job_error(state: &AppState, job: &SubjectJob, e: FetchError) -> 
          WHERE category=? AND subject_id=?",
     )
     .bind(job_state)
-    .bind(job.attempts + 1)
+    .bind(attempts)
     .bind(next_run)
-    .bind(format!("{}: {e}", e.code()))
+    .bind(last_error)
     .bind(now)
     .bind(&job.category)
     .bind(&job.subject_id)
     .execute(&state.pool)
     .await?;
-    if !permanent {
-        let tripped = state.record_crawl_failure();
-        if tripped {
-            tracing::info!("熔断已触发，worker 将暂停抓取直至冷却结束");
-        }
+    // 计入全局熔断：正常情况下类别冷却已隔开同类失败、其他类别的成功会
+    // 重置计数；连续 5 次失败意味着多端点同时被拒，全局暂停是正确反应
+    let tripped = state.record_crawl_failure();
+    if tripped {
+        tracing::info!("熔断已触发，worker 将暂停抓取直至冷却结束");
     }
     Ok(())
+}
+
+/// 类别冷却：把该类别全部非强制 job 推迟到冷却期后（MAX 保证不缩短既有
+/// 更长退避），返回冷却截止时间。priority=0 的显式强制重排不受限
+/// （管理员明确要求立即执行）。
+async fn defer_category_jobs(state: &AppState, category: &str) -> Result<i64> {
+    let until = ServerConfig::now_ms()
+        + state.config.subject_category_cooldown_secs * 1000
+        + rand::thread_rng().gen_range(0..30_000);
+    sqlx::query(
+        "UPDATE subject_jobs
+         SET next_run_ms = MAX(COALESCE(next_run_ms, 0), ?)
+         WHERE category = ? AND state IN ('queued','running') AND priority != 0",
+    )
+    .bind(until)
+    .bind(category)
+    .execute(&state.pool)
+    .await
+    .context("类别冷却推迟富集 job 失败")?;
+    Ok(until)
+}
+
+/// 重试耗尽的兜底：以 records.intro（收藏页随抓取入库，零额外请求）合成
+/// 降级行写入 subjects（source='intro'，无豆瓣评分、封面为收藏页小图），
+/// 形状与 rexxar 行一致；job 置 ok，重试链终结。升级路径：单条 refresh
+/// 或 requeue scope=stale（TTL 过期后）→ priority=0 强制 → rexxar 成功即
+/// 覆盖为权威数据。返回 false = records 无该条目（入队来源即 records，
+/// 理论不可达），调用方维持 error 终态。
+async fn write_intro_fallback(state: &AppState, job: &SubjectJob) -> Result<bool> {
+    let row = sqlx::query(
+        "SELECT title, alt_title, subject_url, cover, intro FROM records
+         WHERE category = ? AND subject_id = ? LIMIT 1",
+    )
+    .bind(&job.category)
+    .bind(&job.subject_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some(r) = row else { return Ok(false) };
+    let record = crate::crawler::Record {
+        category: job.category.clone(),
+        status: String::new(),
+        title: r.get("title"),
+        alt_title: r.get("alt_title"),
+        my_rating: None,
+        date: String::new(),
+        comment: String::new(),
+        subject_url: r.get("subject_url"),
+        subject_id: job.subject_id.clone(),
+        cover: r.get("cover"),
+        comment_id: String::new(),
+        intro: r.get("intro"),
+    };
+    let subject_row = intro_fallback_row(&record);
+    upsert_subject_row(&state.pool, &job.category, &job.subject_id, &subject_row, "intro").await?;
+    tracing::warn!(
+        subject = format!("{}/{}", job.category, job.subject_id),
+        title = %subject_row.title,
+        "富集重试耗尽，已落 intro 兜底行（可强制重排升级）"
+    );
+    Ok(true)
 }
 
 async fn upsert_subject_row(
@@ -394,19 +504,20 @@ async fn upsert_subject_row(
     category: &str,
     subject_id: &str,
     row: &SubjectRow,
+    source: &str,
 ) -> Result<()> {
     sqlx::query(
         "INSERT INTO subjects (category, subject_id, title, original_title, year, aka_json,
                                url, cover_url, rating_value, rating_count, meta_json, raw_json,
-                               status, attempts, next_retry_ms, fetched_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', 0, NULL, ?)
+                               status, source, attempts, next_retry_ms, fetched_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, 0, NULL, ?)
          ON CONFLICT(category, subject_id) DO UPDATE SET
             title = excluded.title, original_title = excluded.original_title,
             year = excluded.year, aka_json = excluded.aka_json,
             url = excluded.url, cover_url = excluded.cover_url,
             rating_value = excluded.rating_value, rating_count = excluded.rating_count,
             meta_json = excluded.meta_json, raw_json = excluded.raw_json,
-            status = 'ok', attempts = 0, next_retry_ms = NULL,
+            status = 'ok', source = excluded.source, attempts = 0, next_retry_ms = NULL,
             fetched_ms = excluded.fetched_ms",
     )
     .bind(category)
@@ -421,6 +532,7 @@ async fn upsert_subject_row(
     .bind(row.rating_count)
     .bind(&row.meta_json)
     .bind(&row.raw_json)
+    .bind(source)
     .bind(ServerConfig::now_ms())
     .execute(pool)
     .await
@@ -708,7 +820,8 @@ fn subject_view(category: &str, subject_id: &str, r: &sqlx::sqlite::SqliteRow) -
         "url": r.get::<String, _>("url"),
         "status": r.get::<String, _>("status"),
         "fetched_at": ms_to_rfc3339(fetched_ms),
-        "source": "rexxar",
+        // 获取方式随行走库：rexxar = 权威富集；intro = 重试耗尽的兜底行
+        "source": r.get::<String, _>("source"),
     });
     // 类别专属节点：键随 category（movie/book/music）
     view[category] = serde_json::from_str::<Value>(&meta_json).unwrap_or(json!({}));
@@ -722,7 +835,7 @@ pub async fn get_subject_view(
 ) -> AppResult<Value> {
     if let Some(row) = sqlx::query(
         "SELECT title, original_title, year, aka_json, cover_url, rating_value,
-                rating_count, meta_json, status, fetched_ms, url
+                rating_count, meta_json, status, fetched_ms, url, source
          FROM subjects WHERE category = ? AND subject_id = ?",
     )
     .bind(category)
@@ -763,35 +876,21 @@ pub async fn get_subject_view(
     )))
 }
 
-/// intro 兜底视图：subjects 未富集时按 records.intro（Rust 移植解析器）合成，
-/// 形状与 rexxar 视图一致但无豆瓣评分、source="intro"（方案 §9 读侧兜底）。
-fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
-    let category = record.category.as_str();
-    let mut view = json!({
-        "category": category,
-        "subject_id": record.subject_id,
-        "title": record.title,
-        "original_title": "",
-        "aka": [],
-        "year": Value::Null,
-        "rating": {"value": Value::Null, "count": Value::Null},
-        // intro 行无独立封面 URL（records.cover 由 marks 响应自身携带）
-        "cover": "",
-        "url": record.subject_url,
-        "status": "ok",
-        "fetched_at": Value::Null,
-        "source": "intro",
-    });
-    match category {
+/// intro 合成的年份与类别节点（读侧兜底视图与写侧兜底行共用同一解析）：
+/// 返回 (year, meta 节点)，键随 category 为 movie/book/music
+fn intro_fallback_parts(record: &crate::crawler::Record) -> (Option<i64>, Value) {
+    let opt_arr = |v: &String| {
+        if v.is_empty() {
+            vec![]
+        } else {
+            vec![v.clone()]
+        }
+    };
+    match record.category.as_str() {
         "movie" => {
             let m = crate::intro::parse_movie(&record.intro, &record.title, &record.alt_title);
-            view["year"] = m
-                .years
-                .iter()
-                .min()
-                .map(|y| json!(y))
-                .unwrap_or(Value::Null);
-            view["movie"] = json!({
+            let year = m.years.iter().min().map(|&y| y as i64);
+            let meta = json!({
                 "directors": m.director_list,
                 "actors": [],
                 "genres": m.genres,
@@ -803,18 +902,11 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
                 "episodes_count": Value::Null,
                 "intro": "",
             });
+            (year, meta)
         }
         "book" => {
             let b = crate::intro::parse_book(&record.intro);
-            let opt_arr = |v: &String| {
-                if v.is_empty() {
-                    vec![]
-                } else {
-                    vec![v.clone()]
-                }
-            };
-            view["year"] = b.pubyear.map(|y| json!(y)).unwrap_or(Value::Null);
-            view["book"] = json!({
+            let meta = json!({
                 "authors": b.authors,
                 "translators": [],
                 "press": opt_arr(&b.publisher),
@@ -825,6 +917,7 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
                 "series": "",
                 "intro": "",
             });
+            (b.pubyear.map(|y| y as i64), meta)
         }
         _ => {
             let m = crate::intro::parse_music(&record.intro);
@@ -834,15 +927,7 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
                     .map(str::to_string)
                     .collect::<Vec<_>>()
             };
-            let opt_arr = |v: &String| {
-                if v.is_empty() {
-                    vec![]
-                } else {
-                    vec![v.clone()]
-                }
-            };
-            view["year"] = m.year.map(|y| json!(y)).unwrap_or(Value::Null);
-            view["music"] = json!({
+            let meta = json!({
                 "singers": opt_arr(&m.artist),
                 "genres": split_plus(&m.genre),
                 "media": split_plus(&m.medium),
@@ -853,8 +938,51 @@ fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
                 "songs": [],
                 "intro": "",
             });
+            (m.year.map(|y| y as i64), meta)
         }
     }
+}
+
+/// intro 合成的 subjects 行（重试耗尽的兜底，source='intro'）：
+/// 标题/链接/封面取 records（封面为收藏页小图 URL，出口走 covers 代理），
+/// 无豆瓣评分、无原名与又名；raw_json 留空（intro 原文本就在 records 里）
+fn intro_fallback_row(record: &crate::crawler::Record) -> SubjectRow {
+    let (year, meta) = intro_fallback_parts(record);
+    SubjectRow {
+        title: record.title.clone(),
+        original_title: String::new(),
+        year,
+        aka_json: "[]".to_string(),
+        url: record.subject_url.clone(),
+        cover_url: record.cover.clone(),
+        rating_value: None,
+        rating_count: None,
+        meta_json: meta.to_string(),
+        raw_json: String::new(),
+    }
+}
+
+/// intro 兜底视图：subjects 未富集时按 records.intro（Rust 移植解析器）合成，
+/// 形状与 rexxar 视图一致但无豆瓣评分、source="intro"（方案 §9 读侧兜底）。
+fn intro_fallback_view(record: &crate::crawler::Record) -> Value {
+    let category = record.category.as_str();
+    let (year, meta) = intro_fallback_parts(record);
+    let mut view = json!({
+        "category": category,
+        "subject_id": record.subject_id,
+        "title": record.title,
+        "original_title": "",
+        "aka": [],
+        "year": year.map(|y| json!(y)).unwrap_or(Value::Null),
+        "rating": {"value": Value::Null, "count": Value::Null},
+        // intro 行无独立封面 URL（records.cover 由 marks 响应自身携带）
+        "cover": "",
+        "url": record.subject_url,
+        "status": "ok",
+        "fetched_at": Value::Null,
+        "source": "intro",
+    });
+    view[category] = meta;
     view
 }
 
@@ -871,7 +999,7 @@ pub async fn load_subject_views(
     let placeholders = vec!["?"; records.len()].join(",");
     let sql = format!(
         "SELECT subject_id, title, original_title, year, aka_json, cover_url,
-                rating_value, rating_count, meta_json, status, fetched_ms, url
+                rating_value, rating_count, meta_json, status, fetched_ms, url, source
          FROM subjects WHERE category = ? AND subject_id IN ({placeholders})"
     );
     let mut q = sqlx::query(&sql).bind(category);
@@ -906,6 +1034,8 @@ pub struct EnrichmentCounts {
     pub pending: i64,
     pub not_found: i64,
     pub failed: i64,
+    /// intro 兜底行数（重试耗尽降级，可经 refresh / requeue stale 升级）
+    pub intro_fallback: i64,
 }
 
 pub async fn enrichment_counts(pool: &SqlitePool) -> Result<EnrichmentCounts> {
@@ -924,11 +1054,15 @@ pub async fn enrichment_counts(pool: &SqlitePool) -> Result<EnrichmentCounts> {
     let failed: i64 = count("SELECT COUNT(*) FROM subject_jobs WHERE state = 'error'")
         .await
         .unwrap_or(0);
+    let intro_fallback: i64 = count("SELECT COUNT(*) FROM subjects WHERE source = 'intro'")
+        .await
+        .unwrap_or(0);
     Ok(EnrichmentCounts {
         enriched,
         pending,
         not_found,
         failed,
+        intro_fallback,
     })
 }
 
@@ -976,7 +1110,7 @@ pub async fn list_subjects(
     let rows = {
         let sql = format!(
             "SELECT subject_id, title, original_title, year, aka_json, cover_url,
-                    rating_value, rating_count, meta_json, status, fetched_ms, url, category
+                    rating_value, rating_count, meta_json, status, fetched_ms, url, category, source
              FROM subjects{where_clause}
              ORDER BY fetched_ms DESC, rowid DESC
              LIMIT ? OFFSET ?"
@@ -1011,6 +1145,7 @@ pub async fn list_subjects(
             "pending": counts.pending,
             "not_found": counts.not_found,
             "failed": counts.failed,
+            "intro_fallback": counts.intro_fallback,
         },
     }))
 }

@@ -48,6 +48,7 @@ fn test_config(dir: &TempDir, token: &str) -> ServerConfig {
         subject_enrich: true,
         subject_ttl_secs: 2_592_000,
         subject_min_interval_secs: 0.0, // 测试不限速
+        subject_category_cooldown_secs: 300,
         // oneshot 无真实连接，IP 回退到 loopback 且全测试共享；调大避免互扰
         rate_per_minute: 10_000_000,
     }
@@ -1379,8 +1380,198 @@ async fn enrichment_dedups_across_users() {
     assert_eq!(calls.load(Ordering::Relaxed), 2);
 }
 
-/// 404 = 条目已被删除：not_found 终态，不重试、不写 subjects
+/// rexxar movie 端点突发限流（400，实测 2026-10-28）：一次 4xx 失败即触发
+/// 类别冷却——同类 job 全部推迟到冷却期后（自身退避也不早于冷却），
+/// 其他类别不受影响；类别间隔 AIMD 升档
 #[tokio::test]
+async fn enrichment_blocked_defers_category_and_grows_pacing() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "44001").await;
+    seed_record(&state, "wenjun30", "movie", "44002").await;
+    seed_record(&state, "wenjun30", "book", "44003").await;
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
+        .await
+        .unwrap();
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "book")
+        .await
+        .unwrap();
+
+    let fetcher = FakeFetcher(|url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            Err(FetchError::Blocked(400))
+        } else {
+            Err(FetchError::NotFound)
+        }
+    });
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+
+    let now = ServerConfig::now_ms();
+    let (attempts, next_a): (i64, Option<i64>) = sqlx::query_as(
+        "SELECT attempts, next_run_ms FROM subject_jobs WHERE category='movie' AND subject_id='44001'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(attempts, 1);
+    let next_a = next_a.unwrap();
+    assert!(
+        next_a >= now + 290_000,
+        "被限流的 job 自身重试不早于类别冷却（实测封锁 ~5-6 分钟）"
+    );
+    let next_b: Option<i64> = sqlx::query_scalar(
+        "SELECT next_run_ms FROM subject_jobs WHERE category='movie' AND subject_id='44002'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert!(next_b.unwrap() >= now + 290_000, "同类 job 被类别冷却推迟");
+    let next_c: Option<i64> = sqlx::query_scalar(
+        "SELECT next_run_ms FROM subject_jobs WHERE category='book' AND subject_id='44003'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert!(next_c.is_none(), "其他类别不受 movie 端点封锁影响");
+
+    // AIMD：失败一次后 movie 间隔升档（配置下限 0.5s ×3）
+    assert_eq!(state.subject_interval("movie"), 1.5);
+    assert_eq!(state.subject_interval("book"), 0.5, "未受影响的类别保持下限");
+}
+
+/// 重试耗尽 → intro 兜底行落库（source='intro'，无豆瓣评分，形状与 rexxar
+/// 一致），job 置 ok 终结重试链；显式强制重排可升级回 rexxar 权威数据
+#[tokio::test]
+async fn enrichment_exhaustion_falls_back_to_intro() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "45001").await;
+    sqlx::query("UPDATE records SET intro = ? WHERE subject_id = '45001'")
+        .bind("2019-11-17(香港亚洲电影节) / 2020-06-11(中国香港) / 邓丽欣 / 中国香港 / 黄绮琳 / 91分钟 / 剧情 / 粤语")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
+        .await
+        .unwrap();
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = calls.clone();
+    let fetcher = FakeFetcher(move |url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            counter.fetch_add(1, Ordering::Relaxed);
+            return Err(FetchError::Blocked(400));
+        }
+        Err(FetchError::NotFound)
+    });
+    for _ in 0..subject::MAX_ATTEMPTS {
+        assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+        // 抹掉退避等待，模拟时间流逝（真实运行中由到期时间驱动）
+        sqlx::query("UPDATE subject_jobs SET next_run_ms = NULL")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+    }
+    assert_eq!(calls.load(Ordering::Relaxed), subject::MAX_ATTEMPTS as u32, "恰重试 5 次");
+    let (job_state, last_error): (String, String) = sqlx::query_as(
+        "SELECT state, COALESCE(last_error,'') FROM subject_jobs WHERE subject_id='45001'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(job_state, "ok", "兜底后 job 终结为 ok");
+    assert!(last_error.contains("兜底"), "降级原因可见: {last_error}");
+
+    let (source, title, year, rating): (String, String, Option<i64>, Option<f64>) =
+        sqlx::query_as(
+            "SELECT source, title, year, rating_value FROM subjects WHERE subject_id='45001'",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(source, "intro");
+    assert_eq!(title, "t-45001", "标题来自 records 标记行");
+    assert_eq!(year, Some(2019), "intro 解析出的年份");
+    assert!(rating.is_none(), "intro 兜底无豆瓣评分");
+    let meta_json: String =
+        sqlx::query_scalar("SELECT meta_json FROM subjects WHERE subject_id='45001'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    let meta: Value = serde_json::from_str(&meta_json).unwrap();
+    assert_eq!(meta["directors"], serde_json::json!(["黄绮琳"]));
+
+}
+
+/// intro 兜底行的升级路径：显式强制重排（priority=0，绕过执行守卫）→
+/// rexxar 成功后整行覆盖为权威数据（source='rexxar'、评分就位）
+#[tokio::test]
+async fn intro_fallback_row_upgrades_on_force_refresh() {
+    let (_dir, state) = setup().await;
+    // 直插 intro 兜底行（等同 write_intro_fallback 的产物形态）
+    sqlx::query(
+        "INSERT INTO subjects (category, subject_id, title, cover_url, source, fetched_ms)
+         VALUES ('movie', '45001', 't-45001', '', 'intro', 1)",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    subject::force_refresh(&state.pool, "movie", "45001")
+        .await
+        .unwrap();
+    let ok_fetcher = FakeFetcher(|url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            Ok(r#"{"title": "金都", "year": "2019", "rating": {"value": 6.5, "count": 100}}"#.to_string())
+        } else {
+            Err(FetchError::NotFound)
+        }
+    });
+    assert!(subject::process_next_job(&state, &ok_fetcher).await.unwrap());
+    let (source, title, rating): (String, String, Option<f64>) = sqlx::query_as(
+        "SELECT source, title, rating_value FROM subjects WHERE subject_id='45001'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(source, "rexxar", "强制重排成功后升级为权威数据");
+    assert_eq!(title, "金都");
+    assert_eq!(rating, Some(6.5));
+}
+
+/// 重试耗尽但 records 无该条目（理论不可达）：维持 error 终态，不写 subjects
+#[tokio::test]
+async fn enrichment_exhaustion_without_record_keeps_error() {
+    let (_dir, state) = setup().await;
+    let now = ServerConfig::now_ms();
+    sqlx::query(
+        "INSERT INTO subject_jobs (category, subject_id, state, created_ms, updated_ms)
+         VALUES ('movie', '46001', 'queued', ?, ?)",
+    )
+    .bind(now)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let fetcher = FakeFetcher(|url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            Err(FetchError::Blocked(400))
+        } else {
+            Err(FetchError::NotFound)
+        }
+    });
+    for _ in 0..subject::MAX_ATTEMPTS {
+        assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+        sqlx::query("UPDATE subject_jobs SET next_run_ms = NULL")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+    }
+    let job_state: String = sqlx::query_scalar("SELECT state FROM subject_jobs")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(job_state, "error");
+    assert_eq!(count(&state, "SELECT COUNT(*) FROM subjects").await, 0);
+}
 async fn enrichment_404_is_terminal_not_found() {
     let (_dir, state) = setup().await;
     seed_record(&state, "wenjun30", "movie", "41001").await;

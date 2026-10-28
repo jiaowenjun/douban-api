@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS subjects (
   meta_json      TEXT NOT NULL DEFAULT '{}',
   raw_json       TEXT NOT NULL DEFAULT '',
   status         TEXT NOT NULL DEFAULT 'ok',
+  source         TEXT NOT NULL DEFAULT 'rexxar',
   attempts       INTEGER NOT NULL DEFAULT 0,
   next_retry_ms  INTEGER,
   fetched_ms     INTEGER NOT NULL,
@@ -158,6 +159,9 @@ pub async fn connect(db_path: &std::path::Path) -> Result<SqlitePool> {
             .with_context(|| format!("建表失败: {statement}"))?;
     }
     ensure_column(&pool, "tasks", "source", "TEXT NOT NULL DEFAULT 'manual'").await?;
+    // 获取方式标记：rexxar = 权威富集；intro = 重试耗尽后的 records.intro
+    // 合成兜底行（无豆瓣评分，可经 refresh / requeue stale 升级回 rexxar）
+    ensure_column(&pool, "subjects", "source", "TEXT NOT NULL DEFAULT 'rexxar'").await?;
     Ok(pool)
 }
 

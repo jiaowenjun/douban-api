@@ -77,6 +77,12 @@ pub struct ServerConfig {
     /// rexxar 相邻请求最小间隔（秒），与抓取间隔取较大值生效
     #[arg(long, env = "SYNC_SUBJECT_MIN_INTERVAL_SECS", default_value_t = 3.0)]
     pub subject_min_interval_secs: f64,
+
+    /// rexxar 单端点（category 维度）限流后的类别冷却（秒）。实测 movie 端点
+    /// 连发 4-8 个请求即 400 封锁约 5-6 分钟（404 同样累积触发），封锁期间
+    /// 该类别全部富集 job 推迟到冷却期后，music/book/维度抓取不受影响
+    #[arg(long, env = "SYNC_SUBJECT_CATEGORY_COOLDOWN_SECS", default_value_t = 300)]
+    pub subject_category_cooldown_secs: i64,
 }
 
 impl ServerConfig {

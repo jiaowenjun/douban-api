@@ -57,6 +57,18 @@ function ProgressCard({
           valueStyle={{ fontSize: 20 }}
           prefix={counts && counts.failed > 0 ? <Tag color="error">error</Tag> : undefined}
         />
+        {(counts?.intro_fallback ?? 0) > 0 && (
+          <Statistic
+            title="intro 兜底"
+            value={counts!.intro_fallback!}
+            valueStyle={{ fontSize: 20 }}
+            prefix={
+              <Tooltip title="rexxar 重试耗尽后由 records.intro 合成的降纔回答（无豆瓣评分）；可单条强制重排或「重抓过期」升级">
+                <Tag color="gold">降级</Tag>
+              </Tooltip>
+            }
+          />
+        )}
         <Button icon={<CloudDownloadOutlined />} loading={backfilling} onClick={onBackfill}>
           回填存量
         </Button>
@@ -209,6 +221,13 @@ export default function Subjects() {
                     {s.title}
                   </a>{' '}
                   <Tag style={{ marginRight: 0 }}>{CATEGORY_OPTIONS.find((c) => c.value === s.category)?.label}</Tag>
+                  {s.source === 'intro' && (
+                    <Tooltip title="rexxar 重试耗尽的 intro 兜底数据（无豆瓣评分）；行末「刷新」可强制重抓升级">
+                      <Tag color="gold" style={{ marginRight: 0 }}>
+                        intro 兜底
+                      </Tag>
+                    </Tooltip>
+                  )}
                 </div>
                 <SubjectKeyFields subject={s} />
               </>

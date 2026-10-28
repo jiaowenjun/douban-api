@@ -449,7 +449,7 @@ GET /api/v1/users/{uid}/profile
 
 收藏页 intro 是豆瓣服务端拍平的纯文本（无字段级结构），结构化元信息经 m.douban.com rexxar 内部 JSON 接口富集后落 `subjects` 表缓存，**主键 `(category, subject_id)` 不含 uid——跨用户共享，同一部《肖申克的救赎》只请求豆瓣一次**。完整设计见《条目元信息富集方案.md》。
 
-**GET /subjects?category=&q=&page=&page_size=**：分页列出已富集条目（按抓取时间倒序；category 缺省或 `all` 为全部，q 按标题模糊匹配且 `%` 按字面量处理），响应附带全局 `counts`（enriched/pending/not_found/failed），admin「条目元信息」页数据源。
+**GET /subjects?category=&q=&page=&page_size=**：分页列出已富集条目（按抓取时间倒序；category 缺省或 `all` 为全部，q 按标题模糊匹配且 `%` 按字面量处理），响应附带全局 `counts`（enriched/pending/not_found/failed/intro_fallback），条目带 `source`（rexxar/intro）标记获取方式，admin「条目元信息」页数据源。
 
 **GET /subjects/{category}/{subject_id}**：返回缓存元信息（`source:"rexxar"`）；subjects 未富集但 records 有标记时回退 intro 合成视图（`source:"intro"`）；两者皆无才 404 `SUBJECT_NOT_FOUND`。
 
@@ -485,7 +485,7 @@ GET /api/v1/users/{uid}/profile
 
 **marks 扩展**：`GET /users/{uid}/marks?…&expand=subject`，items 每项追加 `subject` 对象：已富集返回 rexxar 视图（`source:"rexxar"`，含豆瓣评分）；**未富集回退 intro 启发式解析合成视图（`source:"intro"`，无豆瓣评分、fetched_at 为 null）**，不再为 `null`；不传 expand 响应结构与旧版完全一致。intro 解析器为 intro汇总/intro_parser.py 的 Rust 移植（backend/src/intro.rs），291 例黄金用例与 Python 共享基准。`/syncs/{id}/result` 的 summary 附带全局 `subjects_enriched` / `subjects_pending` 计数。
 
-**行为要点**：富集只存封面 URL（`cover_url`，rexxar 中图规格，比收藏页 `records.cover` 小图清晰），图片字节仍由 `/covers` 代理按需回源缓存，两者分工详见《条目元信息富集方案.md》§12；维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队**缺失**条目（subjects 已有的不重抓，重抓需显式触发，见上方「跳过语义」）；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
+**行为要点**：富集只存封面 URL（`cover_url`，rexxar 中图规格，比收藏页 `records.cover` 小图清晰），图片字节仍由 `/covers` 代理按需回源缓存，两者分工详见《条目元信息富集方案.md》§12；维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队**缺失**条目（subjects 已有的不重抓，重抓需显式触发，见上方「跳过语义」）；**rexxar 端点限流应对**（2026-10-28 实测 movie 端点连发 4-8 个即 400 封锁 5-6 分钟、music/book 宽松）：按类别 AIMD 自适应限速（限流 ×3 上限 90s / 成功 ×0.9 回落）+ 一次 4xx/404 即类别冷却（`SYNC_SUBJECT_CATEGORY_COOLDOWN_SECS` 默认 300s，同类非强制 job 全部推迟，不再把全局熔断每 10 分钟拖停一轮）+ 指数退避（20s·3^(n-1)）；**重试耗尽（5 次）落 intro 兜底**：以 records.intro 合成降级行写 subjects（`source:"intro"`，无豆瓣评分、标题/封面取标记行、年份等 intro 解析），job 置 ok 终结重试链，`counts.intro_fallback` 计数与 admin「intro 兜底」标记可见，可单条 refresh 或 requeue scope=stale 升级回权威数据；records 无该条目（理论不可达）维持 `error` 终态。富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试（404 同样累积触发端点封锁，亦做类别冷却但不计熔断）；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
 
 ## 5. 数据模型
 

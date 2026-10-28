@@ -151,6 +151,8 @@ export interface SubjectListResponse {
     pending: number;
     not_found: number;
     failed: number;
+    /** intro 兜底行数（重试耗尽降级；旧版服务器无此字段） */
+    intro_fallback?: number;
   };
 }
 
