@@ -40,6 +40,7 @@ function SiteShell() {
       navigationGroups={MARKS_NAVIGATION_GROUPS}
       onNavigate={handleNavigate}
       pageTitle={view?.pageTitle}
+      showSidebarCloseButton={false}
       siteName="weimo-douban"
       sidebarHeader={<SidebarHeader siteName="weimo-douban" />}
     >

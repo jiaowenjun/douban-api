@@ -27,8 +27,8 @@ importers:
         specifier: ~0.2.2
         version: 0.2.2(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       weimo-ui-template:
-        specifier: ^0.3.3
-        version: 0.3.3(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.2(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
+        specifier: ^0.4.3
+        version: 0.4.3(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.2(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
     devDependencies:
       '@babel/core':
         specifier: ^7.29.7
@@ -802,8 +802,8 @@ packages:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  weimo-ui-template@0.3.3:
-    resolution: {integrity: sha512-cmESywM+/zeVX9L9MhOhjNpCFJe6qF75CGbTOFA5R7GMDjsDXynklNyIP9ujKj8kw2ZLCSULJWuH0bg1XFNUJg==}
+  weimo-ui-template@0.4.3:
+    resolution: {integrity: sha512-/zHYSDjOKFQS4D0m5WZxeMphXtRIjVgGhpZvz2MKQBy+IARYI2zNyz+AZZNo2egb+Y/0LRKVlOm2e/pjuats5Q==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -1373,7 +1373,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  weimo-ui-template@0.3.3(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.2(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)):
+  weimo-ui-template@0.4.3(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.2(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)):
     dependencies:
       lucide-react: 1.61.0(@types/react@19.3.0)(react@19.3.1)
       react: 19.3.1
