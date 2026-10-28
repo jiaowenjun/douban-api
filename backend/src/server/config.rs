@@ -65,6 +65,18 @@ pub struct ServerConfig {
     /// 封面代理并发回源上限
     #[arg(long, env = "SYNC_COVER_CONCURRENCY", default_value_t = 4)]
     pub cover_concurrency: u32,
+
+    /// 条目元信息富集总开关（rexxar 结构化详情；关闭则行为与旧版一致）
+    #[arg(long, env = "SYNC_SUBJECT_ENRICH", default_value_t = true)]
+    pub subject_enrich: bool,
+
+    /// 条目元信息新鲜期（秒），过期后随用户同步刷新
+    #[arg(long, env = "SYNC_SUBJECT_TTL_SECS", default_value_t = 2_592_000)]
+    pub subject_ttl_secs: i64,
+
+    /// rexxar 相邻请求最小间隔（秒），与抓取间隔取较大值生效
+    #[arg(long, env = "SYNC_SUBJECT_MIN_INTERVAL_SECS", default_value_t = 3.0)]
+    pub subject_min_interval_secs: f64,
 }
 
 impl ServerConfig {

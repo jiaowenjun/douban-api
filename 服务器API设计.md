@@ -102,6 +102,9 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 | 11 | PUT | `/subscriptions/{uid}` | 创建/更新订阅（RSS 增量 + 定时全量） |
 | 12 | DELETE | `/subscriptions/{uid}` | 取消订阅 |
 | 13 | GET | `/users/{uid}/profile` | 用户资料（头像 + 用户名，随抓取入库） |
+| 14 | GET | `/subjects/{category}/{subject_id}` | 条目结构化元信息（rexxar 富集缓存，跨用户共享） |
+| 15 | POST | `/subjects/{category}/{subject_id}/refresh` | 强制刷新单条目元信息（无视 TTL，优先执行） |
+| 16 | POST | `/subjects/backfill` | 存量回填：对 records 全部 (uid, category) 跑富集集合差（幂等） |
 
 ## 4. 接口详细设计
 
@@ -433,6 +436,37 @@ GET /api/v1/users/{uid}/profile
 约束：该 uid **至少成功抓取过一页收藏页**才有资料，否则 404 `USER_NOT_FOUND`；`avatar` 已改写为 `/covers` 相对路径（前端经自身代理转发）。
 
 **已知边界**：① 头像 URL 带版本后缀（`u189180823-11.jpg` 的 `-11`），用户换头像后 URL 变化，库内旧地址要等下次抓取任意收藏页才刷新；② 收藏页头像是 48×48 小图（大图需抓 `www.douban.com/people/{uid}/` 主页，www 域反爬更严，不做）；③ 空字段不覆盖已有值（不同类目页面渲染细节不同，避免互相清空）。
+
+### 4.14 条目元信息（/subjects）
+
+收藏页 intro 是豆瓣服务端拍平的纯文本（无字段级结构），结构化元信息经 m.douban.com rexxar 内部 JSON 接口富集后落 `subjects` 表缓存，**主键 `(category, subject_id)` 不含 uid——跨用户共享，同一部《肖申克的救赎》只请求豆瓣一次**。完整设计见《条目元信息富集方案.md》。
+
+**GET /subjects/{category}/{subject_id}**：返回缓存元信息；未富集 404 `SUBJECT_NOT_FOUND`。
+
+```json
+{
+  "category": "movie", "subject_id": "1292052",
+  "title": "肖申克的救赎", "original_title": "The Shawshank Redemption",
+  "aka": ["月黑高飞(港)", "刺激1995(台)"], "year": 1994,
+  "rating": {"value": 9.7, "count": 3354023},
+  "cover": "/api/v1/covers?u=…",
+  "movie": {"directors": ["弗兰克·德拉邦特"], "actors": […], "genres": ["剧情", "犯罪"],
+             "countries": ["美国"], "languages": ["英语"], "durations": ["142分钟"],
+             "pubdate": ["2026-08-28(中国大陆)"], "is_tv": false, "episodes_count": 0,
+             "intro": "剧情简介…"},
+  "status": "ok", "fetched_at": "2026-10-28T17:30:00+08:00"
+}
+```
+
+类别专属节点键随 category 变化（`movie`/`book`/`music`）：book 为 `authors/translators/press/pubdate/pages/price/series` 等（author 与 translator 分列是 rexxar 的语义优势，intro 文本无法区分）；music 为 `singers/genres/media/discs/songs` 等。
+
+**POST /subjects/{category}/{subject_id}/refresh** → 202 `{"queued": true}`：重排富集 job（priority=0），worker 空闲时段执行。
+
+**POST /subjects/backfill** → 200 `{"queued_jobs": N, "uid_category_pairs": M}`：存量数据回填入口，幂等可重跑。
+
+**marks 扩展**：`GET /users/{uid}/marks?…&expand=subject`，items 每项追加 `subject` 对象（未富集条目为 `null`）；不传 expand 响应结构与旧版完全一致。`/syncs/{id}/result` 的 summary 附带全局 `subjects_enriched` / `subjects_pending` 计数。
+
+**行为要点**：维度抓取完成后自动按"集合差 + INSERT OR IGNORE"入队缺失/过期（TTL 默认 30 天，`SYNC_SUBJECT_TTL_SECS`）条目；富集与页面抓取共享单 worker 串行限速与熔断，rexxar 相邻请求另有 `SYNC_SUBJECT_MIN_INTERVAL_SECS`（默认 3s）下限；404 条目终态 `not_found` 不重试；`SYNC_SUBJECT_ENRICH=false` 一键关闭回到纯 intro 行为。
 
 ## 5. 数据模型
 

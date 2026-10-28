@@ -41,6 +41,17 @@ pub async fn run_worker<F: DoubanFetcher>(state: AppState, fetcher: F) {
         match process_next_due(&state, &fetcher).await {
             Ok(true) => {} // 处理了一个维度，立即取下一个
             Ok(false) => {
+                // 维度队列空闲：处理条目富集 job（rexxar），同样串行共享限速/熔断；
+                // 无到期 job 时进入等待（wakeup 即时唤醒 + 60s 兜底扫描）
+                match crate::server::subject::process_next_job(&state, &fetcher).await {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(e) => {
+                        warn!(error = %e, "subject job tick failed");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
                 tokio::select! {
                     changed = wakeup.changed() => {
                         if changed.is_err() {
@@ -195,6 +206,20 @@ async fn process_dimension<F: DoubanFetcher>(
                     state, &dim.uid, &dim.category, &dim.dim_status, true, "",
                 )
                 .await?;
+                // 维度完成即入队条目富集（集合差 + INSERT OR IGNORE 跨用户去重）。
+                // 失败不阻断主流程——富集是异步增强，缺席只是少了结构化字段。
+                if state.config.subject_enrich {
+                    if let Err(e) = crate::server::subject::enqueue_missing_subjects(
+                        &state.pool,
+                        &dim.uid,
+                        &dim.category,
+                        state.config.subject_ttl_secs,
+                    )
+                    .await
+                    {
+                        warn!(uid = %dim.uid, error = %e, "条目富集入队失败");
+                    }
+                }
             } else {
                 sqlx::query(
                     "UPDATE dimensions SET state='running', fetched_count=?, total=?,

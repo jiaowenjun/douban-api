@@ -19,6 +19,8 @@ pub enum AppError {
     UserNotFound(String),
     #[error("该维度无缓存，请先创建同步任务")]
     DimensionNotCached,
+    #[error("条目元信息不存在或尚未富集: {0}")]
+    SubjectNotFound(String),
     #[error("任务未完成（当前状态: {0}）")]
     TaskNotFinished(String),
     #[error("请求过于频繁，请稍后再试")]
@@ -51,6 +53,7 @@ impl AppError {
             AppError::SubscriptionNotFound(_) => "SUBSCRIPTION_NOT_FOUND",
             AppError::UserNotFound(_) => "USER_NOT_FOUND",
             AppError::DimensionNotCached => "DIMENSION_NOT_CACHED",
+            AppError::SubjectNotFound(_) => "SUBJECT_NOT_FOUND",
             AppError::TaskNotFinished(_) => "TASK_NOT_FINISHED",
             AppError::TooManyRequests => "TOO_MANY_REQUESTS",
             AppError::TooManyTasks => "TOO_MANY_TASKS",
@@ -64,7 +67,8 @@ impl AppError {
             AppError::InvalidArgument(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             AppError::TaskNotFound(_) | AppError::SubscriptionNotFound(_)
-            | AppError::UserNotFound(_) | AppError::DimensionNotCached => {
+            | AppError::UserNotFound(_) | AppError::DimensionNotCached
+            | AppError::SubjectNotFound(_) => {
                 StatusCode::NOT_FOUND
             }
             AppError::TaskNotFinished(_) => StatusCode::CONFLICT,

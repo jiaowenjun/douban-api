@@ -16,10 +16,13 @@ use weimo_douban::server::{
     routes::build_app,
     service,
     state::AppState,
+    subject,
     worker,
 };
 use serde_json::{Value, json};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
 
@@ -43,6 +46,9 @@ fn test_config(dir: &TempDir, token: &str) -> ServerConfig {
         sub_rss_interval_secs: 600,
         sub_full_interval_secs: 86_400,
         cover_concurrency: 4,
+        subject_enrich: true,
+        subject_ttl_secs: 2_592_000,
+        subject_min_interval_secs: 0.0, // 测试不限速
         // oneshot 无真实连接，IP 回退到 loopback 且全测试共享；调大避免互扰
         rate_per_minute: 10_000_000,
     }
@@ -69,6 +75,20 @@ fn fixture_fetcher() -> FakeFetcher<impl Fn(&str) -> Result<String, FetchError>>
     FakeFetcher(|url: &str| {
         if url.contains("/feed/people/") {
             return Ok(fixture("feed.xml"));
+        }
+        if url.contains("m.douban.com/rexxar") {
+            // 已知条目回真实 fixture，其余按类别合成最小合法响应
+            let id = url.rsplit('/').next().unwrap();
+            return Ok(match id {
+                "1292052" => fixture("rexxar_movie.json"),
+                "38386470" => fixture("rexxar_book.json"),
+                "3221720" => fixture("rexxar_music.json"),
+                _ => {
+                    let title = format!("T-{id}");
+                    format!(r#"{{"title": "{title}", "pubdate": ["1999-1"],
+                              "rating": {{"value": 8.0, "count": 10}}}}"#)
+                }
+            });
         }
         let start: usize = url
             .split("start=")
@@ -101,6 +121,36 @@ where
         let out = (self.0)(url);
         async move { out }
     }
+
+    fn fetch_subject(
+        &self,
+        category: &str,
+        subject_id: &str,
+    ) -> impl std::future::Future<Output = Result<Value, FetchError>> + Send {
+        let out = (self.0)(&subject::rexxar_url(category, subject_id)).and_then(|text| {
+            serde_json::from_str(&text).map_err(|_| FetchError::Suspicious(text.len()))
+        });
+        async move { out }
+    }
+}
+
+/// 直插一条标记记录（不含维度行；富集测试只关心 records → 队列）
+async fn seed_record(state: &AppState, uid: &str, category: &str, subject_id: &str) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO records (uid, category, dim_status, subject_id, title, date)
+         VALUES (?, ?, 'collect', ?, ?, '2024-01-01')",
+    )
+    .bind(uid)
+    .bind(category)
+    .bind(subject_id)
+    .bind(format!("t-{subject_id}"))
+    .execute(&state.pool)
+    .await
+    .unwrap();
+}
+
+async fn count(state: &AppState, sql: &str) -> i64 {
+    sqlx::query_scalar(sql).fetch_one(&state.pool).await.unwrap()
 }
 
 /// 驱动 worker 直到没有到期维度（每页含 ≤1s 抖动休眠，页数少耗时可忽略）
@@ -1128,4 +1178,302 @@ async fn full_tick_single_flight() {
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records").fetch_one(&state.pool).await.unwrap();
     assert_eq!(n, 1);
     drop(dir);
+}
+
+// --------------------------------------------------------------------------- //
+// 条目元信息富集（rexxar → subjects 跨用户缓存；方案 §5 场景走查）
+// --------------------------------------------------------------------------- //
+
+/// 核心场景：不同用户标记同一条目 → rexxar 只请求一次（集合差 + 主键去重）
+#[tokio::test]
+async fn enrichment_dedups_across_users() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "userA", "movie", "1292052").await;
+    seed_record(&state, "userA", "movie", "90001").await;
+    seed_record(&state, "userB", "movie", "1292052").await; // 与 A 重叠
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let counter = calls.clone();
+    let fetcher = FakeFetcher(move |url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            counter.fetch_add(1, Ordering::Relaxed);
+            let id = url.rsplit('/').next().unwrap();
+            return Ok(format!(
+                r#"{{"title": "T-{id}", "pubdate": ["1999-1"], "rating": {{"value": 8.0, "count": 10}}}}"#
+            ));
+        }
+        Err(FetchError::NotFound)
+    });
+
+    // 两次维度完成钩子（模拟 A、B 先后同步）
+    let qa = subject::enqueue_missing_subjects(&state.pool, "userA", "movie", 2_592_000)
+        .await
+        .unwrap();
+    let qb = subject::enqueue_missing_subjects(&state.pool, "userB", "movie", 2_592_000)
+        .await
+        .unwrap();
+    assert_eq!(qa, 2, "A 首次同步：两个条目全部入队");
+    assert_eq!(qb, 0, "B 同步重叠条目：排队期间零新增 job");
+    assert_eq!(count(&state, "SELECT COUNT(*) FROM subject_jobs").await, 2);
+
+    // 驱动富集到完成
+    for _ in 0..10 {
+        if !subject::process_next_job(&state, &fetcher).await.unwrap() {
+            break;
+        }
+    }
+    assert_eq!(calls.load(Ordering::Relaxed), 2, "rexxar 恰好请求 2 次（1292052 不因 B 重复请求）");
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM subjects WHERE status='ok'").await,
+        2
+    );
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM subject_jobs WHERE state='ok'").await,
+        2
+    );
+
+    // 数据新鲜期内 B 再次入队：集合差为空
+    let qb2 = subject::enqueue_missing_subjects(&state.pool, "userB", "movie", 2_592_000)
+        .await
+        .unwrap();
+    assert_eq!(qb2, 0, "新鲜期内重复同步零请求");
+    for _ in 0..10 {
+        if !subject::process_next_job(&state, &fetcher).await.unwrap() {
+            break;
+        }
+    }
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+}
+
+/// 404 = 条目已被删除：not_found 终态，不重试、不写 subjects
+#[tokio::test]
+async fn enrichment_404_is_terminal_not_found() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "41001").await;
+    let queued = subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
+        .await
+        .unwrap();
+    assert_eq!(queued, 1);
+
+    let fetcher = FakeFetcher(|url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            Err(FetchError::NotFound)
+        } else {
+            Err(FetchError::NotFound)
+        }
+    });
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM subject_jobs WHERE state='not_found'").await,
+        1
+    );
+    assert_eq!(count(&state, "SELECT COUNT(*) FROM subjects").await, 0);
+    // 立即重跑不重试（终态）
+    assert!(!subject::process_next_job(&state, &fetcher).await.unwrap());
+}
+
+/// 瞬时失败：退避后重排，未到期不再拾起；计入全局熔断
+#[tokio::test]
+async fn enrichment_transient_error_backs_off() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "42001").await;
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
+        .await
+        .unwrap();
+
+    let fetcher = FakeFetcher(|url: &str| {
+        if url.contains("m.douban.com/rexxar") {
+            Err(FetchError::Blocked(403))
+        } else {
+            Err(FetchError::NotFound)
+        }
+    });
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+    let state_str: String = sqlx::query_scalar("SELECT state FROM subject_jobs")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    let attempts: i64 = sqlx::query_scalar("SELECT attempts FROM subject_jobs")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    let next_run: Option<i64> =
+        sqlx::query_scalar("SELECT next_run_ms FROM subject_jobs")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(state_str, "queued");
+    assert_eq!(attempts, 1);
+    assert!(next_run.unwrap_or(0) > ServerConfig::now_ms(), "退避时间在未来");
+    // 未到期：不再拾起
+    assert!(!subject::process_next_job(&state, &fetcher).await.unwrap());
+    assert_eq!(state.circuit_remaining_ms() >= 0, true);
+}
+
+/// marks?expand=subject 展开缓存元信息；未富集为 null；非法 expand 值 400
+#[tokio::test]
+async fn marks_expand_subject_and_subjects_endpoints() {
+    let (_dir, state) = setup().await;
+    // 预置已缓存维度（两条标记：一个会被富集，一个不驱动富集）
+    let records = vec![
+        Record {
+            category: "movie".into(),
+            status: "collect".into(),
+            title: "肖申克的救赎".into(),
+            alt_title: String::new(),
+            my_rating: Some(5),
+            date: "2024-01-02".into(),
+            comment: String::new(),
+            subject_url: String::new(),
+            subject_id: "1292052".into(),
+            cover: String::new(),
+            comment_id: String::new(),
+            intro: String::new(),
+        },
+        Record {
+            category: "movie".into(),
+            status: "collect".into(),
+            title: "未富集条目".into(),
+            alt_title: String::new(),
+            my_rating: None,
+            date: "2024-01-01".into(),
+            comment: String::new(),
+            subject_url: String::new(),
+            subject_id: "99999".into(),
+            cover: String::new(),
+            comment_id: String::new(),
+            intro: String::new(),
+        },
+    ];
+    seed_ok_dimension(&state, Category::Movie, records).await;
+
+    // 只富集 1292052（真实 fixture）
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie", 2_592_000)
+        .await
+        .unwrap();
+    let fetcher = fixture_fetcher();
+    // 1292052 与 99999 都会入队；只驱动一次，留下 99999 未富集
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
+
+    let app = build_app(state.clone());
+    // 未展开：响应不含 subject 键
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=movie&status=collect",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["items"][0].get("subject").is_none());
+
+    // 展开：已富集条目带结构化字段，未富集条目为 null
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=movie&status=collect&expand=subject",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["items"][0]["subject"]["title"], "肖申克的救赎");
+    assert_eq!(body["items"][0]["subject"]["movie"]["genres"][0], "剧情");
+    assert_eq!(body["items"][0]["subject"]["year"], 1994);
+    assert_eq!(body["items"][1]["subject"], Value::Null);
+
+    // 非法 expand 值
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=movie&status=collect&expand=bogus",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "INVALID_ARGUMENT");
+
+    // 单条目端点：命中 / 未富集 404
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/movie/1292052",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["original_title"], "The Shawshank Redemption");
+    let (status, body) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/subjects/movie/99999",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "SUBJECT_NOT_FOUND");
+}
+
+/// refresh 无视 TTL 重新排队；backfill 幂等
+#[tokio::test]
+async fn subject_refresh_and_backfill_endpoints() {
+    let (_dir, state) = setup().await;
+    seed_record(&state, "wenjun30", "movie", "1292052").await;
+    let app = build_app(state.clone());
+
+    // 回填：首跑入队 1，重跑 0（幂等）
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/backfill",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["queued_jobs"], 1);
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/backfill",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["queued_jobs"], 0);
+
+    // 驱动到完成
+    let fetcher = fixture_fetcher();
+    for _ in 0..10 {
+        if !subject::process_next_job(&state, &fetcher).await.unwrap() {
+            break;
+        }
+    }
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM subjects WHERE status='ok'").await,
+        1
+    );
+
+    // 强制刷新：job 重排（priority=0），可再次驱动
+    let (status, body) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/subjects/movie/1292052/refresh",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["queued"], true);
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM subject_jobs WHERE state='queued' AND priority=0")
+            .await,
+        1
+    );
+    assert!(subject::process_next_job(&state, &fetcher).await.unwrap());
 }

@@ -7,6 +7,7 @@ pub mod error;
 pub mod fetcher;
 pub mod routes;
 pub mod service;
+pub mod subject;
 pub mod state;
 pub mod worker;
 
@@ -33,6 +34,12 @@ pub async fn run_server() -> Result<()> {
         fetcher::ReqwestFetcher::with_cookie(&config.douban_cookie),
     ));
     tokio::spawn(service::run_cleanup_loop(state.clone()));
+
+    if config.subject_enrich {
+        tracing::info!(
+            "条目元信息富集已启用（rexxar；存量数据可 POST /api/v1/subjects/backfill 回填）"
+        );
+    }
 
     let app = routes::build_app(state);
     let listener = tokio::net::TcpListener::bind(&config.bind)

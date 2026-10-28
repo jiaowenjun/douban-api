@@ -227,7 +227,7 @@ pub struct TaskSummary {
     pub source: String,
 }
 
-fn ms_to_rfc3339(ms: i64) -> String {
+pub(crate) fn ms_to_rfc3339(ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ms)
         .map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
         .unwrap_or_default()
@@ -646,10 +646,19 @@ pub async fn task_result(state: &AppState, task_id: &str) -> AppResult<ResultVie
         });
     }
 
+    // 全局富集进度（条目元信息跨用户共享，不按任务归属，仅附带给调用方观察）
+    let (subjects_enriched, subjects_pending) =
+        super::subject::enrichment_counts(&state.pool).await?;
     Ok(ResultView {
         task_id: task_id.to_string(),
         user,
-        summary: json!({"total": total, "with_comment": with_comment, "by_category_status": by}),
+        summary: json!({
+            "total": total,
+            "with_comment": with_comment,
+            "by_category_status": by,
+            "subjects_enriched": subjects_enriched,
+            "subjects_pending": subjects_pending,
+        }),
         dimensions,
         expires_at: task
             .try_get::<Option<i64>, _>("expires_ms")

@@ -10,7 +10,7 @@ use axum::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
     },
-    routing::get,
+    routing::{get, post},
 };
 use serde_json::{Value, json};
 use std::convert::Infallible;
@@ -21,6 +21,7 @@ use crate::crawler::{Category, Status};
 use super::error::{AppError, AppResult};
 use super::service::{self, CreateTaskInput, TERMINAL_STATUSES, TaskView};
 use super::state::AppState;
+use super::subject;
 
 pub fn build_app(state: AppState) -> Router {
     // 封面端点单列：仍走鉴权（img 标签带不了 Header，靠 ?token= 兜底），
@@ -36,6 +37,12 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}/result", get(get_result))
         .route("/syncs/{task_id}/events", get(get_sync_events))
         .route("/users/{uid}/marks", get(get_marks))
+        .route("/subjects/{category}/{subject_id}", get(get_subject))
+        .route(
+            "/subjects/{category}/{subject_id}/refresh",
+            post(refresh_subject),
+        )
+        .route("/subjects/backfill", post(backfill_subjects))
         .route("/users/{uid}/profile", get(get_user_profile))
         .route("/subscriptions", get(list_subscriptions))
         .route(
@@ -379,6 +386,8 @@ struct MarksQuery {
     status: Option<String>,
     page: Option<i64>,
     page_size: Option<i64>,
+    /// 展开 items 关联的条目元信息；当前仅支持 "subject"（未富集条目该字段为 null）
+    expand: Option<String>,
 }
 
 async fn get_marks(
@@ -399,7 +408,31 @@ async fn get_marks(
     let page = q.page.unwrap_or(1).max(1);
     let page_size = q.page_size.unwrap_or(50).clamp(1, 200);
 
+    let expand_subject = match q.expand.as_deref() {
+        None => false,
+        Some("subject") => true,
+        Some(other) => {
+            return Err(AppError::InvalidArgument(format!(
+                "非法 expand 值: {other}（允许值: subject）"
+            )))
+        }
+    };
+
     let marks = service::read_marks(&state, &uid, category, status, page, page_size).await?;
+    let items: Value = if expand_subject {
+        let ids: Vec<String> = marks.items.iter().map(|r| r.subject_id.clone()).collect();
+        let views = subject::load_subject_views(&state, category.key(), &ids).await?;
+        let mut arr = serde_json::to_value(&marks.items)
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        if let Value::Array(list) = &mut arr {
+            for (item, view) in list.iter_mut().zip(views) {
+                item["subject"] = view.unwrap_or(Value::Null);
+            }
+        }
+        arr
+    } else {
+        serde_json::to_value(&marks.items).map_err(|e| AppError::Internal(e.to_string()))?
+    };
     Ok(Json(json!({
         "user": marks.user,
         "category": marks.category.key(),
@@ -409,8 +442,46 @@ async fn get_marks(
         "total": marks.total,
         "page": marks.page,
         "page_size": marks.page_size,
-        "items": marks.items,
+        "items": items,
     })))
+}
+
+// --------------------------------------------------------------------------- //
+// /subjects（条目元信息缓存，rexxar 富集；见《条目元信息富集方案.md》§7）
+// --------------------------------------------------------------------------- //
+
+fn parse_category(category: &str) -> AppResult<Category> {
+    Category::from_key(category)
+        .ok_or_else(|| AppError::InvalidArgument(format!("非法 category: {category}")))
+}
+
+async fn get_subject(
+    State(state): State<AppState>,
+    Path((category, subject_id)): Path<(String, String)>,
+) -> AppResult<Json<Value>> {
+    parse_category(&category)?;
+    Ok(Json(subject::get_subject_view(&state, &category, &subject_id).await?))
+}
+
+/// 强制刷新单个条目（无视 TTL 立即重抓 rexxar）
+async fn refresh_subject(
+    State(state): State<AppState>,
+    Path((category, subject_id)): Path<(String, String)>,
+) -> AppResult<(StatusCode, Json<Value>)> {
+    parse_category(&category)?;
+    subject::force_refresh(&state.pool, &category, &subject_id).await?;
+    state.wake_worker();
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"queued": true, "category": category, "subject_id": subject_id})),
+    ))
+}
+
+/// 存量回填：对 records 已有的全部 (uid, category) 跑富集集合差（幂等可重跑）
+async fn backfill_subjects(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let (queued, pairs) = subject::backfill(&state.pool, state.config.subject_ttl_secs).await?;
+    state.wake_worker();
+    Ok(Json(json!({"queued_jobs": queued, "uid_category_pairs": pairs})))
 }
 
 // --------------------------------------------------------------------------- //

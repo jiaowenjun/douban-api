@@ -43,6 +43,15 @@ pub trait DoubanFetcher: Send + Sync {
         referer: &str,
     ) -> impl std::future::Future<Output = Result<String, FetchError>> + Send;
 
+    /// 抓条目结构化元信息（m.douban.com rexxar 内部 JSON 接口，免登录）。
+    /// 校验语义：200 + JSON 合法 + 含 title 键（不能沿用页面的 >5KB 字节阈值，
+    /// rexxar 响应可小至数 KB）。
+    fn fetch_subject(
+        &self,
+        category: &str,
+        subject_id: &str,
+    ) -> impl std::future::Future<Output = Result<serde_json::Value, FetchError>> + Send;
+
     /// 抓个人书影音动态 RSS。默认实现复用 fetch_page（测试 fake 即走此路径）；
     /// 生产实现必须覆盖——RSS 仅数 KB，不能套用页面抓取的 >5KB 反爬阈值。
     fn fetch_feed(
@@ -123,5 +132,44 @@ impl DoubanFetcher for ReqwestFetcher {
             return Err(FetchError::Suspicious(html.len())); // 正常页面 >30KB
         }
         Ok(html)
+    }
+
+    async fn fetch_subject(
+        &self,
+        category: &str,
+        subject_id: &str,
+    ) -> Result<serde_json::Value, FetchError> {
+        let resp = self
+            .client
+            .get(crate::server::subject::rexxar_url(category, subject_id))
+            // rexxar 校验移动端来源：Referer 必须指向 m.douban.com，UA 用移动端
+            //（请求级 header 覆盖 client 级桌面默认值）
+            .header("Referer", crate::server::subject::REXXAR_REFERER)
+            .header(reqwest::header::USER_AGENT, crate::server::subject::MOBILE_UA)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    FetchError::Timeout
+                } else {
+                    FetchError::Network(e.to_string())
+                }
+            })?;
+
+        let code = resp.status().as_u16();
+        if code == 404 {
+            return Err(FetchError::NotFound);
+        }
+        if !resp.status().is_success() {
+            return Err(FetchError::Blocked(code));
+        }
+        let text = String::from_utf8_lossy(&resp.bytes().await.map_err(|e| FetchError::Network(e.to_string()))?)
+            .into_owned();
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|_| FetchError::Suspicious(text.len()))?;
+        if value.get("title").is_none() {
+            return Err(FetchError::Suspicious(text.len()));
+        }
+        Ok(value)
     }
 }
