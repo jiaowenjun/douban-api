@@ -15,6 +15,10 @@ import {
   MARKS_NAVIGATION_GROUPS,
   resolveMarksView,
 } from './site/navigation'
+import {
+  DEMO_MARK_CARD_PATH,
+  MarkCardDemoPage,
+} from './site/pages/mark-card-demo'
 import { MarksPage } from './site/pages/marks-page'
 import { SidebarHeader } from './site/sidebar-header'
 
@@ -28,7 +32,10 @@ function useMarksViewFromLocation() {
 
 function SiteShell() {
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const view = useMarksViewFromLocation()
+  // 演示页不在主导航，顶栏标题单独给
+  const isDemo = pathname === DEMO_MARK_CARD_PATH
 
   function handleNavigate(item: SiteNavigationItem) {
     navigate(item.href.replace(/^#/, ''))
@@ -39,13 +46,14 @@ function SiteShell() {
       activeItemId={view?.activeItemId}
       navigationGroups={MARKS_NAVIGATION_GROUPS}
       onNavigate={handleNavigate}
-      pageTitle={view?.pageTitle}
+      pageTitle={isDemo ? 'MarkCard 演示' : view?.pageTitle}
       showSidebarCloseButton={false}
       siteName="weimo-douban"
-      sidebarHeader={<SidebarHeader siteName="weimo-douban" />}
+      sidebarHeader={<SidebarHeader />}
     >
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
+        <Route element={<MarkCardDemoPage />} path={DEMO_MARK_CARD_PATH} />
         <Route element={<MarksPage />} path="/:category" />
         <Route
           element={<Navigate replace to={DEFAULT_MARKS_PATH} />}

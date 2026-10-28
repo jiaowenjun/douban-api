@@ -9,9 +9,30 @@
   padding-block: 10px 4px;
 }
 
+/* 左侧身份行：头像（或占位图标）+ 用户名，排版对齐 biji-side-bar__identity */
 .sidebar-header__identity {
+  display: inline-flex;
   min-width: 0;
   flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-header__avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-round);
+  object-fit: cover;
+}
+
+.sidebar-header__identity > svg {
+  flex: none;
+  color: var(--color-text-secondary);
+}
+
+.sidebar-header__username {
+  min-width: 0;
   overflow: hidden;
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
@@ -21,30 +42,17 @@
   white-space: nowrap;
 }
 
+.sidebar-header__username--empty {
+  color: var(--color-text-placeholder);
+  font-weight: 400;
+}
+
 .sidebar-header__actions {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 8px;
   color: var(--color-text-secondary);
-}
-
-.sidebar-header__username {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* GhostIconButton 的定尺寸规则只认 svg（icon-button.css），头像 img 需自带尺寸 */
-.sidebar-header__avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-round);
-  object-fit: cover;
 }
 
 .sidebar-header__button {
