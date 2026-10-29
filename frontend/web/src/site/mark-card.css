@@ -8,6 +8,7 @@
    整卡根容器不描边（card-surface 自带边框，外框再描一条是噪音）也不补
    padding——它有真实 padding（10px 12px），覆盖成 2px 会扰动被调试的布局 */
 .sidebar-debug .mark-card__header,
+.sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
@@ -21,6 +22,7 @@
 }
 
 .sidebar-debug .mark-card__header,
+.sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
@@ -41,21 +43,62 @@
   padding: 10px 12px;
 }
 
-/* 顶部栏：日期居左；1fr auto 1fr 三槽的中/右槽空置即预留（标题位等） */
+/* 顶部栏：日期居左；1fr auto 1fr 三槽的右槽钉元信息折叠开关 */
 .mark-card__header {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  align-items: baseline;
+  align-items: center;
   column-gap: 8px;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
 }
 
-/* 条目信息区：封面（左，定宽列）与文字元信息（右，弹性列）单行并列 */
+/* 元信息折叠开关（对齐 BaseCard meta-toggle）：钉右槽，图标随展开旋转 */
+.mark-card__meta-toggle {
+  grid-column: 3;
+  justify-self: end;
+  color: var(--color-text-placeholder);
+  border-radius: var(--radius-round);
+}
+
+.mark-card__meta-toggle svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  transition: transform 180ms ease;
+}
+
+.mark-card__meta-toggle[data-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+/* 元信息区折叠（对齐 BaseCard meta-region）：grid-rows 0fr/1fr 过渡，
+   收起时负 margin 吞掉根 1em 区域间距 */
+.mark-card__meta-region {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 200ms ease,
+    margin-top 200ms ease,
+    visibility 200ms;
+}
+
+.mark-card__meta-region[data-expanded='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin-top: calc(-1 * 1em);
+}
+
+/* 条目信息区（折叠内层）：封面（左，定宽列）与文字元信息（右，弹性列）
+   单行并列；min-height/overflow 是 0fr 收起时裁切几何的前提 */
 .mark-card__subject {
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 12px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .mark-card__cover {

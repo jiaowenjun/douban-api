@@ -1,4 +1,8 @@
+import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
+import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 import { WdfRender, type WdfDocument } from 'weimo-ui-editor/components/wdf-render'
 
 import type { DoubanMark, DoubanSubject } from './api'
@@ -105,12 +109,14 @@ function markDocument(mark: DoubanMark): WdfDocument {
   return { schema: 'weimo.document', version: 1, root: { type: 'doc', content } }
 }
 
-/** 书影音标记卡片，三段式一级结构：顶部栏（标记日期）/ 条目信息区
-    （封面左，别名/元信息右，我的评分星级居首行豆瓣评分右侧）/ 评论正文区
-    （WdfRender 渲染标题 h1 + 短评段落），含 <li> 列表条目语义；
-    材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，
-    与 BaseCard 同源；纯展示，无链接与交互 */
+/** 书影音标记卡片，三段式一级结构：顶部栏（标记日期 + 右侧元信息折叠
+    开关）/ 条目信息区（封面左，别名/元信息右，我的评分星级居首行豆瓣
+    评分右侧；可折叠，默认收起）/ 评论正文区（WdfRender 渲染标题 h1 +
+    短评段落），含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）复用
+    weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现同源
+    BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
+  const [metaExpanded, setMetaExpanded] = useState(false)
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
   const cover = mark.subject?.cover || mark.cover
   const meta = mark.subject ? subjectMetaLines(mark.subject) : null
@@ -126,36 +132,49 @@ export function MarkCard({ mark }: MarkCardProps) {
     <li className={getCardSurfaceClassName('mark-card')}>
       <div className="mark-card__header">
         <span>{mark.date}</span>
+        <GhostIconButton
+          aria-expanded={metaExpanded}
+          aria-label={metaExpanded ? '收起元信息' : '展开元信息'}
+          className="mark-card__meta-toggle"
+          data-expanded={metaExpanded ? 'true' : undefined}
+          onClick={() => setMetaExpanded((current) => !current)}
+          size="sm"
+          type="button"
+        >
+          <ChevronRight aria-hidden="true" />
+        </GhostIconButton>
       </div>
-      <div className="mark-card__subject">
-        {cover ? (
-          <img
-            alt=""
-            className="mark-card__cover"
-            loading="lazy"
-            src={cover}
-          />
-        ) : (
-          <div className="mark-card__cover mark-card__cover--empty" />
-        )}
-        <div className="mark-card__info">
-          {metaHead || mark.my_rating ? (
-            <div className="mark-card__alt">
-              {metaHead}
-              {metaHead && mark.my_rating ? ' · ' : null}
-              {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-            </div>
-          ) : null}
-          {meta ? (
-            <>
-              <div className="mark-card__meta">{meta.primary}</div>
-              {meta.people ? (
-                <div className="mark-card__meta">{meta.people}</div>
-              ) : null}
-            </>
-          ) : mark.intro ? (
-            <div className="mark-card__intro">{mark.intro}</div>
-          ) : null}
+      <div className="mark-card__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
+        <div className="mark-card__subject">
+          {cover ? (
+            <img
+              alt=""
+              className="mark-card__cover"
+              loading="lazy"
+              src={cover}
+            />
+          ) : (
+            <div className="mark-card__cover mark-card__cover--empty" />
+          )}
+          <div className="mark-card__info">
+            {metaHead || mark.my_rating ? (
+              <div className="mark-card__alt">
+                {metaHead}
+                {metaHead && mark.my_rating ? ' · ' : null}
+                {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
+              </div>
+            ) : null}
+            {meta ? (
+              <>
+                <div className="mark-card__meta">{meta.primary}</div>
+                {meta.people ? (
+                  <div className="mark-card__meta">{meta.people}</div>
+                ) : null}
+              </>
+            ) : mark.intro ? (
+              <div className="mark-card__intro">{mark.intro}</div>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="mark-card__comment">
