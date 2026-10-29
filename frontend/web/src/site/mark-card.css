@@ -125,7 +125,10 @@
   justify-content: center;
 }
 
-/* 评分：底色五星 + 金色按比例裁切覆盖层 */
+/* 评分：底色五星 + 按比例裁切的单色覆盖层（黑白灰，随明暗主题翻转）。
+   配色对齐 weimo-ui-core 开关/滑块：未填充星 = 未选中轨道 --color-border，
+   填充星 = 选中轨道/指示条同一收敛档 color-mix(bg-primary, bg-card 15%)
+   ——亮主题深灰近黑、暗主题浅灰近白，不引入裸色值 */
 .mark-card-rating {
   position: relative;
   display: inline-block;
@@ -137,7 +140,7 @@
 }
 
 .mark-card-rating__base {
-  color: var(--color-border-emphasis);
+  color: var(--color-border);
 }
 
 .mark-card-rating__fill {
@@ -145,6 +148,5 @@
   inset: 0;
   overflow: hidden;
   white-space: nowrap;
-  /* 星级金：token 体系暂无 warning 类颜色 */
-  color: #f5a623;
+  color: color-mix(in srgb, var(--color-bg-primary), var(--color-bg-card) 15%);
 }

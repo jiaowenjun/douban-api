@@ -7,7 +7,8 @@ type MarkCardProps = {
   mark: DoubanMark
 }
 
-/** 评分星级：底色五星 + 按比例裁切的金色覆盖层（豆瓣式两段 ★★★★★ 叠加） */
+/** 评分星级：底色五星 + 按比例裁切的单色覆盖层（黑白灰随明暗主题翻转，
+ *  两段 ★★★★★ 叠加）；配色见 css 中开关/滑块同源说明 */
 function RatingStars({ value }: { value: number }) {
   const label = `我的评分：${value} 星`
   return (
