@@ -1,34 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
-import { fetchDoubanMarks, fetchDoubanSubjectDims } from '../api'
-import type { DoubanDims, DoubanMark } from '../api'
+import type { DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
+import {
+  fetchDoubanMarksPage,
+  MARKS_PAGE_SIZE,
+  useDoubanDimsQuery,
+  useDoubanMarksPageQuery,
+} from '../douban-queries'
 import { filterIds } from '../facet-engine'
 import { facetPathKey, facetValueLabel, parseFacetPath } from '../facet-model'
 import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
 
-const PAGE_SIZE = 20
-
-/** 列表态；加载更多失败保留已加载条目，只在按钮旁提示 */
-type MarksState =
-  | { phase: 'loading' }
-  | { phase: 'not-cached' }
-  | { phase: 'error'; message: string }
-  | {
-      phase: 'list'
-      items: DoubanMark[]
-      total: number
-      page: number
-      cachedAt: string
-      loadingMore: boolean
-      moreError: string | null
-    }
+const PAGE_SIZE = MARKS_PAGE_SIZE
 
 /** RFC3339 → YYYY-MM-DD（cached_at 只取日期粒度即可） */
 function formatDate(iso: string): string {
@@ -36,18 +26,16 @@ function formatDate(iso: string): string {
 }
 
 /** 标记列表页：读登录用户的缓存标记（GET /users/{uid}/marks），只读不触发抓取。
- *  分面筛选状态在 URL ?facet=dim=value——侧边栏筛选树写入、本页读取驱动
- *  请求；类别路由切换不带参数，天然清除筛选 */
+ *  数据经 react-query 缓存（同 biji 模式）：首页查询与加载更多的每页
+ *  各占独立 key，类别/筛选切回来命中缓存零请求；错误信封也进缓存，
+ *  「重试」走 refetch 强制重发。分面筛选状态在 URL ?facet=dim=value
+ *  ——侧边栏筛选树写入、本页读取驱动请求；类别路由切换不带参数，
+ *  天然清除筛选 */
 export function MarksPage() {
   const { category } = useParams()
   const view = resolveMarksView(category)
   const { uid, profile, openLogin } = useDoubanUser()
   const [searchParams] = useSearchParams()
-
-  // 请求序号：uid/类别切换或加载更多时自增，丢弃迟到的旧响应
-  const seqRef = useRef(0)
-  // 失败重试用的重放计数：自增即让下方 effect 重跑
-  const [reloadNonce, setReloadNonce] = useState(0)
 
   const marksCategory = view?.category
   // 分面筛选路径（可多步 AND：影视叶为 is_tv+genre 双条件，可清除）：
@@ -60,129 +48,108 @@ export function MarksPage() {
   const facetPath = realCategory
     ? parseFacetPath(realCategory, searchParams.get('facet'))
     : []
-  // 筛选命中 id 集（前端 facet-engine 算）：数据源为当前类别的维度
-  // 投影，随 uid/类别拉取缓存；无筛选为 undefined，筛选中数据未就绪
-  // 为 null（列表保持 loading）
-  const dimsKey = uid && realCategory ? `${uid}|${realCategory}` : null
-  const [dimsSnapshot, setDimsSnapshot] = useState<{
-    key: string | null
-    data: DoubanDims | null
-  }>({ key: null, data: null })
-  if (dimsKey !== dimsSnapshot.key) {
-    setDimsSnapshot({ key: dimsKey, data: null })
-  }
-  useEffect(() => {
-    if (!dimsKey || !uid || !realCategory) return
-    let cancelled = false
-    fetchDoubanSubjectDims(uid, realCategory).then((data) => {
-      if (!cancelled) setDimsSnapshot({ key: dimsKey, data })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [dimsKey, uid, realCategory])
 
-  const dimsReady =
-    dimsKey !== null && dimsSnapshot.key === dimsKey && dimsSnapshot.data
+  // 维度投影与侧边栏共用缓存（同 key 去重）；筛选命中 id 集由前端
+  // facet-engine 算——无筛选为 undefined，筛选中数据未就绪为 null
+  // （列表保持 loading）
+  const dimsQuery = useDoubanDimsQuery(uid, realCategory ?? null)
   const matchedIds: string[] | null | undefined = !facetPath.length
     ? undefined
-    : dimsReady && realCategory
-      ? filterIds(realCategory, dimsSnapshot.data!.items, facetPath)
+    : dimsQuery.data && realCategory
+      ? filterIds(realCategory, dimsQuery.data.items, facetPath)
       : null
   const facetKey = facetPathKey(facetPath)
-  const requestKey =
-    uid && marksCategory && matchedIds !== null
-      ? `${uid}|${marksCategory}|${facetKey}|${reloadNonce}`
-      : null
 
-  // 状态与它对应的请求 key 绑定；渲染期发现 key 变化即回到 loading
-  // （render 期调整，模式同 login-dialog 的 prevOpen，避免 effect 内同步 setState）
-  const [snapshot, setSnapshot] = useState<{
+  // 首页标记查询：enabled 保持旧门控（无筛选立即发；有筛选等 dims
+  // 就绪算出命中集再发）；竞态防护由 react-query 内建（按 key 取消旧
+  // 观察），不再需要手写 seqRef
+  const marksQuery = useDoubanMarksPageQuery({
+    uid,
+    category: marksCategory ?? null,
+    page: 1,
+    ids: matchedIds?.slice(0, PAGE_SIZE),
+    enabled: uid !== null && marksCategory !== undefined && matchedIds !== null,
+  })
+
+  // 加载更多累积页（page ≥ 2 的追加数据）：列表身份变化（uid/类别/
+  // 筛选）时按 key 比对清空（render 期调整，模式同旧 snapshot）
+  const listKey =
+    uid && marksCategory ? `${uid}|${marksCategory}|${facetKey}` : null
+  const [moreSnapshot, setMoreSnapshot] = useState<{
     key: string | null
-    state: MarksState
-  }>({ key: null, state: { phase: 'loading' } })
-  if (requestKey !== snapshot.key) {
-    setSnapshot({ key: requestKey, state: { phase: 'loading' } })
+    pages: DoubanMark[][]
+    loadingMore: boolean
+    moreError: string | null
+  }>({ key: null, pages: [], loadingMore: false, moreError: null })
+  if (moreSnapshot.key !== listKey) {
+    setMoreSnapshot({
+      key: listKey,
+      pages: [],
+      loadingMore: false,
+      moreError: null,
+    })
   }
-  const state = snapshot.state
 
-  useEffect(() => {
-    if (!requestKey || !uid || !marksCategory) return
-    const seq = ++seqRef.current
-    fetchDoubanMarks(
-      uid,
-      marksCategory,
-      1,
-      PAGE_SIZE,
-      matchedIds?.slice(0, PAGE_SIZE),
-    ).then((result) => {
-      if (seq !== seqRef.current) return
-      if (result.ok) {
-        setSnapshot({
-          key: requestKey,
-          state: {
-            phase: 'list',
-            items: result.data.items,
-            // ids 模式后端 total 是当页片数，命中总数以前端筛选结果为准
-            total: matchedIds ? matchedIds.length : result.data.total,
-              page: result.data.page,
-              cachedAt: result.data.cached_at,
-              loadingMore: false,
-              moreError: null,
-            },
-          })
-        } else if (result.kind === 'not-cached') {
-          setSnapshot({ key: requestKey, state: { phase: 'not-cached' } })
-        } else {
-          setSnapshot({
-            key: requestKey,
-            state: { phase: 'error', message: result.message },
-          })
+  // 列表态由「首页查询结果 + 追加页」派生，不再持有独立状态机
+  const first = marksQuery.data
+  const state:
+    | { phase: 'loading' }
+    | { phase: 'not-cached' }
+    | { phase: 'error'; message: string }
+    | {
+        phase: 'list'
+        items: DoubanMark[]
+        total: number
+        loadedPages: number
+        cachedAt: string
+      } = !first
+    ? { phase: 'loading' }
+    : !first.ok
+      ? first.kind === 'not-cached'
+        ? { phase: 'not-cached' }
+        : { phase: 'error', message: first.message }
+      : {
+          phase: 'list',
+          items: [...first.data.items, ...moreSnapshot.pages.flat()],
+          // ids 模式后端 total 是当页片数，命中总数以前端筛选结果为准
+          total: matchedIds ? matchedIds.length : first.data.total,
+          loadedPages: 1 + moreSnapshot.pages.length,
+          cachedAt: first.data.cached_at,
         }
-      },
-    )
-    // matchedIds 为每次渲染的新数组引用，依赖它会造成请求死循环——
-    // 以稳定的 facetKey 驱动（requestKey 已含），闭包取当次值
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid, marksCategory, requestKey, facetKey])
 
   async function loadMore() {
-    if (!uid || !marksCategory || state.phase !== 'list' || state.loadingMore) {
+    if (
+      !uid ||
+      !marksCategory ||
+      state.phase !== 'list' ||
+      moreSnapshot.loadingMore
+    ) {
       return
     }
-    const seq = ++seqRef.current
-    setSnapshot({
-      key: requestKey,
-      state: { ...state, loadingMore: true, moreError: null },
-    })
-    const nextPage = state.page + 1
-    const result = await fetchDoubanMarks(
-      uid,
-      marksCategory,
-      nextPage,
-      PAGE_SIZE,
-      matchedIds?.slice((nextPage - 1) * PAGE_SIZE, nextPage * PAGE_SIZE),
+    const capturedKey = listKey
+    const nextPage = state.loadedPages + 1
+    setMoreSnapshot((s) =>
+      s.key === capturedKey ? { ...s, loadingMore: true, moreError: null } : s,
     )
-    if (seq !== seqRef.current) return
-    if (result.ok) {
-      setSnapshot({
-        key: requestKey,
-        state: {
-          phase: 'list',
-          items: [...state.items, ...result.data.items],
-          total: matchedIds ? matchedIds.length : result.data.total,
-          page: result.data.page,
-          cachedAt: result.data.cached_at,
+    const result = await fetchDoubanMarksPage({
+      uid,
+      category: marksCategory,
+      page: nextPage,
+      ids: matchedIds?.slice((nextPage - 1) * PAGE_SIZE, nextPage * PAGE_SIZE),
+    })
+    setMoreSnapshot((s) => {
+      // 期间类别/筛选已切换：丢弃迟到页（对齐旧 seqRef 竞态防护）
+      if (s.key !== capturedKey) return s
+      if (result.ok) {
+        return {
+          ...s,
+          pages: [...s.pages, result.data.items],
           loadingMore: false,
           moreError: null,
-        },
-      })
-    } else {
-      setSnapshot({
-        key: requestKey,
-        state: { ...state, loadingMore: false, moreError: result.message },
-      })
-    }
+        }
+      }
+      return { ...s, loadingMore: false, moreError: result.message }
+    })
   }
 
   if (!view) {
@@ -220,7 +187,9 @@ export function MarksPage() {
       <div className="marks-page__placeholder">
         <p>加载失败：{state.message}</p>
         <TextButton
-          onClick={() => setReloadNonce((n) => n + 1)}
+          onClick={() => {
+            void marksQuery.refetch()
+          }}
           type="button"
           variant="ghost"
         >
@@ -249,17 +218,17 @@ export function MarksPage() {
         </ul>
         {hasMore ? (
           <div className="marks-page__more">
-            {state.moreError ? (
+            {moreSnapshot.moreError ? (
               <span className="marks-page__more-error">
-                {state.moreError}
+                {moreSnapshot.moreError}
               </span>
             ) : null}
             <TextButton
-              disabled={state.loadingMore}
+              disabled={moreSnapshot.loadingMore}
               onClick={loadMore}
               type="button"
             >
-              {state.loadingMore
+              {moreSnapshot.loadingMore
                 ? '加载中…'
                 : `加载更多（${state.items.length}/${state.total}）`}
             </TextButton>
