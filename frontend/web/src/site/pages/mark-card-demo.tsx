@@ -51,7 +51,32 @@ const FULL_MARK = mark({
   intro:
     '2026-10-28(中国大陆) / 示例导演 / 示例演员 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 汉语普通话',
   comment:
-    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：顶部为标记日期，标题行左侧为标题、右侧为星级，下方依次为又名、简介、完整展示的短评。',
+    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：顶部为标记日期，展开元信息首行为「标题 · 可选标题 · 豆瓣评分」，其后年份国家类型一行、导演与主演各一行，下方为完整展示的短评。',
+  subject: {
+    category: 'movie',
+    subject_id: 'demo-subject-full',
+    title: '完整字段示例',
+    original_title: 'A Full-Featured Example',
+    aka: [],
+    year: 2026,
+    rating: { value: 8.5, count: 123456 },
+    cover: '',
+    url: 'https://movie.douban.com/subject/0/',
+    status: 'collect',
+    fetched_at: '2026-10-28T00:00:00Z',
+    source: 'rexxar',
+    movie: {
+      directors: ['示例导演'],
+      actors: ['示例演员甲', '示例演员乙'],
+      genres: ['剧情', '喜剧'],
+      countries: ['中国大陆'],
+      languages: ['汉语普通话'],
+      durations: ['120分钟'],
+      pubdate: ['2026-10-28'],
+      is_tv: false,
+      episodes_count: null,
+    },
+  },
 })
 
 const RATING_MARKS = [1, 2, 3, 4, 5].map((n) =>

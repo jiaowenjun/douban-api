@@ -41,15 +41,15 @@ function join(parts: string[]): string {
   return parts.filter(Boolean).join(' · ')
 }
 
-/** 条目元信息 → 两行展示：首行"年份 · 国家/社 · 类型"（物理规格如片长/
- *  页数/介质不展示——对识别条目无用），次行人名（导演/主演、作者/译者、
- *  歌手）。intro 兜底源字段稀疏，逐项过滤，全空返回 null（由调用方回退
- *  intro 原文） */
+/** 条目元信息 → 首行"年份 · 国家/社 · 类型"（物理规格如片长/页数/介质
+ *  不展示——对识别条目无用）+ 人名行数组（电影导演/主演各一行、图书
+ *  作者/译者各一行、音乐歌手一行）。intro 兜底源字段稀疏，逐项过滤，
+ *  全空返回 null（由调用方回退 intro 原文） */
 function subjectMetaLines(
   subject: DoubanSubject,
-): { primary: string; people: string } | null {
+): { primary: string; people: string[] } | null {
   let primary: string
-  let people: string
+  let people: string[]
   if (subject.category === 'movie') {
     const m = subject.movie
     primary = join([
@@ -59,10 +59,10 @@ function subjectMetaLines(
     ])
     const directors = names(m?.directors, 2)
     const actors = names(m?.actors, 2)
-    people = join([
+    people = [
       directors.length ? `导演 ${directors.join('、')}` : '',
       actors.length ? `主演 ${actors.join('、')}` : '',
-    ])
+    ].filter(Boolean)
   } else if (subject.category === 'book') {
     const b = subject.book
     primary = join([
@@ -71,10 +71,10 @@ function subjectMetaLines(
     ])
     const authors = names(b?.authors, 3)
     const translators = names(b?.translators, 2)
-    people = join([
+    people = [
       authors.length ? `作者 ${authors.join('、')}` : '',
       translators.length ? `译者 ${translators.join('、')}` : '',
-    ])
+    ].filter(Boolean)
   } else {
     const m = subject.music
     primary = join([
@@ -82,9 +82,9 @@ function subjectMetaLines(
       names(m?.genres, 2).join(' / '),
     ])
     const singers = names(m?.singers, 3)
-    people = singers.length ? `歌手 ${singers.join('、')}` : ''
+    people = singers.length ? [`歌手 ${singers.join('、')}`] : []
   }
-  return primary || people ? { primary, people } : null
+  return primary || people.length > 0 ? { primary, people } : null
 }
 
 /** 标题 + 短评 → WDF 文档：标题固定 h1（weimo 卡片体系的标题级——
@@ -108,18 +108,25 @@ function markDocument(mark: DoubanMark): WdfDocument {
 }
 
 /** 书影音标记卡片，三段式一级结构：顶部栏（标记日期 + 右侧元信息折叠
-    开关）/ 条目信息区（封面左——正下方居中我的评分星级，别名/元信息
-    右，豆瓣评分收在元信息末行；可折叠，默认收起）/ 评论正文区
-    （WdfRender 渲染标题 h1 + 短评段落），含 <li> 列表条目语义；材质
-    （背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，与
-    BaseCard 同源；折叠实现同源 BaseCard metaCollapsible；纯展示除
-    折叠开关外无交互 */
+    开关）/ 条目信息区（封面左——正下方居中我的评分星级，文字列右——
+    首行可选标题行「标题 · 可选标题 · 豆瓣评分」，其后年份国家类型与
+    导演/主演各角色一行；可折叠，默认收起）/ 评论正文区（WdfRender 渲染
+    标题 h1 + 短评段落），含 <li> 列表条目语义；材质（背景/边框/圆角/
+    阴影）复用 weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现
+    同源 BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   const [metaExpanded, setMetaExpanded] = useState(false)
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
   const cover = mark.subject?.cover || mark.cover
   const meta = mark.subject ? subjectMetaLines(mark.subject) : null
   const doubanRating = mark.subject?.rating.value
+  // 可选标题行的可选段（可选标题/豆瓣评分）；全缺时整行不渲染——标题
+  // 已由正文区 h1 承载，孤行纯重复
+  const optionalTitleSegments = [
+    mark.alt_title,
+    doubanRating != null ? `${doubanRating.toFixed(1)}分` : '',
+  ].filter(Boolean)
+  const titleRow = [mark.title, ...optionalTitleSegments].join(' · ')
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
@@ -153,23 +160,22 @@ export function MarkCard({ mark }: MarkCardProps) {
             {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
           </div>
           <div className="mark-card__info">
-            {mark.alt_title ? (
-              <div className="mark-card__alt">{mark.alt_title}</div>
+            {optionalTitleSegments.length > 0 ? (
+              <div className="mark-card__title-row">{titleRow}</div>
             ) : null}
             {meta ? (
               <>
-                <div className="mark-card__meta">{meta.primary}</div>
-                {meta.people ? (
-                  <div className="mark-card__meta">{meta.people}</div>
+                {meta.primary ? (
+                  <div className="mark-card__meta">{meta.primary}</div>
                 ) : null}
+                {meta.people.map((line) => (
+                  <div className="mark-card__meta" key={line}>
+                    {line}
+                  </div>
+                ))}
               </>
             ) : mark.intro ? (
               <div className="mark-card__intro">{mark.intro}</div>
-            ) : null}
-            {doubanRating != null ? (
-              <div className="mark-card__ratings">
-                豆瓣 {doubanRating.toFixed(1)}
-              </div>
             ) : null}
           </div>
         </div>

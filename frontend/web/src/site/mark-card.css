@@ -13,9 +13,8 @@
 .sidebar-debug .mark-card__cover-region,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
-.sidebar-debug .mark-card__alt,
+.sidebar-debug .mark-card__title-row,
 .sidebar-debug .mark-card__meta,
-.sidebar-debug .mark-card__ratings,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
 .sidebar-debug .mark-card-rating {
@@ -29,9 +28,8 @@
 .sidebar-debug .mark-card__cover-region,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
-.sidebar-debug .mark-card__alt,
+.sidebar-debug .mark-card__title-row,
 .sidebar-debug .mark-card__meta,
-.sidebar-debug .mark-card__ratings,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
 .sidebar-debug .mark-card-rating {
@@ -151,14 +149,10 @@
   --md-font-size: var(--font-size-base);
 }
 
-.mark-card__alt {
-  color: var(--color-text-placeholder);
-  font-size: var(--font-size-sm);
-}
-
-/* 评分行（元信息末行）：豆瓣评分文字（我的评分星级在封面下方），弱化
-   灰同别名/元信息行 */
-.mark-card__ratings {
+/* 可选标题行（元信息区首行）：「标题 · 可选标题 · 豆瓣评分」，可选段
+   全缺时整行不渲染（标题由正文区 h1 承载）；弱化灰同元信息行，超长
+   自然换行不省略 */
+.mark-card__title-row {
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
 }
@@ -169,7 +163,8 @@
 }
 
 /* 条目元信息（expand=subject）：首行 年份·国家/社·类型（物理规格不展示），
-   次行人名，各单行省略——卡片是列表条目不是详情页；字色与别名行同为弱化灰 */
+   其后导演/主演（图书作者/译者、音乐歌手）各角色一行，各单行省略——
+   卡片是列表条目不是详情页；字色与可选标题行同为弱化灰 */
 .mark-card__meta {
   overflow: hidden;
   color: var(--color-text-placeholder);
