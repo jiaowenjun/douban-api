@@ -1,6 +1,38 @@
-/* 书影音标记卡片：封面 + 标题/评分/短评（列表条目）。
+/* 书影音标记卡片：封面 + 标题/评分/条目元信息/短评（列表条目）。
    材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core 的 card-surface
    —— 由组件挂 card-surface 类提供，这里只留布局与内容排版 */
+
+/* 侧边栏 DEBUG 开关（html.sidebar-debug）开启时描边卡片内部子容器，便于调布局。
+   描边样式对齐侧边栏（1px solid --color-border + 2px 临时内边距）；圆角用
+   更小的 --radius-sm（卡片子容器是小盒，侧边栏分组的 --radius 16px 偏大）。
+   整卡根容器不描边（card-surface 自带边框，外框再描一条是噪音）也不补
+   padding——它有真实 padding（10px 12px），覆盖成 2px 会扰动被调试的布局 */
+.sidebar-debug .mark-card__cover,
+.sidebar-debug .mark-card__body,
+.sidebar-debug .mark-card__title-row,
+.sidebar-debug .mark-card__title,
+.sidebar-debug .mark-card__alt,
+.sidebar-debug .mark-card__meta,
+.sidebar-debug .mark-card__intro,
+.sidebar-debug .mark-card__comment,
+.sidebar-debug .mark-card__footer,
+.sidebar-debug .mark-card-rating {
+  outline: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-debug .mark-card__cover,
+.sidebar-debug .mark-card__body,
+.sidebar-debug .mark-card__title-row,
+.sidebar-debug .mark-card__title,
+.sidebar-debug .mark-card__alt,
+.sidebar-debug .mark-card__meta,
+.sidebar-debug .mark-card__intro,
+.sidebar-debug .mark-card__comment,
+.sidebar-debug .mark-card__footer,
+.sidebar-debug .mark-card-rating {
+  padding: 2px;
+}
 
 .mark-card {
   display: flex;
