@@ -115,6 +115,8 @@ export type MarksResult =
 /** 拉取某维度（category+status）的标记页；只读缓存，不触发抓取。
  *  附 expand=subject：每条标记带条目结构化元信息（已富集用 rexxar 数据，
  *  未富集回退 intro 启发式合成，旧版后端不认该参数）。
+ *  facet 为可选分面过滤（格式 dim=value，多个条件用 ; 分隔，后端按类别
+ *  白名单校验；同维度 OR、跨维度 AND），过滤后 total/分页均按命中集计。
  *  404 DIMENSION_NOT_CACHED（该用户该维度尚未同步过）单列为 not-cached，
  *  其余失败（网络/限流/鉴权等）归为 error，均不抛错 */
 export async function fetchDoubanMarks(
@@ -122,6 +124,7 @@ export async function fetchDoubanMarks(
   category: string,
   page = 1,
   pageSize = 20,
+  facet?: string | null,
 ): Promise<MarksResult> {
   const params = new URLSearchParams({
     category,
@@ -130,6 +133,9 @@ export async function fetchDoubanMarks(
     page_size: String(pageSize),
     expand: 'subject',
   })
+  if (facet) {
+    params.set('facet', facet)
+  }
   try {
     const res = await fetch(
       `/api/v1/users/${encodeURIComponent(uid)}/marks?${params}`,
@@ -149,5 +155,45 @@ export async function fetchDoubanMarks(
     return { ok: false, kind, message }
   } catch {
     return { ok: false, kind: 'error', message: '网络错误，请稍后重试' }
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// /users/{uid}/facets
+// --------------------------------------------------------------------------- //
+
+/** 单个分面值及其计数（计数 = 元信息含该值的标记条数） */
+export type DoubanFacetValue = {
+  value: string
+  count: number
+}
+
+/** 分面聚合响应；facets 键随类别——movie: genre/country/director/decade，
+ *  book: press/author/translator/decade，music: genre/singer/decade。
+ *  值列表按计数降序、同计数按值升序（后端排序） */
+export type DoubanFacets = {
+  user: string
+  category: string
+  status: string
+  /** 该维度标记总数（未按分面过滤） */
+  total: number
+  facets: Record<string, DoubanFacetValue[]>
+}
+
+/** 拉取某维度的分面聚合（分面树数据源，只读缓存）；维度未同步或请求
+ *  失败一律返回 null——分面面板静默隐藏，不打断列表页主流程 */
+export async function fetchDoubanFacets(
+  uid: string,
+  category: string,
+): Promise<DoubanFacets | null> {
+  try {
+    const params = new URLSearchParams({ category, status: MARKS_STATUS })
+    const res = await fetch(
+      `/api/v1/users/${encodeURIComponent(uid)}/facets?${params}`,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as DoubanFacets
+  } catch {
+    return null
   }
 }

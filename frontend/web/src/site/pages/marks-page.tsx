@@ -4,9 +4,12 @@ import { Navigate, useParams } from 'react-router'
 
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
-import { fetchDoubanMarks } from '../api'
-import type { DoubanMark } from '../api'
+import { fetchDoubanFacets, fetchDoubanMarks } from '../api'
+import type { DoubanFacets, DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
+import { FacetTree } from '../facet-tree'
+import { facetDimLabel } from '../facet-model'
+import type { FacetSelection } from '../facet-model'
 import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
@@ -45,8 +48,19 @@ export function MarksPage() {
   const [reloadNonce, setReloadNonce] = useState(0)
 
   const marksCategory = view?.category
+  // 分面筛选（单选，可清除）；类别切换时在渲染期同步清除，
+  // 避免旧类别的维度值打到新类别上（后端按类别白名单校验会 400）
+  const [facet, setFacet] = useState<FacetSelection | null>(null)
+  const [facetCategory, setFacetCategory] = useState(marksCategory)
+  if (marksCategory !== facetCategory) {
+    setFacetCategory(marksCategory)
+    setFacet(null)
+  }
+  const facetParam = facet ? `${facet.dim}=${facet.value}` : null
   const requestKey =
-    uid && marksCategory ? `${uid}|${marksCategory}|${reloadNonce}` : null
+    uid && marksCategory
+      ? `${uid}|${marksCategory}|${facetParam ?? ''}|${reloadNonce}`
+      : null
 
   // 状态与它对应的请求 key 绑定；渲染期发现 key 变化即回到 loading
   // （render 期调整，模式同 login-dialog 的 prevOpen，避免 effect 内同步 setState）
@@ -59,34 +73,59 @@ export function MarksPage() {
   }
   const state = snapshot.state
 
+  // 分面聚合：仅随 uid/类别变化重取，与筛选选择无关；
+  // 失败/未同步返回 null，面板静默隐藏不打断列表
+  const facetsKey = uid && marksCategory ? `${uid}|${marksCategory}` : null
+  const [facetsSnapshot, setFacetsSnapshot] = useState<{
+    key: string | null
+    data: DoubanFacets | null
+  }>({ key: null, data: null })
+  if (facetsKey !== facetsSnapshot.key) {
+    setFacetsSnapshot({ key: facetsKey, data: null })
+  }
+  useEffect(() => {
+    if (!facetsKey || !uid || !marksCategory) return
+    let cancelled = false
+    fetchDoubanFacets(uid, marksCategory).then((data) => {
+      if (!cancelled) {
+        setFacetsSnapshot({ key: facetsKey, data })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [facetsKey, uid, marksCategory])
+
   useEffect(() => {
     if (!requestKey || !uid || !marksCategory) return
     const seq = ++seqRef.current
-    fetchDoubanMarks(uid, marksCategory, 1, PAGE_SIZE).then((result) => {
-      if (seq !== seqRef.current) return
-      if (result.ok) {
-        setSnapshot({
-          key: requestKey,
-          state: {
-            phase: 'list',
-            items: result.data.items,
-            total: result.data.total,
-            page: result.data.page,
-            cachedAt: result.data.cached_at,
-            loadingMore: false,
-            moreError: null,
-          },
-        })
-      } else if (result.kind === 'not-cached') {
-        setSnapshot({ key: requestKey, state: { phase: 'not-cached' } })
-      } else {
-        setSnapshot({
-          key: requestKey,
-          state: { phase: 'error', message: result.message },
-        })
-      }
-    })
-  }, [uid, marksCategory, requestKey])
+    fetchDoubanMarks(uid, marksCategory, 1, PAGE_SIZE, facetParam).then(
+      (result) => {
+        if (seq !== seqRef.current) return
+        if (result.ok) {
+          setSnapshot({
+            key: requestKey,
+            state: {
+              phase: 'list',
+              items: result.data.items,
+              total: result.data.total,
+              page: result.data.page,
+              cachedAt: result.data.cached_at,
+              loadingMore: false,
+              moreError: null,
+            },
+          })
+        } else if (result.kind === 'not-cached') {
+          setSnapshot({ key: requestKey, state: { phase: 'not-cached' } })
+        } else {
+          setSnapshot({
+            key: requestKey,
+            state: { phase: 'error', message: result.message },
+          })
+        }
+      },
+    )
+  }, [uid, marksCategory, requestKey, facetParam])
 
   async function loadMore() {
     if (!uid || !marksCategory || state.phase !== 'list' || state.loadingMore) {
@@ -103,6 +142,7 @@ export function MarksPage() {
       marksCategory,
       nextPage,
       PAGE_SIZE,
+      facetParam,
     )
     if (seq !== seqRef.current) return
     if (result.ok) {
@@ -129,6 +169,32 @@ export function MarksPage() {
   if (!view) {
     return <Navigate replace to={DEFAULT_MARKS_PATH} />
   }
+
+  // 分面筛选面板：聚合数据就绪才出现；标题行右侧给当前筛选的清除入口
+  const facetsData = facetsSnapshot.data
+  const facetPanel =
+    uid && marksCategory && facetsData ? (
+      <section className="marks-page__facet">
+        <div className="marks-page__facet-head">
+          <span className="marks-page__facet-title">筛选</span>
+          {facet ? (
+            <TextButton
+              onClick={() => setFacet(null)}
+              type="button"
+              variant="ghost"
+            >
+              清除筛选（{facetDimLabel(marksCategory, facet.dim)}：{facet.value}）
+            </TextButton>
+          ) : null}
+        </div>
+        <FacetTree
+          category={marksCategory}
+          facets={facetsData}
+          onSelect={setFacet}
+          selection={facet}
+        />
+      </section>
+    ) : null
 
   let content: ReactNode
   if (!uid) {
@@ -172,6 +238,9 @@ export function MarksPage() {
       <>
         <p className="marks-page__meta">
           {profile?.username || uid} 共 {state.total} 条
+          {facet
+            ? ` · ${facetDimLabel(view.category, facet.dim)}：${facet.value}`
+            : ''}
           {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
         </p>
         <ul className="marks-list">
@@ -204,6 +273,7 @@ export function MarksPage() {
   return (
     <section className="marks-page">
       <h1 className="marks-page__title">{view.pageTitle}</h1>
+      {facetPanel}
       {content}
     </section>
   )

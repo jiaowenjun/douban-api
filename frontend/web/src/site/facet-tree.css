@@ -1,0 +1,26 @@
+/* ------------------------------------------------------------------ */
+/* 分面筛选面板（FacetTree 容器）；树行样式随 weimo-ui-tagtree 导入
+   ------------------------------------------------------------------ */
+
+.marks-page__facet {
+  display: grid;
+  gap: 0.5em;
+  max-height: 340px;
+  padding: calc(var(--space-card-pad, 13px) * 0.75);
+  overflow-y: auto;
+  border: 1px solid var(--color-border, hsl(var(--border)));
+  border-radius: var(--radius);
+  background: var(--color-bg-card, hsl(var(--card)));
+}
+
+.marks-page__facet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.marks-page__facet-title {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}

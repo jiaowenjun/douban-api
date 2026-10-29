@@ -21,6 +21,7 @@ use std::net::SocketAddr;
 use crate::crawler::{Category, Status};
 
 use super::error::{AppError, AppResult};
+use super::facets;
 use super::service::{self, CreateTaskInput, TaskView, TERMINAL_STATUSES};
 use super::state::AppState;
 use super::subject;
@@ -60,6 +61,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}/result", get(get_result))
         .route("/syncs/{task_id}/events", get(get_sync_events))
         .route("/users/{uid}/marks", get(get_marks))
+        .route("/users/{uid}/facets", get(get_facets))
         .route("/subjects/{category}/{subject_id}", get(get_subject))
         .route(
             "/subjects/{category}/{subject_id}/refresh",
@@ -436,6 +438,11 @@ struct MarksQuery {
     page_size: Option<i64>,
     /// 展开 items 关联的条目元信息；当前仅支持 "subject"（未富集条目该字段为 null）
     expand: Option<String>,
+    /// 分面过滤（格式 dim=value，多个条件用 ; 分隔）：同维度多次出现 = OR，
+    /// 跨维度 = AND。维度白名单见 facets 模块（如 movie 的 genre/country/
+    /// director/decade）。单字符串 + 分号而非重复参数：axum Query 的
+    /// serde 反序列化不支持单 key 收集为序列
+    facet: Option<String>,
 }
 
 async fn get_marks(
@@ -466,7 +473,13 @@ async fn get_marks(
         }
     };
 
-    let marks = service::read_marks(&state, &uid, category, status, page, page_size).await?;
+    let raw_facets: Vec<String> = q
+        .facet
+        .as_deref()
+        .map(|s| s.split(';').map(str::to_string).collect())
+        .unwrap_or_default();
+    let facets = facets::parse_filters(category, &raw_facets)?;
+    let marks = service::read_marks(&state, &uid, category, status, page, page_size, &facets).await?;
     let items: Value = if expand_subject {
         // subjects 已富集返回 rexxar 视图，未富集回退 intro 解析合成（source=intro）
         let views = subject::load_subject_views(&state, category.key(), &marks.items).await?;
@@ -492,6 +505,38 @@ async fn get_marks(
         "page_size": marks.page_size,
         "items": items,
     })))
+}
+
+// --------------------------------------------------------------------------- //
+// /users/{uid}/facets（分面树数据源，方案 A 分面导航）
+// --------------------------------------------------------------------------- //
+
+#[derive(serde::Deserialize)]
+struct FacetsQuery {
+    category: Option<String>,
+    status: Option<String>,
+}
+
+/// 全量聚合该维度各分面的值计数；维度未同步与 marks 同语义 404
+/// DIMENSION_NOT_CACHED，只读缓存不触发抓取
+async fn get_facets(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+    Query(q): Query<FacetsQuery>,
+) -> AppResult<Json<Value>> {
+    let category = q
+        .category
+        .as_deref()
+        .and_then(Category::from_key)
+        .ok_or_else(|| AppError::InvalidArgument("缺少或非法 category 参数".to_string()))?;
+    let status = q
+        .status
+        .as_deref()
+        .and_then(Status::from_key)
+        .ok_or_else(|| AppError::InvalidArgument("缺少或非法 status 参数".to_string()))?;
+    Ok(Json(
+        facets::facet_counts(&state, &uid, category, status).await?,
+    ))
 }
 
 // --------------------------------------------------------------------------- //
