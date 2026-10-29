@@ -1,0 +1,31 @@
+/* 侧边栏统计区：StatGroup/Heatmap 布局对齐 weimo-biji 的
+   biji-side-bar__stats；模板导航自带 16px 内边距，不再做 biji 的
+   edge-inline 居中（stat-group 默认 max-width 243px + margin auto
+   居中由组件包自带） */
+.sidebar-stats {
+  padding-top: 12px;
+}
+
+.sidebar-stats .stat-group {
+  margin-bottom: 12px;
+}
+
+.sidebar-stats .stat-group__label {
+  font-size: 13px;
+}
+
+/* 13 列格子撑满导航内容宽（space-between）；下缘间距交给模板
+   navigation 的列间 gap（20px），不再另加 padding-bottom */
+.sidebar-stats .heatmap {
+  justify-content: space-between;
+  padding-block: 12px 0;
+  padding-inline: 0;
+}
+
+.sidebar-stats__status {
+  margin: 0;
+  padding-block: 12px 4px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+}

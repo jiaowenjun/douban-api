@@ -1,3 +1,12 @@
+/* 顶部区整体（身份栏 + 统计区）：模板 sidebarHeader 插槽的容器是行
+   flex（justify-content: space-between），单一子节点需转纵向块级并
+   撑满，统计区才能换行到身份栏下方 */
+.sidebar-head {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+
 .sidebar-header {
   display: flex;
   width: 100%;

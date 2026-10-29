@@ -24,6 +24,7 @@ use super::error::{AppError, AppResult};
 use super::facets;
 use super::service::{self, CreateTaskInput, TaskView, TERMINAL_STATUSES};
 use super::state::AppState;
+use super::stats;
 use super::subject;
 
 /// CORS 白名单（逗号分隔；空 = 不启用）。跨源部署 admin（如 dist 静态站 + 远端 API）时配置。
@@ -62,6 +63,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}/events", get(get_sync_events))
         .route("/users/{uid}/marks", get(get_marks))
         .route("/users/{uid}/facets", get(get_facets))
+        .route("/users/{uid}/stats", get(get_stats))
         .route("/subjects/{category}/{subject_id}", get(get_subject))
         .route(
             "/subjects/{category}/{subject_id}/refresh",
@@ -537,6 +539,31 @@ async fn get_facets(
     Ok(Json(
         facets::facet_counts(&state, &uid, category, status).await?,
     ))
+}
+
+// --------------------------------------------------------------------------- //
+// /users/{uid}/stats（侧边栏统计：按类别计数 + 按日计数）
+// --------------------------------------------------------------------------- //
+
+#[derive(serde::Deserialize)]
+struct StatsQuery {
+    /// 缺省 collect（站点只展示看过）
+    status: Option<String>,
+}
+
+/// 侧边栏统计聚合，只读缓存不触发抓取；未同步的类别计 0，
+/// 不走 marks 的 DIMENSION_NOT_CACHED 404（小部件允许部分数据缺失）
+async fn get_stats(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+    Query(q): Query<StatsQuery>,
+) -> AppResult<Json<Value>> {
+    let status = match q.status.as_deref() {
+        None => Status::Collect,
+        Some(key) => Status::from_key(key)
+            .ok_or_else(|| AppError::InvalidArgument("非法 status 参数".to_string()))?,
+    };
+    Ok(Json(stats::user_stats(&state, &uid, status).await?))
 }
 
 // --------------------------------------------------------------------------- //

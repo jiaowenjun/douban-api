@@ -4,16 +4,19 @@ import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 
 import { useDoubanUser } from './douban-user'
 import { SidebarDebugSwitch } from './sidebar-debug-switch'
+import { SidebarStats } from './sidebar-stats'
 import './sidebar-header.css'
 
-/** 侧边栏顶部栏：左侧头像 + 用户名，右侧登录/设置入口（GhostIconButton），
-    样式对齐 weimo-biji 的 biji-side-bar__header；
-    附带钉在侧边栏底部的 DEBUG 子容器描边开关 */
+/** 侧边栏顶部区：身份栏（左头像 + 用户名，右登录/设置入口，样式对齐
+    weimo-biji 的 biji-side-bar__header）+ 其下紧跟的标记统计区
+    （StatGroup/Heatmap，对齐 biji-side-bar__stats 的布局次序），
+    经模板 sidebarHeader 插槽整体注入；附带钉在侧边栏底部的 DEBUG
+    子容器描边开关 */
 export function SidebarHeader() {
   const { uid, profile, openLogin } = useDoubanUser()
 
   return (
-    <>
+    <div className="sidebar-head">
       <div className="sidebar-header">
         <div className="sidebar-header__identity">
           {profile?.avatar ? (
@@ -69,7 +72,8 @@ export function SidebarHeader() {
           </GhostIconButton>
         </div>
       </div>
+      <SidebarStats />
       <SidebarDebugSwitch />
-    </>
+    </div>
   )
 }

@@ -10,6 +10,7 @@ pub mod routes;
 pub mod service;
 pub mod subject;
 pub mod state;
+pub mod stats;
 pub mod worker;
 
 use anyhow::{Context, Result};

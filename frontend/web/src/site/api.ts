@@ -197,3 +197,36 @@ export async function fetchDoubanFacets(
     return null
   }
 }
+
+// --------------------------------------------------------------------------- //
+// /users/{uid}/stats
+// --------------------------------------------------------------------------- //
+
+/** 按日计数（date 为 YYYY-MM-DD），形状即 Heatmap 的 dailyCounts */
+export type DoubanDailyCount = {
+  date: string
+  count: number
+}
+
+/** 侧边栏统计聚合；totals 三类恒出现（未同步的类别为 0） */
+export type DoubanStats = {
+  user: string
+  status: string
+  totals: { movie: number; book: number; music: number }
+  daily_counts: DoubanDailyCount[]
+}
+
+/** 拉取标记统计（按类别计数 + 按日计数，只读缓存）；请求失败返回
+ *  null——侧边栏统计区静默隐藏，不打断站点主流程 */
+export async function fetchDoubanStats(uid: string): Promise<DoubanStats | null> {
+  try {
+    const params = new URLSearchParams({ status: MARKS_STATUS })
+    const res = await fetch(
+      `/api/v1/users/${encodeURIComponent(uid)}/stats?${params}`,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as DoubanStats
+  } catch {
+    return null
+  }
+}
