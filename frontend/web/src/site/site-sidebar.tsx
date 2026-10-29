@@ -50,29 +50,52 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     ? parseFacetParam(category, searchParams.get('facet'))
     : null
 
-  // 分面聚合：随 uid/类别重取，与筛选选择无关；失败/未同步返回 null，
-  // 树区静默隐藏（快照模式同 marks-page，渲染期回退 loading）
-  const facetsKey = uid && category ? `${uid}|${category}` : null
+  // 分面聚合：三类别一次并行取，快照只随 uid 变不随路由变——树是
+  // 三类别常驻结构，切类别不再重取；单类别失败/未同步该根不出现
+  // （allSettled 容错，快照模式同 marks-page 渲染期回退 loading）
+  const facetsKey = uid
   const [facetsSnapshot, setFacetsSnapshot] = useState<{
     key: string | null
     loading: boolean
-    data: DoubanFacets | null
+    data: Partial<Record<MarksCategory, DoubanFacets>> | null
   }>({ key: null, loading: false, data: null })
   if (facetsKey !== facetsSnapshot.key) {
     setFacetsSnapshot({ key: facetsKey, loading: true, data: null })
   }
   useEffect(() => {
-    if (!facetsKey || !uid || !category) return
+    if (!facetsKey) return
     let cancelled = false
-    fetchDoubanFacets(uid, category).then((data) => {
-      if (!cancelled) {
-        setFacetsSnapshot({ key: facetsKey, loading: false, data })
-      }
+    Promise.allSettled(
+      MARKS_CATEGORIES.map((facetCategory) =>
+        fetchDoubanFacets(facetsKey, facetCategory),
+      ),
+    ).then((results) => {
+      if (cancelled) return
+      const byCategory: Partial<Record<MarksCategory, DoubanFacets>> = {}
+      MARKS_CATEGORIES.forEach((facetCategory, index) => {
+        const result = results[index]
+        if (result.status === 'fulfilled' && result.value) {
+          byCategory[facetCategory] = result.value
+        }
+      })
+      setFacetsSnapshot({ key: facetsKey, loading: false, data: byCategory })
     })
     return () => {
       cancelled = true
     }
-  }, [facetsKey, uid, category])
+  }, [facetsKey])
+
+  // 展开态：类别切换时重置为「当前类别根展开」；用户手动展开的
+  // 其他类别在同一类别会话内保留。选中叶子到维度的链路不必记录
+  // ——TagTree 对选中祖先自动展开
+  const [expandedTags, setExpandedTags] = useState<string[]>([])
+  const [expandedCategory, setExpandedCategory] = useState<
+    MarksCategory | undefined | null
+  >(null)
+  if (category !== expandedCategory) {
+    setExpandedCategory(category)
+    setExpandedTags(category ? [category] : [])
+  }
 
   function handleNavSelect(tag: string) {
     // 不带查询参数导航，类别切换天然清除分面筛选
@@ -81,32 +104,49 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  function handleFacetSelect(next: FacetSelection | null) {
-    setSearchParams(
-      next ? { facet: `${next.dim}=${next.value}` } : {},
-    )
+  function handleFacetSelect(
+    target: MarksCategory,
+    next: FacetSelection | null,
+  ) {
+    if (!next) {
+      // 取消只可能来自当前类别的已选叶子
+      setSearchParams({})
+    } else if (target === category) {
+      setSearchParams({ facet: `${next.dim}=${next.value}` })
+    } else {
+      // 跨类别叶子：一步跳到目标类别并带筛选（等效导航，需回顶）
+      navigate(
+        `/${target}?facet=${encodeURIComponent(`${next.dim}=${next.value}`)}`,
+      )
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    onClose()
   }
 
-  // 筛选树区：未登录/无类别（演示页）不渲染；加载中给占位行，
-  // 失败/未同步整区隐藏
+  // 筛选树区：未登录或三类别聚合全空（全失败/全未同步）不渲染；
+  // 加载中给占位行
   const facetsData = facetsSnapshot.data
-  const facetSection = !uid || !category ? null : (
-    <section aria-label="分面筛选" className="site-sidebar__facet">
-      <div className="site-sidebar__section-hint">筛选</div>
-      {facetsData ? (
-        <FacetTree
-          category={category}
-          facets={facetsData}
-          onSelect={handleFacetSelect}
-          selection={selection}
-        />
-      ) : facetsSnapshot.loading ? (
-        <div className="site-sidebar__status" role="status">
-          筛选加载中…
-        </div>
-      ) : null}
-    </section>
-  )
+  const hasFacets = !!facetsData && Object.keys(facetsData).length > 0
+  const facetSection =
+    !uid || (!hasFacets && !facetsSnapshot.loading) ? null : (
+      <section aria-label="分面筛选" className="site-sidebar__facet">
+        <div className="site-sidebar__section-hint">筛选</div>
+        {hasFacets ? (
+          <FacetTree
+            activeCategory={category}
+            expandedTags={expandedTags}
+            facetsByCategory={facetsData}
+            onExpandedTagsChange={setExpandedTags}
+            onSelect={handleFacetSelect}
+            selection={selection}
+          />
+        ) : (
+          <div className="site-sidebar__status" role="status">
+            筛选加载中…
+          </div>
+        )}
+      </section>
+    )
 
   return (
     <div className="site-sidebar">

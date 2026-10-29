@@ -38,6 +38,10 @@ export type FacetSelection = {
   value: string
 }
 
+/** 树上叶子的完整分面条件：含所属类别（三类别常驻树中跨类别叶子
+ *  需要类别信息才能决定改参数还是跳路由） */
+export type FacetLeaf = FacetSelection & { category: MarksCategory }
+
 /** URL ?facet= 参数（dim=value）→ 选择；维度不在该类别白名单或格式
  *  非法返回 null（侧边栏树与列表页共享 URL 的解析入口，手改 URL 的
  *  容错由前端先行拦截，后端仍兜底校验） */
