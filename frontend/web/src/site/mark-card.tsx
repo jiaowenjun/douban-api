@@ -41,9 +41,10 @@ function join(parts: string[]): string {
   return parts.filter(Boolean).join(' · ')
 }
 
-/** 条目元信息 → 两行展示：首行"年份 · 国家/社 · 类型 · 片长/页数"，
- *  次行人名（导演/主演、作者/译者、歌手）。intro 兜底源字段稀疏，
- *  逐项过滤，全空返回 null（由调用方回退 intro 原文） */
+/** 条目元信息 → 两行展示：首行"年份 · 国家/社 · 类型"（物理规格如片长/
+ *  页数/介质不展示——对识别条目无用），次行人名（导演/主演、作者/译者、
+ *  歌手）。intro 兜底源字段稀疏，逐项过滤，全空返回 null（由调用方回退
+ *  intro 原文） */
 function subjectMetaLines(
   subject: DoubanSubject,
 ): { primary: string; people: string } | null {
@@ -55,7 +56,6 @@ function subjectMetaLines(
       subject.year ? String(subject.year) : '',
       names(m?.countries, 2).join(' '),
       names(m?.genres, 3).join(' / '),
-      names(m?.durations, 1)[0] ?? '',
     ])
     const directors = names(m?.directors, 2)
     const actors = names(m?.actors, 3)
@@ -68,7 +68,6 @@ function subjectMetaLines(
     primary = join([
       b?.pubdate?.[0] || (subject.year ? String(subject.year) : ''),
       names(b?.press, 1)[0] ?? '',
-      b?.pages?.[0] ? `${b.pages[0]}页` : '',
     ])
     const authors = names(b?.authors, 3)
     const translators = names(b?.translators, 2)
@@ -81,7 +80,6 @@ function subjectMetaLines(
     primary = join([
       m?.pubdate?.[0] || (subject.year ? String(subject.year) : ''),
       names(m?.genres, 2).join(' / '),
-      names(m?.media, 1)[0] ?? '',
     ])
     const singers = names(m?.singers, 3)
     people = singers.length ? `歌手 ${singers.join('、')}` : ''

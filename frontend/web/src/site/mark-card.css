@@ -139,8 +139,8 @@
   font-size: var(--font-size-sm);
 }
 
-/* 条目元信息（expand=subject）：首行 年份·国家·类型·片长 / 次行人名，
-   各单行省略——卡片是列表条目不是详情页；字色与别名行同为弱化灰 */
+/* 条目元信息（expand=subject）：首行 年份·国家/社·类型（物理规格不展示），
+   次行人名，各单行省略——卡片是列表条目不是详情页；字色与别名行同为弱化灰 */
 .mark-card__meta {
   overflow: hidden;
   color: var(--color-text-placeholder);
