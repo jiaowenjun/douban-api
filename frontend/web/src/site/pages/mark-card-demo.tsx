@@ -79,6 +79,31 @@ const FULL_MARK = mark({
   },
 })
 
+/** 可选标题为阿拉伯文（RTL）的回归用例：标题行各段 <bdi> 隔离前，
+ *  bidi 重排会把 RTL 段之后的「8.9分」拆到行两端（「生日快乐」卡实测） */
+const RTL_MARK = mark({
+  comment_id: 'demo-rtl-alt',
+  title: '阿文别名示例',
+  alt_title: 'هابي بيرث داي',
+  my_rating: 4,
+  cover: COVER_B,
+  intro: '阿文可选标题与豆瓣评分混排时，各段应保持顺序、评分不被拆散。',
+  subject: {
+    category: 'movie',
+    subject_id: 'demo-subject-rtl',
+    title: '阿文别名示例',
+    original_title: 'هابي بيرث داي',
+    aka: [],
+    year: null,
+    rating: { value: 8.9, count: null },
+    cover: '',
+    url: 'https://movie.douban.com/subject/0/',
+    status: 'collect',
+    fetched_at: '2026-10-29T00:00:00Z',
+    source: 'rexxar',
+  },
+})
+
 const RATING_MARKS = [1, 2, 3, 4, 5].map((n) =>
   mark({
     comment_id: `demo-rating-${n}`,
@@ -220,10 +245,10 @@ export function MarkCardDemoPage() {
       </p>
 
       <DemoSection
-        description="所有字段齐备时的基准形态"
+        description="所有字段齐备的基准形态；附阿文（RTL）可选标题与评分混排的 bidi 隔离回归用例"
         title="完整字段"
       >
-        <CardList items={[FULL_MARK]} />
+        <CardList items={[FULL_MARK, RTL_MARK]} />
       </DemoSection>
 
       <DemoSection

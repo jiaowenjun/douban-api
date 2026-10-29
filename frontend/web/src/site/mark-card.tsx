@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
@@ -126,7 +126,7 @@ export function MarkCard({ mark }: MarkCardProps) {
     mark.alt_title,
     doubanRating != null ? `${doubanRating.toFixed(1)}分` : '',
   ].filter(Boolean)
-  const titleRow = [mark.title, ...optionalTitleSegments].join(' · ')
+  const titleRowSegments = [mark.title, ...optionalTitleSegments]
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
@@ -161,7 +161,16 @@ export function MarkCard({ mark }: MarkCardProps) {
           </div>
           <div className="mark-card__info">
             {optionalTitleSegments.length > 0 ? (
-              <div className="mark-card__title-row">{titleRow}</div>
+              // 各段 <bdi> 隔离：阿拉伯文等 RTL 可选标题若混入同一文本
+              // 节点，bidi 重排会把其后的「8.9分」拆散到行两端
+              <div className="mark-card__title-row">
+                {titleRowSegments.map((segment, index) => (
+                  <Fragment key={`${index}:${segment}`}>
+                    {index > 0 ? ' · ' : null}
+                    <bdi>{segment}</bdi>
+                  </Fragment>
+                ))}
+              </div>
             ) : null}
             {meta ? (
               <>
