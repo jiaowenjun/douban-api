@@ -105,16 +105,22 @@ function markDocument(mark: DoubanMark): WdfDocument {
   return { schema: 'weimo.document', version: 1, root: { type: 'doc', content } }
 }
 
-/** 书影音标记卡片，四段式一级结构：顶部栏（标记日期）/ 条目信息区
-    （封面左，别名/元信息右）/ 评论正文区（WdfRender 渲染标题 h1 + 短评
-    段落）/ 底栏（我的评分星级，水平居中，未打分时整段不渲染），含 <li>
-    列表条目语义；材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的
-    card-surface，与 BaseCard 同源；纯展示，无链接与交互 */
+/** 书影音标记卡片，三段式一级结构：顶部栏（标记日期）/ 条目信息区
+    （封面左，别名/元信息右，我的评分星级居首行豆瓣评分右侧）/ 评论正文区
+    （WdfRender 渲染标题 h1 + 短评段落），含 <li> 列表条目语义；
+    材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，
+    与 BaseCard 同源；纯展示，无链接与交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
   const cover = mark.subject?.cover || mark.cover
   const meta = mark.subject ? subjectMetaLines(mark.subject) : null
   const doubanRating = mark.subject?.rating.value
+  const metaHead = [
+    mark.alt_title,
+    doubanRating != null ? `豆瓣 ${doubanRating.toFixed(1)}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
@@ -133,14 +139,11 @@ export function MarkCard({ mark }: MarkCardProps) {
           <div className="mark-card__cover mark-card__cover--empty" />
         )}
         <div className="mark-card__info">
-          {mark.alt_title || doubanRating != null ? (
+          {metaHead || mark.my_rating ? (
             <div className="mark-card__alt">
-              {[
-                mark.alt_title,
-                doubanRating != null ? `豆瓣 ${doubanRating.toFixed(1)}` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+              {metaHead}
+              {metaHead && mark.my_rating ? ' · ' : null}
+              {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
             </div>
           ) : null}
           {meta ? (
@@ -155,12 +158,9 @@ export function MarkCard({ mark }: MarkCardProps) {
           ) : null}
         </div>
       </div>
-      <WdfRender className="mark-card__comment" content={markDocument(mark)} />
-      {mark.my_rating ? (
-        <div className="mark-card__footer">
-          <RatingStars value={mark.my_rating} />
-        </div>
-      ) : null}
+      <div className="mark-card__comment">
+        <WdfRender content={markDocument(mark)} />
+      </div>
     </li>
   )
 }

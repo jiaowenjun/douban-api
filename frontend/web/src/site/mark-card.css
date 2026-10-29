@@ -1,4 +1,4 @@
-/* 书影音标记卡片，四段式一级结构：顶部栏 / 条目信息区 / 评论区 / 底部栏。
+/* 书影音标记卡片，三段式一级结构：顶部栏 / 条目信息区 / 评论正文区。
    材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core 的 card-surface
    —— 由组件挂 card-surface 类提供，这里只留布局与内容排版 */
 
@@ -15,7 +15,6 @@
 .sidebar-debug .mark-card__meta,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
-.sidebar-debug .mark-card__footer,
 .sidebar-debug .mark-card-rating {
   outline: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -29,13 +28,12 @@
 .sidebar-debug .mark-card__meta,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
-.sidebar-debug .mark-card__footer,
 .sidebar-debug .mark-card-rating {
   padding: 2px;
 }
 
-/* 四个一级区域纵向排布：区域间 1em（随卡片字号缩放），区域内各自更紧的
-   gap（info 2px / footer 8px） */
+/* 三个一级区域纵向排布：区域间 1em（随卡片字号缩放） */
+
 .mark-card {
   display: flex;
   flex-direction: column;
@@ -106,12 +104,6 @@
   font-size: var(--font-size-sm);
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-/* 底栏：我的评分星级水平居中（星级组件自带字号/配色），未打分整段不渲染 */
-.mark-card__footer {
-  display: flex;
-  justify-content: center;
 }
 
 /* 评分：底色五星 + 按比例裁切的单色覆盖层（黑白灰，随明暗主题翻转）。
