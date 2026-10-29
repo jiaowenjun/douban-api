@@ -8,7 +8,13 @@ import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 import type { DoubanFacets } from './api'
 import { DIMENSIONS } from './facet-model'
 import type { FacetLeaf, FacetSelection } from './facet-model'
-import { CATEGORY_NOUNS, isMarksCategory, MARKS_CATEGORIES } from './navigation'
+import {
+  ALL_MARKS_TAG,
+  CATEGORY_NOUNS,
+  isMarksCategory,
+  MARKS_CATEGORIES,
+  type NavTarget,
+} from './navigation'
 import type { MarksCategory } from './navigation'
 
 /** 一级类别根行图标（根兼任类别导航，观感对齐原导航树行） */
@@ -75,25 +81,25 @@ export function FacetTree({
   onSelect,
   selection,
 }: {
-  /** 当前路由类别；选中叶子必属它（URL 派生）。演示页等无类别时传 undefined */
-  activeCategory: MarksCategory | undefined
+  /** 当前路由目标：真实类别或 all（合并视图，无分面）；选中指示必属它
+   *  （URL 派生）。演示页等无类别时传 undefined */
+  activeCategory: NavTarget | undefined
   facetsByCategory: Partial<Record<MarksCategory, DoubanFacets>>
   selection: FacetSelection | null
   expandedTags: string[]
   onExpandedTagsChange: (tags: string[]) => void
-  onSelect: (category: MarksCategory, selection: FacetSelection | null) => void
+  onSelect: (target: NavTarget, selection: FacetSelection | null) => void
 }) {
   const { nodes, byTag } = useMemo(
     () => buildTree(facetsByCategory),
     [facetsByCategory],
   )
-  // 选中指示两档：有筛选选中叶子；无筛选时当前类别根顶上（原导航树
-  // 的「当前位置」指示由根接管）
-  const selectedTag = selection
-    ? activeCategory
+  // 选中指示两档：有筛选选中叶子；无筛选时当前导航目标顶上（类别根
+  // 或「全部标记」节点——原导航树的当前位置指示由根接管）
+  const selectedTag =
+    selection && activeCategory && activeCategory !== ALL_MARKS_TAG
       ? `${activeCategory}/${selection.dim}/${escapeTagValue(selection.value)}`
-      : undefined
-    : activeCategory
+      : activeCategory
 
   return (
     <TagTree
@@ -102,7 +108,8 @@ export function FacetTree({
       nodes={nodes}
       onExpandedTagsChange={onExpandedTagsChange}
       onSelect={(tag, node) => {
-        // 一级类别根：tag 无 /（维度/叶子都带类别前缀），点行即筛选
+        // 一级类别根（tag 无 /：维度/叶子都带类别前缀）：点行=跳该类别
+        // 清筛选，展开/收起仍走行内折叠开关
         if (!tag.includes('/')) {
           if (isMarksCategory(tag)) onSelect(tag, null)
           return

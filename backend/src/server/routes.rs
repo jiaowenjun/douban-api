@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 
-use crate::crawler::{Category, Status};
+use crate::crawler::{Category, Record, Status};
 
 use super::error::{AppError, AppResult};
 use super::facets;
@@ -452,11 +452,6 @@ async fn get_marks(
     Path(uid): Path<String>,
     Query(q): Query<MarksQuery>,
 ) -> AppResult<Json<Value>> {
-    let category = q
-        .category
-        .as_deref()
-        .and_then(Category::from_key)
-        .ok_or_else(|| AppError::InvalidArgument("缺少或非法 category 参数".to_string()))?;
     let status = q
         .status
         .as_deref()
@@ -474,6 +469,67 @@ async fn get_marks(
             )))
         }
     };
+
+    // category=all：书影音三类别合并视图（分面过滤不适用）
+    if q.category.as_deref() == Some("all") {
+        if q.facet.is_some() {
+            return Err(AppError::InvalidArgument(
+                "category=all 不支持 facet 过滤".to_string(),
+            ));
+        }
+        let marks = service::read_all_marks(&state, &uid, status, page, page_size).await?;
+        let items: Value = if expand_subject {
+            // subjects 表按类别键控：混合列表按 item 自身类别分组批查
+            // 视图（与单类别同管线），再按列表原序回填
+            let records = &marks.items;
+            let mut views: Vec<Value> = vec![Value::Null; records.len()];
+            for cat in Category::ALL {
+                let group: Vec<Record> = records
+                    .iter()
+                    .filter(|record| record.category == cat.key())
+                    .cloned()
+                    .collect();
+                if group.is_empty() {
+                    continue;
+                }
+                let group_views = subject::load_subject_views(&state, cat.key(), &group).await?;
+                let mut group_index = 0;
+                for (index, record) in records.iter().enumerate() {
+                    if record.category == cat.key() {
+                        views[index] = group_views[group_index].clone();
+                        group_index += 1;
+                    }
+                }
+            }
+            let mut arr = serde_json::to_value(&marks.items)
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            if let Value::Array(list) = &mut arr {
+                for (item, view) in list.iter_mut().zip(views) {
+                    item["subject"] = view;
+                }
+            }
+            arr
+        } else {
+            serde_json::to_value(&marks.items).map_err(|e| AppError::Internal(e.to_string()))?
+        };
+        return Ok(Json(json!({
+            "user": marks.user,
+            "category": "all",
+            "status": marks.status.key(),
+            "cached_at": marks.cached_at,
+            "fresh": marks.fresh,
+            "total": marks.total,
+            "page": marks.page,
+            "page_size": marks.page_size,
+            "items": items,
+        })));
+    }
+
+    let category = q
+        .category
+        .as_deref()
+        .and_then(Category::from_key)
+        .ok_or_else(|| AppError::InvalidArgument("缺少或非法 category 参数".to_string()))?;
 
     let raw_facets: Vec<String> = q
         .facet

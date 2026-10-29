@@ -1,6 +1,14 @@
 /** 站点书影音类别键（与路由段一致） */
 export type MarksCategory = 'movie' | 'book' | 'music'
 
+/** 「全部标记」伪类别：路由段/筛选树顶导航节点的 tag，书影音三类别
+ *  合并视图；非真实豆瓣类别，不入 MARKS_CATEGORIES——筛选树类别根与
+ *  统计区仍按三类 */
+export const ALL_MARKS_TAG = 'all'
+
+/** 树/路由可导航目标：真实类别或「全部标记」 */
+export type NavTarget = MarksCategory | typeof ALL_MARKS_TAG
+
 /** 站点只展示「看过」（collect）的标记 */
 export const MARKS_STATUS = 'collect'
 
@@ -32,14 +40,22 @@ export function isMarksCategory(value: string): value is MarksCategory {
 
 export type MarksView = {
   activeItemId: string
-  category: MarksCategory
+  category: NavTarget
   pageTitle: string
 }
 
-/** 校验路由参数并派生导航高亮项与页面标题；非法值返回 null */
+/** 校验路由参数并派生导航高亮项与页面标题；非法值返回 null。
+ *  all 为三类别合并视图（全部标记），无分面维度 */
 export function resolveMarksView(
   category: string | undefined,
 ): MarksView | null {
+  if (category === ALL_MARKS_TAG) {
+    return {
+      activeItemId: ALL_MARKS_TAG,
+      category: ALL_MARKS_TAG,
+      pageTitle: '全部标记',
+    }
+  }
   if (!category || !isMarksCategory(category)) return null
 
   return {

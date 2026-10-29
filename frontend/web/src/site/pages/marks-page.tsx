@@ -49,10 +49,14 @@ export function MarksPage() {
   const [reloadNonce, setReloadNonce] = useState(0)
 
   const marksCategory = view?.category
-  // 分面筛选（单选，可清除）：解析自 URL，维度不在该类别白名单的
-  // 手改参数按无筛选处理（后端仍会兜底校验）
-  const facet = marksCategory
-    ? parseFacetParam(marksCategory, searchParams.get('facet'))
+  // 分面筛选（单选，可清除）：解析自 URL——仅真实类别有维度白名单，
+  // all 合并视图与手改非法参数一律按无筛选处理（后端仍会兜底校验）
+  const realCategory =
+    marksCategory !== undefined && marksCategory !== 'all'
+      ? marksCategory
+      : undefined
+  const facet = realCategory
+    ? parseFacetParam(realCategory, searchParams.get('facet'))
     : null
   const facetParam = facet ? `${facet.dim}=${facet.value}` : null
   const requestKey =
@@ -149,7 +153,11 @@ export function MarksPage() {
   if (!uid) {
     content = (
       <div className="marks-page__placeholder">
-        <p>登录豆瓣账号后，这里会展示你{view.pageTitle}的记录。</p>
+        <p>
+          {view.category === 'all'
+            ? '登录豆瓣账号后，这里会展示你的全部书影音标记。'
+            : `登录豆瓣账号后，这里会展示你${view.pageTitle}的记录。`}
+        </p>
         <TextButton onClick={openLogin} type="button">
           登录豆瓣账号
         </TextButton>
@@ -187,8 +195,8 @@ export function MarksPage() {
       <>
         <p className="marks-page__meta">
           {profile?.username || uid} 共 {state.total} 条
-          {facet
-            ? ` · ${facetDimLabel(view.category, facet.dim)}：${facet.value}`
+          {facet && realCategory
+            ? ` · ${facetDimLabel(realCategory, facet.dim)}：${facet.value}`
             : ''}
           {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
         </p>

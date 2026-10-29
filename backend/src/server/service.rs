@@ -833,6 +833,107 @@ pub async fn read_marks(
 }
 
 // --------------------------------------------------------------------------- //
+// 跨类别合并读（category=all，书影音全部标记）
+// --------------------------------------------------------------------------- //
+
+pub struct AllMarksPage {
+    pub user: String,
+    pub status: Status,
+    pub cached_at: String,
+    pub fresh: bool,
+    pub total: usize,
+    pub page: i64,
+    pub page_size: i64,
+    pub items: Vec<Record>,
+}
+
+/// 三类别合并分页读：维度门禁放行口径比单类别宽——任一类别已同步即
+/// 返回（已同步部分的记录），三类别全未同步才 DIMENSION_NOT_CACHED；
+/// cached_at/fresh 取三维度最近一次抓取。排序与单类别一致
+/// （date DESC, rowid），跨类别按日期自然归并；Record.category 用行
+/// 自身类别（expand=subject 时路由层按它分组查视图）
+pub async fn read_all_marks(
+    state: &AppState,
+    uid: &str,
+    status: Status,
+    page: i64,
+    page_size: i64,
+) -> AppResult<AllMarksPage> {
+    let mut any_cached = false;
+    let mut latest_fetched: Option<i64> = None;
+    for category in Category::ALL {
+        match ensure_dimension_cached(state, uid, category, status).await {
+            Ok(fetched_ms) => {
+                any_cached = true;
+                if let Some(ms) = fetched_ms {
+                    if ms > latest_fetched.unwrap_or(i64::MIN) {
+                        latest_fetched = Some(ms);
+                    }
+                }
+            }
+            Err(AppError::DimensionNotCached) => {}
+            Err(other) => return Err(other),
+        }
+    }
+    if !any_cached {
+        return Err(AppError::DimensionNotCached);
+    }
+
+    let page_size = page_size.max(1);
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?")
+            .bind(uid)
+            .bind(status.key())
+            .fetch_one(&state.pool)
+            .await?;
+    let offset = (page - 1).max(0) * page_size;
+    let rows = sqlx::query(
+        "SELECT category, subject_id, title, alt_title, my_rating, date, comment,
+                subject_url, cover, comment_id, intro
+         FROM records
+         WHERE uid = ? AND dim_status = ?
+         ORDER BY date DESC, rowid
+         LIMIT ? OFFSET ?",
+    )
+    .bind(uid)
+    .bind(status.key())
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+    let items: Vec<Record> = rows
+        .into_iter()
+        .map(|r| Record {
+            category: r.get("category"),
+            status: status.key().to_string(),
+            title: r.get("title"),
+            alt_title: r.get("alt_title"),
+            my_rating: r.get::<Option<i64>, _>("my_rating").map(|v| v as u8),
+            date: r.get("date"),
+            comment: r.get("comment"),
+            subject_url: r.get("subject_url"),
+            subject_id: r.get("subject_id"),
+            cover: cover_proxy_url(&r.get::<String, _>("cover")),
+            comment_id: r.get("comment_id"),
+            intro: r.get("intro"),
+        })
+        .collect();
+
+    Ok(AllMarksPage {
+        user: uid.to_string(),
+        status,
+        cached_at: latest_fetched.map(ms_to_rfc3339).unwrap_or_default(),
+        fresh: latest_fetched
+            .map(|t| t + state.config.cache_ttl_secs * 1000 > ServerConfig::now_ms())
+            .unwrap_or(false),
+        total: total as usize,
+        page,
+        page_size,
+        items,
+    })
+}
+
+// --------------------------------------------------------------------------- //
 // 订阅同步：RSS 短周期增量 + 长周期全量（auto 任务）
 // --------------------------------------------------------------------------- //
 

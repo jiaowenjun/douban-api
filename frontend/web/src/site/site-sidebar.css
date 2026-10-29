@@ -29,17 +29,16 @@
   padding-inline: 16px;
 }
 
+/* 导航区（全部标记）：紧随统计区，行样式随 TagTree；
+   18px 顶距对齐下方筛选区 section-hint 的节奏 */
+.site-sidebar__nav {
+  padding-top: 18px;
+}
+
 /* 分面筛选区小节提示，对齐 biji-side-bar__section-hint */
 .site-sidebar__section-hint {
   padding-block: 18px 6px;
   color: var(--color-text-placeholder);
   font-size: 13px;
   line-height: 1.2;
-}
-
-.site-sidebar__status {
-  padding-block: 12px;
-  color: var(--color-text-placeholder);
-  font-size: 13px;
-  line-height: 1.4;
 }

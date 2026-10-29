@@ -113,6 +113,8 @@ export type MarksResult =
   | { ok: false; kind: 'not-cached' | 'error'; message: string }
 
 /** 拉取某维度（category+status）的标记页；只读缓存，不触发抓取。
+ *  category 另接受 'all'：书影音三类别按日期归并的合并视图
+ *  （后端任一类别已同步即放行，不支持 facet 过滤）。
  *  附 expand=subject：每条标记带条目结构化元信息（已富集用 rexxar 数据，
  *  未富集回退 intro 启发式合成，旧版后端不认该参数）。
  *  facet 为可选分面过滤（格式 dim=value，多个条件用 ; 分隔，后端按类别
