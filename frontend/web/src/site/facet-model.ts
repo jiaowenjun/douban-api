@@ -1,6 +1,8 @@
 import type { MarksCategory } from './navigation'
 
-/** 分面维度的展示顺序与文案（键集合由后端保证，顺序与命名归前端） */
+/** 分面维度的展示顺序与文案（键集合由后端保证，顺序与命名归前端）。
+ *  仅作 URL ?facet= 白名单校验与 meta 行文案——树上不展示全维度，
+ *  树的二级层每类别只取一个主维度（见 PRIMARY_DIMENSION） */
 export const DIMENSIONS: Record<
   MarksCategory,
   readonly { key: string; label: string }[]
@@ -24,12 +26,41 @@ export const DIMENSIONS: Record<
   ],
 }
 
+/** 每类别的树展示主维度（二级树的唯一值叶层）：电影=类型、图书=
+ *  出版社（图书无类型/分类数据——rexxar tags 仅 2/55 有值、丛书聚合
+ *  ≤2，出版社是 book 元数据里头部聚合力最强的内容谱系维度）、
+ *  音乐=流派 */
+export const PRIMARY_DIMENSION: Record<
+  MarksCategory,
+  { key: string; label: string }
+> = {
+  book: { key: 'press', label: '出版社' },
+  movie: { key: 'genre', label: '类型' },
+  music: { key: 'genre', label: '流派' },
+}
+
 /** 维度键 → 展示名（查不到时回退键本身） */
 export function facetDimLabel(
   category: MarksCategory,
   dim: string,
 ): string {
   return DIMENSIONS[category].find((d) => d.key === dim)?.label ?? dim
+}
+
+/** 后端长尾合并的保留字面量（计数 1 的值聚合进它，仅电影类型与图书
+ *  出版社开启），与后端 facets::OTHER_VALUE 对齐 */
+export const OTHER_FACET_VALUE = '__other__'
+
+/** 值的展示名：保留字面量 → 「其他+维度名」（其他类型/其他出版社），
+ *  其余原样 */
+export function facetValueLabel(
+  category: MarksCategory,
+  dim: string,
+  value: string,
+): string {
+  return value === OTHER_FACET_VALUE
+    ? `其他${facetDimLabel(category, dim)}`
+    : value
 }
 
 /** 当前选中的分面过滤（dim/value 均为后端原始值，不转义） */

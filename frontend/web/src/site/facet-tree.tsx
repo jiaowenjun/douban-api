@@ -6,7 +6,7 @@ import { TagTree } from 'weimo-ui-tagtree/components/tag-tree'
 import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 
 import type { DoubanFacets } from './api'
-import { DIMENSIONS } from './facet-model'
+import { PRIMARY_DIMENSION, facetValueLabel } from './facet-model'
 import type { FacetLeaf, FacetSelection } from './facet-model'
 import {
   ALL_MARKS_TAG,
@@ -35,10 +35,13 @@ type TreeIndex = {
   byTag: Map<string, FacetLeaf>
 }
 
-/** 三类别分面聚合 → 三级常驻树：类别（movie/book/music）→ 维度 → 值叶。
- *  维度 label 拼「值 · 计数」（tagtree 0.2.x 的 itemCount 类型存在但行
+/** 三类别分面聚合 → 二级常驻树：类别（movie/book/music）→ 主维度值叶
+ *  （电影=类型、图书=出版社、音乐=流派，见 PRIMARY_DIMENSION）。
+ *  叶 label 拼「值 · 计数」（tagtree 0.2.x 的 itemCount 类型存在但行
  *  组件不渲染）；计数已按降序返回直接保序；某类别缺失（未同步/拉取
- *  失败）或全维度为空则不出根 */
+ *  失败）或主维度无值则不出根。叶 tag 保持三段 类别/维度/值——维度
+ *  层不再渲染为树节点，但保留三段让选中叶子的类别根自动展开（祖先
+ *  展开按树结构）且不破坏 tag 语义 */
 function buildTree(
   facetsByCategory: Partial<Record<MarksCategory, DoubanFacets>>,
 ): TreeIndex {
@@ -46,16 +49,16 @@ function buildTree(
   const nodes = MARKS_CATEGORIES.flatMap((category) => {
     const facets = facetsByCategory[category]
     if (!facets) return []
-    const children = DIMENSIONS[category]
-      .map(({ key, label }) => {
-        const valueNodes = (facets.facets[key] ?? []).map(({ value, count }) => {
-          const tag = `${category}/${key}/${escapeTagValue(value)}`
-          byTag.set(tag, { category, dim: key, value })
-          return { tag, label: `${value} · ${count}` }
-        })
-        return { tag: `${category}/${key}`, label, children: valueNodes }
-      })
-      .filter((node) => node.children.length > 0)
+    const { key } = PRIMARY_DIMENSION[category]
+    const children = (facets.facets[key] ?? []).map(({ value, count }) => {
+      const tag = `${category}/${key}/${escapeTagValue(value)}`
+      byTag.set(tag, { category, dim: key, value })
+      // __other__ 保留值显示为「其他类型/其他出版社」（后端长尾合并）
+      return {
+        tag,
+        label: `${facetValueLabel(category, key, value)} · ${count}`,
+      }
+    })
     if (children.length === 0) return []
     return [{
       tag: category,
@@ -67,12 +70,11 @@ function buildTree(
   return { nodes, byTag }
 }
 
-/** 分面筛选树（纯展示 + 选中回调）：一级类别根点行=筛选到该类别
- *  （onSelect 上抛 null 即「跳该类别、清筛选」，展开/收起仍走行内
- *  折叠开关）；维度节点点击只管展开（组件内置折叠开关），仅叶子是
- *  筛选条件——当前类别叶子再点已选中的取消、其他类别叶子交上层跳
- *  路由。展开态受控由上层持有（选中叶子的祖先链 TagTree 会自动展开，
- *  无需显式记录） */
+/** 分面筛选树（纯展示 + 选中回调，二级结构）：一级类别根点行=筛选到
+ *  该类别（onSelect 上抛 null 即「跳该类别、清筛选」，展开/收起仍走
+ *  行内折叠开关）；二级值叶（主维度）是唯一筛选条件——当前类别叶子
+ *  再点已选中的取消、其他类别叶子交上层跳路由。展开态受控由上层持有
+ *  （选中叶子的类别根 TagTree 会自动展开，无需显式记录） */
 export function FacetTree({
   activeCategory,
   expandedTags,
@@ -108,12 +110,13 @@ export function FacetTree({
       nodes={nodes}
       onExpandedTagsChange={onExpandedTagsChange}
       onSelect={(tag, node) => {
-        // 一级类别根（tag 无 /：维度/叶子都带类别前缀）：点行=跳该类别
-        // 清筛选，展开/收起仍走行内折叠开关
+        // 一级类别根（tag 无 /：叶子带类别前缀）：点行=跳该类别清筛选，
+        // 展开/收起仍走行内折叠开关
         if (!tag.includes('/')) {
           if (isMarksCategory(tag)) onSelect(tag, null)
           return
         }
+        // 防御：二级树叶子无 children，此分支仅拦非常规结构节点
         if (node.children?.length) return
         const leaf = byTag.get(tag)
         if (!leaf) return

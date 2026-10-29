@@ -7,7 +7,7 @@ import { TextButton } from 'weimo-ui-core/components/text-button'
 import { fetchDoubanMarks } from '../api'
 import type { DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
-import { facetDimLabel, parseFacetParam } from '../facet-model'
+import { facetDimLabel, facetValueLabel, parseFacetParam } from '../facet-model'
 import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
@@ -196,7 +196,11 @@ export function MarksPage() {
         <p className="marks-page__meta">
           {profile?.username || uid} 共 {state.total} 条
           {facet && realCategory
-            ? ` · ${facetDimLabel(realCategory, facet.dim)}：${facet.value}`
+            ? ` · ${facetDimLabel(realCategory, facet.dim)}：${facetValueLabel(
+                realCategory,
+                facet.dim,
+                facet.value,
+              )}`
             : ''}
           {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
         </p>

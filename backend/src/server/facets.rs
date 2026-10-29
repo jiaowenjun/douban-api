@@ -78,8 +78,30 @@ fn values_for(category: Category, dim: &str, view: &Value) -> Vec<String> {
     out
 }
 
-/// 过滤谓词：同维度多次出现 = 任一命中（OR），跨维度 = 全部命中（AND）
-pub fn view_matches(category: Category, view: &Value, filters: &[FacetFilter]) -> bool {
+/// 长尾合并的保留字面量：聚合输出中计数为 1 的值合并进它（前端显示
+/// 「其他X」），marks 过滤对它做「值是 singleton」的特判匹配——真实
+/// 豆瓣元数据值不会与之撞名。与前端 facet-model 的 OTHER_FACET_VALUE 对齐
+pub const OTHER_VALUE: &str = "__other__";
+
+/// 长尾合并按维度开关：仅树上展示且长尾明显的维度开启——电影类型、
+/// 图书出版社；音乐流派不合并（值数少，singleton 保留原样更直观）；
+/// 非展示维度不合并，聚合输出与过滤保持朴素口径
+fn merge_enabled(category: Category, dim: &str) -> bool {
+    matches!(
+        (category, dim),
+        (Category::Movie, "genre") | (Category::Book, "press")
+    )
+}
+
+/// 过滤谓词：同维度多次出现 = 任一命中（OR），跨维度 = 全部命中（AND）。
+/// 值为 OTHER_VALUE 时匹配「该维度存在 singleton 值」——singleton 依据
+/// 全量视图聚合（singletons 由调用方预计算）
+pub fn view_matches(
+    category: Category,
+    view: &Value,
+    filters: &[FacetFilter],
+    singletons: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+) -> bool {
     let mut dims: Vec<&str> = Vec::new();
     for f in filters {
         if !dims.contains(&f.dim.as_str()) {
@@ -91,8 +113,43 @@ pub fn view_matches(category: Category, view: &Value, filters: &[FacetFilter]) -
         filters
             .iter()
             .filter(|f| f.dim == dim)
-            .any(|f| have.iter().any(|v| v == &f.value))
+            .any(|f| {
+                if f.value == OTHER_VALUE {
+                    let Some(set) = singletons.get(&f.dim) else {
+                        return false;
+                    };
+                    have.iter().any(|v| set.contains(v))
+                } else {
+                    have.iter().any(|v| *v == f.value)
+                }
+            })
     })
+}
+
+/// 全量视图集合各维度的 singleton 值集（计数恰为 1 的值）——「其他」
+/// 聚合与过滤匹配的共同依据
+fn singleton_sets(
+    category: Category,
+    views: &[Value],
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    let mut out = std::collections::HashMap::new();
+    for dim in dimension_keys(category) {
+        let mut counts: std::collections::BTreeMap<String, i64> = Default::default();
+        for view in views {
+            for value in values_for(category, dim, view) {
+                *counts.entry(value).or_insert(0) += 1;
+            }
+        }
+        out.insert(
+            dim.to_string(),
+            counts
+                .into_iter()
+                .filter(|(_, c)| *c == 1)
+                .map(|(v, _)| v)
+                .collect(),
+        );
+    }
+    out
 }
 
 /// 解析 marks 端点可重复的 facet 参数（dim=value）；维度按类别白名单校验
@@ -137,6 +194,29 @@ fn aggregate_counts(
             }
             let mut list: Vec<(String, i64)> = counts.into_iter().collect();
             list.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            // 长尾合并（按维度开关）：singleton 值（计数恰 1）≥2 个时收进
+            // __other__ 钉在末尾；仅 1 个不合并（原值展示，合并反而多一个
+            // 节点）。__other__ 计数口径与过滤一致：含 singleton 值的条目数
+            // （一个条目可能带两个 singleton 值，只计一次）
+            if merge_enabled(category, dim) {
+                let singletons: std::collections::HashSet<&String> = list
+                    .iter()
+                    .filter(|(_, c)| *c == 1)
+                    .map(|(v, _)| v)
+                    .collect();
+                if singletons.len() >= 2 {
+                    let other_count = views
+                        .iter()
+                        .filter(|view| {
+                            values_for(category, dim, view)
+                                .iter()
+                                .any(|v| singletons.contains(v))
+                        })
+                        .count() as i64;
+                    list.retain(|(_, c)| *c > 1);
+                    list.push((OTHER_VALUE.to_string(), other_count));
+                }
+            }
             (dim, list)
         })
         .collect()
@@ -225,7 +305,8 @@ pub async fn facet_counts(
     }))
 }
 
-/// marks 分面过滤：返回 (过滤后全量标记, 命中总数)，分页由调用方切片
+/// marks 分面过滤：返回 (过滤后全量标记, 命中总数)，分页由调用方切片。
+/// singleton 集按全量视图预计算（「其他」保留值的匹配依据，与聚合口径一致）
 pub async fn filter_marks(
     state: &AppState,
     uid: &str,
@@ -235,10 +316,11 @@ pub async fn filter_marks(
 ) -> Result<(Vec<Record>, usize)> {
     let records = load_all_records(state, uid, category, status).await?;
     let views = load_views(state, category, &records).await?;
+    let singletons = singleton_sets(category, &views);
     let filtered: Vec<Record> = records
         .into_iter()
         .zip(views)
-        .filter(|(_, view)| view_matches(category, view, filters))
+        .filter(|(_, view)| view_matches(category, view, filters, &singletons))
         .map(|(record, _)| record)
         .collect();
     let total = filtered.len();
@@ -302,20 +384,33 @@ mod tests {
             dim: dim.to_string(),
             value: value.to_string(),
         };
+        // 空_singleton 集：普通值匹配不受影响
+        let empty: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            Default::default();
         // 同维度两值任一命中
         let or = vec![f("genre", "喜剧"), f("genre", "犯罪")];
-        assert!(view_matches(cat, &view, &or));
+        assert!(view_matches(cat, &view, &or, &empty));
         // 跨维度需全部命中
         let and_ok = vec![
             f("genre", "剧情"),
             f("country", "美国"),
             f("decade", "1990s"),
         ];
-        assert!(view_matches(cat, &view, &and_ok));
+        assert!(view_matches(cat, &view, &and_ok, &empty));
         let and_fail = vec![f("genre", "剧情"), f("country", "日本")];
-        assert!(!view_matches(cat, &view, &and_fail));
+        assert!(!view_matches(cat, &view, &and_fail, &empty));
         // 空过滤恒真
-        assert!(view_matches(cat, &view, &[]));
+        assert!(view_matches(cat, &view, &[], &empty));
+        // __other__：视图含 singleton 值（恐怖在此聚合里仅出现 1 次）才命中
+        let views = vec![
+            movie_view(1994, &["剧情", "犯罪"], &["美国"], &["弗兰克·德拉邦特"]),
+            movie_view(2019, &["剧情", "恐怖"], &["中国大陆"], &["娄烨"]),
+        ];
+        let singletons = singleton_sets(cat, &views);
+        // 视图一含 singleton 值「犯罪」→ 命中；不含 singleton 的过滤值不命中
+        assert!(view_matches(cat, &view, &[f("genre", OTHER_VALUE)], &singletons));
+        // 普通非 singleton 值过滤行为不变
+        assert!(view_matches(cat, &view, &[f("genre", "剧情")], &singletons));
     }
 
     #[test]
@@ -325,6 +420,8 @@ mod tests {
             parse_filters(cat, &["genre=剧情".to_string(), "country=美国".to_string()]).unwrap();
         assert_eq!(ok.len(), 2);
         assert_eq!(ok[0].value, "剧情");
+        // __other__ 保留值是合法过滤值（空值校验天然放行）
+        assert!(parse_filters(cat, &[format!("genre={OTHER_VALUE}")]).is_ok());
         // 非法维度 / 缺 = / 空值
         assert!(parse_filters(cat, &["actor=梁朝伟".to_string()]).is_err());
         assert!(parse_filters(cat, &["genre剧情".to_string()]).is_err());
@@ -342,20 +439,61 @@ mod tests {
         ];
         let agg = aggregate_counts(Category::Movie, &views);
         let by_dim: std::collections::HashMap<_, _> = agg.into_iter().collect();
-        // 剧情 3 部 > 犯罪 1 部；同计数按值升序（犯罪 < 剧情）
+        // genre（合并开启）：犯罪是唯一 singleton（1 个）→ 不合并原值保留
         assert_eq!(
             by_dim["genre"],
             vec![("剧情".to_string(), 3), ("犯罪".to_string(), 1)]
         );
-        // 多国家条目在每个国家各计 1；同计数按值升序（台 U+53F0 < 大 U+5927）
+        // country（合并未开启）：4 个 singleton 值全部原样保留，
+        // 同计数按值升序（台 U+53F0 < 大 U+5927）
         let countries: Vec<String> = by_dim["country"].iter().map(|(v, _)| v.clone()).collect();
         assert_eq!(countries.len(), 4);
         assert!(countries.contains(&"中国大陆".to_string()));
         assert!(countries.contains(&"法国".to_string()));
         assert_eq!(countries[0], "中国台湾");
-        // decade 计数降序
+        // decade（合并未开启）计数降序
         let decades: Vec<(String, i64)> = by_dim["decade"].clone();
         assert_eq!(decades.len(), 3);
         assert!(decades[0].1 >= decades[2].1);
+    }
+
+    #[test]
+    fn aggregate_counts_merges_singletons_only_where_enabled() {
+        // movie genre（开启）：4 个 singleton ≥2 → 合并进 __other__ 钉末尾，
+        // 计数为含 singleton 值的条目数（3 部——第二部带两个 singleton 类型）
+        let views = vec![
+            movie_view(1994, &["剧情"], &["美国"], &["A"]),
+            movie_view(2019, &["剧情", "同性", "恐怖"], &["中国大陆"], &["B"]),
+            movie_view(1989, &["灾难"], &["中国台湾"], &["C"]),
+        ];
+        let agg = aggregate_counts(Category::Movie, &views);
+        let by_dim: std::collections::HashMap<_, _> = agg.into_iter().collect();
+        assert_eq!(
+            by_dim["genre"],
+            vec![
+                ("剧情".to_string(), 2),
+                (OTHER_VALUE.to_string(), 2),
+            ]
+        );
+        // 同数据下 music genre（未开启）：singleton 全部原样保留
+        let music_views: Vec<Value> = views
+            .iter()
+            .map(|v| {
+                json!({
+                    "year": v["year"],
+                    "music": {"genres": v["movie"]["genres"].clone(), "singers": []},
+                })
+            })
+            .collect();
+        let music_agg = aggregate_counts(Category::Music, &music_views);
+        let music_by_dim: std::collections::HashMap<_, _> = music_agg.into_iter().collect();
+        let genres: Vec<String> = music_by_dim["genre"]
+            .iter()
+            .map(|(v, _)| v.clone())
+            .collect();
+        assert!(genres.contains(&"同性".to_string()));
+        assert!(genres.contains(&"恐怖".to_string()));
+        assert!(genres.contains(&"灾难".to_string()));
+        assert!(!genres.contains(&OTHER_VALUE.to_string()));
     }
 }
