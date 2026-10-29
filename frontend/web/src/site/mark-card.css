@@ -11,7 +11,6 @@
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
-.sidebar-debug .mark-card__title,
 .sidebar-debug .mark-card__alt,
 .sidebar-debug .mark-card__meta,
 .sidebar-debug .mark-card__intro,
@@ -26,7 +25,6 @@
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
-.sidebar-debug .mark-card__title,
 .sidebar-debug .mark-card__alt,
 .sidebar-debug .mark-card__meta,
 .sidebar-debug .mark-card__intro,
@@ -45,8 +43,7 @@
   padding: 10px 12px;
 }
 
-/* 顶部栏：日期居左，主标题真居中——1fr auto 1fr 三槽两侧等宽，
-   居中不受左侧日期宽度影响；右槽空置即预留操作位 */
+/* 顶部栏：日期居左；1fr auto 1fr 三槽的中/右槽空置即预留（标题位等） */
 .mark-card__header {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -83,13 +80,12 @@
   align-content: start;
 }
 
-/* 主标题：居顶栏中槽，样式覆盖顶栏容器的弱化灰/sm */
-.mark-card__title {
-  min-width: 0;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-md);
-  font-weight: 560;
-  text-align: center;
+/* 评论正文区（WdfRender 渲染标题 h1 + 短评段落）：标题用包内 --md-h1-*
+   token 默认（居中 650、随明暗翻转）；正文段落 scoped 覆写回站点
+   token，保持卡片原有的次级灰与基准字号 */
+.mark-card__comment {
+  --md-paragraph-color: var(--color-text-secondary);
+  --md-font-size: var(--font-size-base);
 }
 
 .mark-card__alt {
@@ -110,13 +106,6 @@
   font-size: var(--font-size-sm);
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.mark-card__comment {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-base);
-  line-height: var(--font-line-height-reading, 1.6);
 }
 
 /* 底栏：我的评分星级水平居中（星级组件自带字号/配色），未打分整段不渲染 */

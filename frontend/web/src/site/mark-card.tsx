@@ -1,4 +1,5 @@
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
+import { WdfRender, type WdfDocument } from 'weimo-ui-editor/components/wdf-render'
 
 import type { DoubanMark, DoubanSubject } from './api'
 import './mark-card.css'
@@ -84,11 +85,31 @@ function subjectMetaLines(
   return primary || people ? { primary, people } : null
 }
 
-/** 书影音标记卡片，四段式一级结构：顶部栏（日期居左 + 主标题居中）/
-    条目信息区（封面左，别名/元信息右）/ 评论区（短评）/ 底栏（我的评分
-    星级，水平居中，未打分时整段不渲染），含 <li> 列表条目语义；
-    材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，
-    与 BaseCard 同源；纯展示，无链接与交互 */
+/** 标题 + 短评 → WDF 文档：标题固定 h1（weimo 卡片体系的标题级——
+ *  居中 650 字重，样式随包内 --md-* token 明暗自适应），短评作为正文
+ *  段落跟在其后，无短评时文档仅含标题 */
+function markDocument(mark: DoubanMark): WdfDocument {
+  const content: WdfDocument['root']['content'] = [
+    {
+      type: 'heading',
+      attrs: { level: 1 },
+      content: [{ type: 'text', text: mark.title }],
+    },
+  ]
+  if (mark.comment) {
+    content.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text: mark.comment }],
+    })
+  }
+  return { schema: 'weimo.document', version: 1, root: { type: 'doc', content } }
+}
+
+/** 书影音标记卡片，四段式一级结构：顶部栏（标记日期）/ 条目信息区
+    （封面左，别名/元信息右）/ 评论正文区（WdfRender 渲染标题 h1 + 短评
+    段落）/ 底栏（我的评分星级，水平居中，未打分时整段不渲染），含 <li>
+    列表条目语义；材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的
+    card-surface，与 BaseCard 同源；纯展示，无链接与交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
   const cover = mark.subject?.cover || mark.cover
@@ -99,7 +120,6 @@ export function MarkCard({ mark }: MarkCardProps) {
     <li className={getCardSurfaceClassName('mark-card')}>
       <div className="mark-card__header">
         <span>{mark.date}</span>
-        <span className="mark-card__title">{mark.title}</span>
       </div>
       <div className="mark-card__subject">
         {cover ? (
@@ -135,9 +155,7 @@ export function MarkCard({ mark }: MarkCardProps) {
           ) : null}
         </div>
       </div>
-      {mark.comment ? (
-        <p className="mark-card__comment">{mark.comment}</p>
-      ) : null}
+      <WdfRender className="mark-card__comment" content={markDocument(mark)} />
       {mark.my_rating ? (
         <div className="mark-card__footer">
           <RatingStars value={mark.my_rating} />
