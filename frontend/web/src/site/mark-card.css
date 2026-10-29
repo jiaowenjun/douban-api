@@ -47,12 +47,19 @@
   padding: 10px 12px;
 }
 
-/* 顶部栏：日期居左；1fr auto 1fr 三槽的右槽钉元信息折叠开关 */
+/* 顶部栏：日期居左；1fr auto 1fr 三槽的右槽钉元信息折叠开关。高度对齐
+   BaseCard 紧凑行模型：定高一行文本行盒（sm 13px × 1.2），28px 的 sm
+   折叠按钮溢出居中绘制（上下各 6.2px 落在卡片 padding 内）。grid 与
+   flex 的溢出对齐机制不同：align-items 只管条目在行内对齐（行被按钮
+   撑到 28px），行本身对齐容器中线须由 align-content: center 承担——
+   缺它则行钉容器顶、按钮整体下坠，日期随之偏下 */
 .mark-card__header {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
+  align-content: center;
   column-gap: 8px;
+  height: calc(var(--font-size-sm) * 1.2);
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
 }
