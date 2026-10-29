@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import type { ReactNode } from 'react'
+import { BookOpen, Clapperboard, Music } from 'lucide-react'
 
 import { TagTree } from 'weimo-ui-tagtree/components/tag-tree'
 import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
@@ -6,8 +8,15 @@ import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 import type { DoubanFacets } from './api'
 import { DIMENSIONS } from './facet-model'
 import type { FacetLeaf, FacetSelection } from './facet-model'
-import { CATEGORY_NOUNS, MARKS_CATEGORIES } from './navigation'
+import { CATEGORY_NOUNS, isMarksCategory, MARKS_CATEGORIES } from './navigation'
 import type { MarksCategory } from './navigation'
+
+/** 一级类别根行图标（根兼任类别导航，观感对齐原导航树行） */
+const CATEGORY_ICONS: Record<MarksCategory, ReactNode> = {
+  book: <BookOpen aria-hidden="true" />,
+  movie: <Clapperboard aria-hidden="true" />,
+  music: <Music aria-hidden="true" />,
+}
 
 /** 标签值含 / 会破坏 tag 路径的层级语义，替换为全角 */
 function escapeTagValue(value: string): string {
@@ -42,15 +51,22 @@ function buildTree(
       })
       .filter((node) => node.children.length > 0)
     if (children.length === 0) return []
-    return [{ tag: category, label: CATEGORY_NOUNS[category], children }]
+    return [{
+      tag: category,
+      label: CATEGORY_NOUNS[category],
+      icon: CATEGORY_ICONS[category],
+      children,
+    }]
   })
   return { nodes, byTag }
 }
 
-/** 分面筛选树（纯展示 + 选中回调）：类别/维度节点点击只管展开（组件
- *  内置折叠开关），仅叶子是筛选条件——当前类别叶子再点已选中的取消；
- *  其他类别叶子交给上层跳路由。展开态受控由上层持有（选中叶子的
- *  祖先链 TagTree 会自动展开，无需显式记录） */
+/** 分面筛选树（纯展示 + 选中回调）：一级类别根点行=筛选到该类别
+ *  （onSelect 上抛 null 即「跳该类别、清筛选」，展开/收起仍走行内
+ *  折叠开关）；维度节点点击只管展开（组件内置折叠开关），仅叶子是
+ *  筛选条件——当前类别叶子再点已选中的取消、其他类别叶子交上层跳
+ *  路由。展开态受控由上层持有（选中叶子的祖先链 TagTree 会自动展开，
+ *  无需显式记录） */
 export function FacetTree({
   activeCategory,
   expandedTags,
@@ -71,10 +87,13 @@ export function FacetTree({
     () => buildTree(facetsByCategory),
     [facetsByCategory],
   )
-  const selectedTag =
-    activeCategory && selection
+  // 选中指示两档：有筛选选中叶子；无筛选时当前类别根顶上（原导航树
+  // 的「当前位置」指示由根接管）
+  const selectedTag = selection
+    ? activeCategory
       ? `${activeCategory}/${selection.dim}/${escapeTagValue(selection.value)}`
       : undefined
+    : activeCategory
 
   return (
     <TagTree
@@ -83,6 +102,11 @@ export function FacetTree({
       nodes={nodes}
       onExpandedTagsChange={onExpandedTagsChange}
       onSelect={(tag, node) => {
+        // 一级类别根：tag 无 /（维度/叶子都带类别前缀），点行即筛选
+        if (!tag.includes('/')) {
+          if (isMarksCategory(tag)) onSelect(tag, null)
+          return
+        }
         if (node.children?.length) return
         const leaf = byTag.get(tag)
         if (!leaf) return

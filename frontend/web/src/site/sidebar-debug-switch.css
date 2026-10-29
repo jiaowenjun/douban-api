@@ -12,11 +12,10 @@
   justify-content: center;
 }
 
-/* 开启后描边侧边栏内子容器：身份栏与主体各区（统计/导航/筛选）；
+/* 开启后描边侧边栏内子容器：身份栏与主体各区（统计/筛选）；
    DEBUG 时补 2px 临时内边距，避免描边贴住内容难以观察 */
 .sidebar-debug .sidebar-header,
 .sidebar-debug .sidebar-stats,
-.sidebar-debug .site-sidebar__nav,
 .sidebar-debug .site-sidebar__facet {
   outline: 1px solid var(--color-border);
   border-radius: var(--radius);

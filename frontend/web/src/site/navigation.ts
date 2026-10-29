@@ -26,7 +26,7 @@ const CATEGORY_VERBS: Record<MarksCategory, string> = {
   music: '听',
 }
 
-function isMarksCategory(value: string): value is MarksCategory {
+export function isMarksCategory(value: string): value is MarksCategory {
   return value in CATEGORY_NOUNS
 }
 

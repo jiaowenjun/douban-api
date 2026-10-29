@@ -14,11 +14,11 @@
   font-size: 13px;
 }
 
-/* 13 列格子撑满导航内容宽（space-between）；下缘 18px 呼吸对齐 biji
-   （主体区平铺无模板 gap，间距自持） */
+/* 13 列格子撑满导航内容宽（space-between）；下缘间距交给紧随的
+   筛选区 section-hint 顶距（18px），不另加 padding-bottom */
 .sidebar-stats .heatmap {
   justify-content: space-between;
-  padding-block: 12px 18px;
+  padding-block: 12px 0;
   padding-inline: 0;
 }
 

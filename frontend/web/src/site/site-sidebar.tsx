@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
-import { BookOpen, Clapperboard, Music } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
-import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 
 import { fetchDoubanFacets, type DoubanFacets } from './api'
 import { useDoubanUser } from './douban-user'
@@ -12,33 +9,18 @@ import { SidebarDebugSwitch } from './sidebar-debug-switch'
 import { SidebarHeader } from './sidebar-header'
 import { SidebarStats } from './sidebar-stats'
 import {
-  CATEGORY_NOUNS,
   MARKS_CATEGORIES,
   resolveMarksView,
   type MarksCategory,
 } from './navigation'
 import './site-sidebar.css'
 
-/** 类别导航行图标（TagTree no-action 纯导航，用法对齐
- *  biji-side-bar__nav 的样例导航树） */
-const NAV_ICONS: Record<MarksCategory, ReactNode> = {
-  book: <BookOpen aria-hidden="true" />,
-  movie: <Clapperboard aria-hidden="true" />,
-  music: <Music aria-hidden="true" />,
-}
-
-/** 类别导航节点：电影/图书/音乐一行一项（tag 即路由段） */
-const navNodes: TagTreeNode[] = MARKS_CATEGORIES.map((category) => ({
-  tag: category,
-  label: CATEGORY_NOUNS[category],
-  icon: NAV_ICONS[category],
-}))
-
 /** 站点侧边栏：整体接管模板 sidebar 插槽，布局对齐 weimo-biji 的
  *  biji-side-bar——身份栏固定在顶，滚动主体依次为标记统计区
- *  （StatGroup/Heatmap）→ 类别导航 → 分面筛选树（随当前类别）。
- *  分面选择经 URL ?facet=dim=value 与列表页共享（侧边栏写、列表页
- *  读）；类别导航不带参数跳转，切换类别天然清除筛选。
+ *  （StatGroup/Heatmap）→ 分面筛选树。树的一级类别根（电影/图书/
+ *  音乐，带图标）兼任类别导航：点行=跳该类别并清筛选，原独立导航
+ *  树已因其可替代而移除。分面选择经 URL ?facet=dim=value 与列表页
+ *  共享（侧边栏写、列表页读）；类别切换天然清除筛选。
  *  onClose 供窄屏抽屉在选中后收起 */
 export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
@@ -97,26 +79,20 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     setExpandedTags(category ? [category] : [])
   }
 
-  function handleNavSelect(tag: string) {
-    // 不带查询参数导航，类别切换天然清除分面筛选
-    navigate(`/${tag}`)
-    onClose()
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
+  /** 分面选择统一处理：目标=当前类别时改查询参数即生效（null 即清除
+   *  筛选——叶子再点取消与一级类别根点击重置都走这里）；目标为其他
+   *  类别（叶子或根）跳路由，带值叶子一步带筛选、根跳纯类别路由 */
   function handleFacetSelect(
     target: MarksCategory,
     next: FacetSelection | null,
   ) {
-    if (!next) {
-      // 取消只可能来自当前类别的已选叶子
-      setSearchParams({})
-    } else if (target === category) {
-      setSearchParams({ facet: `${next.dim}=${next.value}` })
+    if (target === category) {
+      setSearchParams(next ? { facet: `${next.dim}=${next.value}` } : {})
     } else {
-      // 跨类别叶子：一步跳到目标类别并带筛选（等效导航，需回顶）
       navigate(
-        `/${target}?facet=${encodeURIComponent(`${next.dim}=${next.value}`)}`,
+        next
+          ? `/${target}?facet=${encodeURIComponent(`${next.dim}=${next.value}`)}`
+          : `/${target}`,
       )
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
@@ -153,15 +129,6 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
       <SidebarHeader />
       <div className="site-sidebar__body">
         <SidebarStats />
-        <nav aria-label="条目类别" className="site-sidebar__nav">
-          <TagTree
-            aria-label="条目类别"
-            nodes={navNodes}
-            onSelect={handleNavSelect}
-            selectedTag={category}
-            variant="no-action"
-          />
-        </nav>
         {facetSection}
       </div>
       <SidebarDebugSwitch />
