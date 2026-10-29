@@ -3,10 +3,6 @@
   gap: var(--space-card-section-gap, 1em);
 }
 
-.marks-page__title {
-  font-size: var(--font-size-xl, 24px);
-}
-
 .marks-page__meta {
   margin: 0;
   color: var(--color-text-secondary);

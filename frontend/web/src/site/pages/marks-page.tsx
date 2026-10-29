@@ -221,7 +221,6 @@ export function MarksPage() {
 
   return (
     <section className="marks-page">
-      <h1 className="marks-page__title">{view.pageTitle}</h1>
       {content}
     </section>
   )
