@@ -8,7 +8,6 @@
    整卡根容器不描边（card-surface 自带边框，外框再描一条是噪音）也不补
    padding——它有真实 padding（10px 12px），覆盖成 2px 会扰动被调试的布局 */
 .sidebar-debug .mark-card__header,
-.sidebar-debug .mark-card__category,
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
@@ -25,7 +24,6 @@
 }
 
 .sidebar-debug .mark-card__header,
-.sidebar-debug .mark-card__category,
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
@@ -40,31 +38,39 @@
   padding: 2px;
 }
 
-/* 四个一级区域纵向排布：区域间 6px，区域内各自更紧的 gap（info 2px / footer 8px） */
+/* 四个一级区域纵向排布：区域间 1em（随卡片字号缩放），区域内各自更紧的
+   gap（info 2px / footer 8px） */
 .mark-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 1em;
   padding: 10px 12px;
 }
 
-/* 顶部栏：左侧类别标签；space-between 预留右侧操作位（未来外链/菜单） */
+/* 顶部栏：左侧标记日期（元数据弱化灰，样式挂容器与 footer 同法）；
+   space-between 预留右侧操作位（未来外链/菜单） */
 .mark-card__header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-}
-
-/* 类别标签弱化呈现（同页同类别时冗余，混合列表才承担辨识职责） */
-.mark-card__category {
   color: var(--color-text-placeholder);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
-/* 条目信息区：封面 + 文字列的两列骨架（自根级下沉而来） */
+/* 条目信息区：标题评分行独占首行（跨双列），封面（左）与文字元信息（右）
+   并列其下——grid 两列实现，DOM 序即视觉序，无需包装行容器；
+   行距 1em（标题行与并列区之间），列距 12px（封面与文字之间） */
 .mark-card__subject {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1em 12px;
+}
+
+.mark-card__title-row {
+  grid-column: 1 / -1;
   display: flex;
-  gap: 12px;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .mark-card__cover {
@@ -88,12 +94,6 @@
   align-content: start;
 }
 
-.mark-card__title-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
 .mark-card__title {
   min-width: 0;
   color: var(--color-text-primary);
@@ -107,15 +107,15 @@
 }
 
 .mark-card__intro {
-  color: var(--color-text-secondary);
+  color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
 }
 
 /* 条目元信息（expand=subject）：首行 年份·国家·类型·片长 / 次行人名，
-   各单行省略——卡片是列表条目不是详情页 */
+   各单行省略——卡片是列表条目不是详情页；字色与别名行同为弱化灰 */
 .mark-card__meta {
   overflow: hidden;
-  color: var(--color-text-secondary);
+  color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
   white-space: nowrap;
   text-overflow: ellipsis;

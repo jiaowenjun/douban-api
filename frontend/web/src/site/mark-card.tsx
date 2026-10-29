@@ -1,7 +1,6 @@
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
 
 import type { DoubanMark, DoubanSubject } from './api'
-import { CATEGORY_NOUNS, type MarksCategory } from './navigation'
 import './mark-card.css'
 
 type MarkCardProps = {
@@ -84,24 +83,27 @@ function subjectMetaLines(
   return primary || people ? { primary, people } : null
 }
 
-/** 书影音标记卡片，四段式一级结构：顶部栏（类别标签）/ 条目信息区
-    （封面 + 标题/评分/别名/元信息）/ 评论区（短评）/ 底部栏（日期/豆瓣评分），
-    含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的
-    card-surface，与 BaseCard 同源；纯展示，无链接与交互 */
+/** 书影音标记卡片，四段式一级结构：顶部栏（标记日期）/ 条目信息区
+    （标题+评分独占首行，封面与别名/元信息并列其下）/ 评论区（短评）/
+    底部栏（豆瓣评分，无富集数据时整段不渲染），含 <li> 列表条目语义；
+    材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，
+    与 BaseCard 同源；纯展示，无链接与交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
   const cover = mark.subject?.cover || mark.cover
   const meta = mark.subject ? subjectMetaLines(mark.subject) : null
   const doubanRating = mark.subject?.rating.value
-  const categoryLabel =
-    CATEGORY_NOUNS[mark.category as MarksCategory] ?? mark.category
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
       <div className="mark-card__header">
-        <span className="mark-card__category">{categoryLabel}</span>
+        <span>{mark.date}</span>
       </div>
       <div className="mark-card__subject">
+        <div className="mark-card__title-row">
+          <span className="mark-card__title">{mark.title}</span>
+          {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
+        </div>
         {cover ? (
           <img
             alt=""
@@ -113,10 +115,6 @@ export function MarkCard({ mark }: MarkCardProps) {
           <div className="mark-card__cover mark-card__cover--empty" />
         )}
         <div className="mark-card__info">
-          <div className="mark-card__title-row">
-            <span className="mark-card__title">{mark.title}</span>
-            {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-          </div>
           {mark.alt_title ? (
             <div className="mark-card__alt">{mark.alt_title}</div>
           ) : null}
@@ -135,12 +133,11 @@ export function MarkCard({ mark }: MarkCardProps) {
       {mark.comment ? (
         <p className="mark-card__comment">{mark.comment}</p>
       ) : null}
-      <div className="mark-card__footer">
-        <span>{mark.date}</span>
-        {doubanRating != null ? (
+      {doubanRating != null ? (
+        <div className="mark-card__footer">
           <span className="mark-card__db-rating">豆瓣 {doubanRating.toFixed(1)}</span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </li>
   )
 }
