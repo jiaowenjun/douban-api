@@ -56,13 +56,19 @@ impl CoverService {
         let (url, filename, content_type) = parse_cover_url(url)?;
         let path = self.root.join(&filename);
         if let Some(bytes) = read_nonempty(&path).await {
-            return Ok(Cover { bytes, content_type });
+            return Ok(Cover {
+                bytes,
+                content_type,
+            });
         }
 
         let _permit = self.origin_slots.acquire().await.expect("semaphore 未关闭");
         // 拿到许可后复查：并发同图时后到者直接命中先到者落盘的结果
         if let Some(bytes) = read_nonempty(&path).await {
-            return Ok(Cover { bytes, content_type });
+            return Ok(Cover {
+                bytes,
+                content_type,
+            });
         }
 
         let resp = self
@@ -83,7 +89,9 @@ impl CoverService {
             .unwrap_or_default()
             .to_ascii_lowercase();
         if !upstream_type.starts_with("image/") {
-            return Err(AppError::CoverUpstream(format!("非图片响应: {upstream_type}")));
+            return Err(AppError::CoverUpstream(format!(
+                "非图片响应: {upstream_type}"
+            )));
         }
         let bytes = resp
             .bytes()
@@ -95,7 +103,10 @@ impl CoverService {
         }
 
         self.save(&filename, &bytes).await?;
-        Ok(Cover { bytes, content_type })
+        Ok(Cover {
+            bytes,
+            content_type,
+        })
     }
 
     /// 落盘：写临时文件后原子改名，避免并发读到半截内容
@@ -106,7 +117,10 @@ impl CoverService {
             self.tmp_seq.fetch_add(1, Ordering::Relaxed)
         ));
         tokio::fs::write(&tmp, bytes).await?;
-        if tokio::fs::rename(&tmp, self.root.join(filename)).await.is_err() {
+        if tokio::fs::rename(&tmp, self.root.join(filename))
+            .await
+            .is_err()
+        {
             // 并发下他人已抢先改名，本份内容一致，丢弃即可
             let _ = tokio::fs::remove_file(&tmp).await;
         }
@@ -119,8 +133,7 @@ impl CoverService {
 pub fn parse_cover_url(url: &str) -> Result<(String, String, &'static str), AppError> {
     let bad = |msg: &str| AppError::InvalidArgument(format!("非法封面 URL（{msg}）"));
 
-    let parsed =
-        url::Url::parse(url).map_err(|_| bad("无法解析"))?;
+    let parsed = url::Url::parse(url).map_err(|_| bad("无法解析"))?;
     if parsed.scheme() != "https" {
         return Err(bad("仅允许 https"));
     }
@@ -205,12 +218,14 @@ mod tests {
         .unwrap();
         assert_eq!(name, "p2935834896.webp");
         assert_eq!(ct, "image/webp");
-        assert_eq!(url.as_str(), "https://img3.doubanio.com/view/photo/s_ratio_poster/public/p2935834896.webp");
+        assert_eq!(
+            url.as_str(),
+            "https://img3.doubanio.com/view/photo/s_ratio_poster/public/p2935834896.webp"
+        );
 
-        let (_, name, ct) = parse_cover_url(
-            "https://img2.doubanio.com/view/subject/s/public/s27018761.jpg",
-        )
-        .unwrap();
+        let (_, name, ct) =
+            parse_cover_url("https://img2.doubanio.com/view/subject/s/public/s27018761.jpg")
+                .unwrap();
         assert_eq!(name, "s27018761.jpg");
         assert_eq!(ct, "image/jpeg");
         // 用户头像（文件名带版本号后缀，stem 校验允许 `-`）
@@ -233,7 +248,9 @@ mod tests {
         assert!(parse_cover_url("https://img3.doubanio.com/view/photo/../../etc/passwd").is_err());
         assert!(parse_cover_url("https://img3.doubanio.com/view/photo/public/p1").is_err());
         assert!(parse_cover_url("https://img3.doubanio.com/view/photo/public/p1.html").is_err());
-        assert!(parse_cover_url("https://img3.doubanio.com/view/photo/public/.hidden.webp").is_err());
+        assert!(
+            parse_cover_url("https://img3.doubanio.com/view/photo/public/.hidden.webp").is_err()
+        );
         // 无法解析
         assert!(parse_cover_url("not a url").is_err());
     }

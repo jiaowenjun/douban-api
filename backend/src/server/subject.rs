@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use rand::Rng;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::{Row, SqlitePool};
 
 use crate::crawler::Category;
@@ -118,10 +118,11 @@ pub fn map_rexxar(category: Category, v: &Value) -> SubjectRow {
             meta.insert("subtitle".into(), json!(s(v, "subtitle")));
             meta.insert(
                 "series".into(),
-                json!(v
-                    .pointer("/book_series/title")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()),
+                json!(
+                    v.pointer("/book_series/title")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                ),
             );
             meta.insert("intro".into(), json!(s(v, "intro")));
         }
@@ -302,8 +303,7 @@ pub async fn process_next_job<F: DoubanFetcher>(state: &AppState, fetcher: &F) -
             let category = Category::from_key(&job.category)
                 .with_context(|| format!("未知 category: {}", job.category))?;
             let row = map_rexxar(category, &value);
-            upsert_subject_row(&state.pool, &job.category, &job.subject_id, &row, "rexxar")
-                .await?;
+            upsert_subject_row(&state.pool, &job.category, &job.subject_id, &row, "rexxar").await?;
             sqlx::query(
                 "UPDATE subject_jobs SET state='ok', attempts=0, next_run_ms=NULL,
                         last_error=NULL, updated_ms=?
@@ -405,16 +405,12 @@ async fn handle_job_error(state: &AppState, job: &SubjectJob, e: FetchError) -> 
         }
     } else {
         // 指数退避：20s / 60s / 180s / 540s（第 5 次耗尽走兜底）
-        let backoff_ms =
-            20_000 * 3_i64.pow((attempts as u32).saturating_sub(1)) + rand::thread_rng().gen_range(0..5_000);
+        let backoff_ms = 20_000 * 3_i64.pow((attempts as u32).saturating_sub(1))
+            + rand::thread_rng().gen_range(0..5_000);
         let next = now + backoff_ms;
         // 被限流时自身重试也须等类别冷却结束（它就是下一轮的探测请求）
         let next = defer_until.map_or(next, |until| next.max(until));
-        (
-            "queued",
-            Some(next),
-            format!("{}: {e}", e.code()),
-        )
+        ("queued", Some(next), format!("{}: {e}", e.code()))
     };
 
     sqlx::query(
@@ -490,7 +486,14 @@ async fn write_intro_fallback(state: &AppState, job: &SubjectJob) -> Result<bool
         intro: r.get("intro"),
     };
     let subject_row = intro_fallback_row(&record);
-    upsert_subject_row(&state.pool, &job.category, &job.subject_id, &subject_row, "intro").await?;
+    upsert_subject_row(
+        &state.pool,
+        &job.category,
+        &job.subject_id,
+        &subject_row,
+        "intro",
+    )
+    .await?;
     tracing::warn!(
         subject = format!("{}/{}", job.category, job.subject_id),
         title = %subject_row.title,
@@ -590,7 +593,9 @@ pub async fn list_jobs(
     }
 
     let total: i64 = {
-        let sql = format!("SELECT COUNT(*) FROM subject_jobs j LEFT JOIN subjects s ON s.category = j.category AND s.subject_id = j.subject_id{where_clause}");
+        let sql = format!(
+            "SELECT COUNT(*) FROM subject_jobs j LEFT JOIN subjects s ON s.category = j.category AND s.subject_id = j.subject_id{where_clause}"
+        );
         let mut query = sqlx::query_scalar(&sql);
         for st in states {
             query = query.bind(st);

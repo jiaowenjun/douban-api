@@ -1,9 +1,9 @@
 //! 统一错误——信封 `{"error":{"code","message"}}`，映射设计文档第 9 节的错误码表。
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 

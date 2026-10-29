@@ -8,7 +8,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::crawler::{
-    self, collection_url, parse_items, parse_total, referer_for, Category, Record, Status,
+    self, Category, Record, Status, collection_url, parse_items, parse_total, referer_for,
 };
 
 use super::config::ServerConfig;

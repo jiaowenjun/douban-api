@@ -4,7 +4,10 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "weimo-douban-server", about = "免登录豆瓣书影音同步服务器（抓取入库 + API 查询）")]
+#[command(
+    name = "weimo-douban-server",
+    about = "免登录豆瓣书影音同步服务器（抓取入库 + API 查询）"
+)]
 pub struct ServerConfig {
     /// 监听地址
     #[arg(long, env = "SYNC_SERVER_BIND", default_value = "0.0.0.0:8080")]
@@ -81,7 +84,11 @@ pub struct ServerConfig {
     /// rexxar 单端点（category 维度）限流后的类别冷却（秒）。实测 movie 端点
     /// 连发 4-8 个请求即 400 封锁约 5-6 分钟（404 同样累积触发），封锁期间
     /// 该类别全部富集 job 推迟到冷却期后，music/book/维度抓取不受影响
-    #[arg(long, env = "SYNC_SUBJECT_CATEGORY_COOLDOWN_SECS", default_value_t = 300)]
+    #[arg(
+        long,
+        env = "SYNC_SUBJECT_CATEGORY_COOLDOWN_SECS",
+        default_value_t = 300
+    )]
     pub subject_category_cooldown_secs: i64,
 }
 

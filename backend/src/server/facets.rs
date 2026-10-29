@@ -40,10 +40,7 @@ fn dimension_fields(category: Category) -> &'static [(&'static str, &'static str
 
 /// 该类别全部合法维度键（含 decade，顺序即聚合输出顺序）
 pub fn dimension_keys(category: Category) -> Vec<&'static str> {
-    let mut keys: Vec<&'static str> = dimension_fields(category)
-        .iter()
-        .map(|(d, _)| *d)
-        .collect();
+    let mut keys: Vec<&'static str> = dimension_fields(category).iter().map(|(d, _)| *d).collect();
     keys.push("decade");
     keys
 }
@@ -57,10 +54,7 @@ fn values_for(category: Category, dim: &str, view: &Value) -> Vec<String> {
             _ => vec![],
         };
     }
-    let Some((_, field)) = dimension_fields(category)
-        .iter()
-        .find(|(d, _)| *d == dim)
-    else {
+    let Some((_, field)) = dimension_fields(category).iter().find(|(d, _)| *d == dim) else {
         return vec![];
     };
     let values = view
@@ -116,9 +110,7 @@ pub fn parse_filters(category: Category, raw: &[String]) -> AppResult<Vec<FacetF
                 )));
             }
             if value.is_empty() {
-                return Err(AppError::InvalidArgument(format!(
-                    "facet 值不能为空: {s}"
-                )));
+                return Err(AppError::InvalidArgument(format!("facet 值不能为空: {s}")));
             }
             Ok(FacetFilter {
                 dim: dim.to_string(),
@@ -292,7 +284,10 @@ mod tests {
         assert_eq!(values_for(cat, "genre", &view), vec!["民谣"]);
         assert_eq!(values_for(cat, "singer", &view).len(), 2);
         // 年份缺失 / 越界 → 不出 decade
-        assert_eq!(values_for(cat, "decade", &json!({"year": null})), Vec::<String>::new());
+        assert_eq!(
+            values_for(cat, "decade", &json!({"year": null})),
+            Vec::<String>::new()
+        );
         assert_eq!(
             values_for(cat, "decade", &json!({"year": 1899})),
             Vec::<String>::new()
@@ -311,7 +306,11 @@ mod tests {
         let or = vec![f("genre", "喜剧"), f("genre", "犯罪")];
         assert!(view_matches(cat, &view, &or));
         // 跨维度需全部命中
-        let and_ok = vec![f("genre", "剧情"), f("country", "美国"), f("decade", "1990s")];
+        let and_ok = vec![
+            f("genre", "剧情"),
+            f("country", "美国"),
+            f("decade", "1990s"),
+        ];
         assert!(view_matches(cat, &view, &and_ok));
         let and_fail = vec![f("genre", "剧情"), f("country", "日本")];
         assert!(!view_matches(cat, &view, &and_fail));
@@ -322,7 +321,8 @@ mod tests {
     #[test]
     fn parse_filters_validates() {
         let cat = Category::Movie;
-        let ok = parse_filters(cat, &["genre=剧情".to_string(), "country=美国".to_string()]).unwrap();
+        let ok =
+            parse_filters(cat, &["genre=剧情".to_string(), "country=美国".to_string()]).unwrap();
         assert_eq!(ok.len(), 2);
         assert_eq!(ok[0].value, "剧情");
         // 非法维度 / 缺 = / 空值

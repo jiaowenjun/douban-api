@@ -275,11 +275,10 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
     let ttl_ms = state.config.cache_ttl_secs * 1000;
 
     // 队列上限检查
-    let active: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM dimensions WHERE state IN ('queued','running')",
-    )
-    .fetch_one(&state.pool)
-    .await?;
+    let active: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM dimensions WHERE state IN ('queued','running')")
+            .fetch_one(&state.pool)
+            .await?;
     let active = active + pairs.len() as i64;
     if active > state.config.queue_limit {
         return Err(AppError::TooManyTasks);
@@ -350,19 +349,35 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
                     && state_str == "ok"
                     && fetched_ms.is_some_and(|t| t + ttl_ms > now) =>
             {
-                insert_task_dim(&state.pool, &task_id, &uid, cat.key(), st.key(), "done", fetched_count).await?;
+                insert_task_dim(
+                    &state.pool,
+                    &task_id,
+                    &uid,
+                    cat.key(),
+                    st.key(),
+                    "done",
+                    fetched_count,
+                )
+                .await?;
                 cached += 1;
             }
             // single-flight：已有运行中/排队的抓取，并入
             Some((state_str, _, _)) if state_str == "queued" || state_str == "running" => {
-                insert_task_dim(&state.pool, &task_id, &uid, cat.key(), st.key(), "waiting", 0).await?;
+                insert_task_dim(
+                    &state.pool,
+                    &task_id,
+                    &uid,
+                    cat.key(),
+                    st.key(),
+                    "waiting",
+                    0,
+                )
+                .await?;
                 created += 1;
             }
             // 需要新抓取（idle / 过期缓存 / refresh / 上次失败）
             dim_state => {
-                let is_fresh_ok = dim_state
-                    .as_ref()
-                    .is_some_and(|(s, _, _)| s == "ok");
+                let is_fresh_ok = dim_state.as_ref().is_some_and(|(s, _, _)| s == "ok");
                 if is_fresh_ok {
                     // refresh：清空旧数据重新全量抓
                     refresh_dimension(&state.pool, &uid, cat.key(), st.key(), now).await?;
@@ -382,7 +397,16 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
                     .execute(&state.pool)
                     .await?;
                 }
-                insert_task_dim(&state.pool, &task_id, &uid, cat.key(), st.key(), "waiting", 0).await?;
+                insert_task_dim(
+                    &state.pool,
+                    &task_id,
+                    &uid,
+                    cat.key(),
+                    st.key(),
+                    "waiting",
+                    0,
+                )
+                .await?;
                 created += 1;
                 need_wake = true;
             }
@@ -394,15 +418,20 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
     }
 
     // 全部维度命中缓存 → 直接终态
-    let waiting: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM task_dims WHERE task_id = ? AND state != 'done'",
-    )
-    .bind(&task_id)
-    .fetch_one(&state.pool)
-    .await?;
-    if waiting == 0 {
-        finish_task(&state.pool, &task_id, "completed", now, task_retention_ms(&state.config))
+    let waiting: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM task_dims WHERE task_id = ? AND state != 'done'")
+            .bind(&task_id)
+            .fetch_one(&state.pool)
             .await?;
+    if waiting == 0 {
+        finish_task(
+            &state.pool,
+            &task_id,
+            "completed",
+            now,
+            task_retention_ms(&state.config),
+        )
+        .await?;
     }
 
     let view = get_task(state, &task_id).await?;
@@ -508,7 +537,10 @@ pub struct ListFilter {
     pub cursor_rowid: Option<i64>,
 }
 
-pub async fn list_tasks(state: &AppState, f: ListFilter) -> AppResult<(Vec<TaskSummary>, Option<i64>)> {
+pub async fn list_tasks(
+    state: &AppState,
+    f: ListFilter,
+) -> AppResult<(Vec<TaskSummary>, Option<i64>)> {
     let rows = sqlx::query(
         "SELECT rowid, task_id, user, status, items_count, created_ms, source FROM tasks
          WHERE (? IS NULL OR user = ?)
@@ -834,7 +866,9 @@ pub async fn upsert_subscription(
     full_interval_secs: Option<i64>,
 ) -> AppResult<SubscriptionView> {
     if !crate::crawler::is_valid_id(uid) {
-        return Err(AppError::InvalidArgument(format!("非法豆瓣用户 ID: {uid:?}")));
+        return Err(AppError::InvalidArgument(format!(
+            "非法豆瓣用户 ID: {uid:?}"
+        )));
     }
     let rss = rss_interval_secs.unwrap_or(state.config.sub_rss_interval_secs);
     let full = full_interval_secs.unwrap_or(state.config.sub_full_interval_secs);
@@ -1090,11 +1124,10 @@ async fn full_sync(state: &AppState, sub: &DueSubscription, now: i64) -> anyhow:
         postpone(sub.full_interval_secs).await?;
         return Ok(());
     }
-    let active: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM dimensions WHERE state IN ('queued','running')",
-    )
-    .fetch_one(&state.pool)
-    .await?;
+    let active: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM dimensions WHERE state IN ('queued','running')")
+            .fetch_one(&state.pool)
+            .await?;
     if active + dims.len() as i64 > state.config.queue_limit {
         tracing::warn!(uid = %sub.uid, "订阅全量因队列上限顺延");
         postpone(FULL_RETRY_SECS).await?;
@@ -1155,13 +1188,15 @@ async fn full_sync(state: &AppState, sub: &DueSubscription, now: i64) -> anyhow:
     }
     state.wake_worker();
 
-    sqlx::query("UPDATE subscriptions SET last_full_ms=?, next_full_ms=?, updated_ms=? WHERE uid=?")
-        .bind(now)
-        .bind(now + sub.full_interval_secs * 1000)
-        .bind(now)
-        .bind(&sub.uid)
-        .execute(&state.pool)
-        .await?;
+    sqlx::query(
+        "UPDATE subscriptions SET last_full_ms=?, next_full_ms=?, updated_ms=? WHERE uid=?",
+    )
+    .bind(now)
+    .bind(now + sub.full_interval_secs * 1000)
+    .bind(now)
+    .bind(&sub.uid)
+    .execute(&state.pool)
+    .await?;
     tracing::info!(
         uid = %sub.uid,
         task_id = %task_id,
@@ -1230,7 +1265,11 @@ pub async fn finalize_linked_tasks(
     )
     .bind(if ok { "done" } else { "error" })
     .bind(items)
-    .bind(if ok { None } else { Some(error_code.to_string()) })
+    .bind(if ok {
+        None
+    } else {
+        Some(error_code.to_string())
+    })
     .bind(uid)
     .bind(category)
     .bind(dim_status)
@@ -1297,7 +1336,10 @@ pub async fn recompute_task_status(state: &AppState, task_id: &str) -> anyhow::R
         .bind(task_id)
         .fetch_all(&state.pool)
         .await?;
-        let first_code = failed.first().map(|(_, _, c)| c.clone()).unwrap_or_default();
+        let first_code = failed
+            .first()
+            .map(|(_, _, c)| c.clone())
+            .unwrap_or_default();
         let error_json = json!({
             "code": if first_code.is_empty() { "INTERNAL" } else { first_code.as_str() },
             "message": "部分或全部维度抓取失败",
@@ -1393,10 +1435,11 @@ async fn cleanup_once(state: &AppState) -> anyhow::Result<()> {
 pub async fn server_info(state: &AppState) -> AppResult<Value> {
     let mut queued = 0i64;
     let mut running = 0i64;
-    let rows: Vec<(String, i64)> =
-        sqlx::query_as("SELECT state, COUNT(*) FROM dimensions WHERE state IN ('queued','running') GROUP BY state")
-            .fetch_all(&state.pool)
-            .await?;
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT state, COUNT(*) FROM dimensions WHERE state IN ('queued','running') GROUP BY state",
+    )
+    .fetch_all(&state.pool)
+    .await?;
     for (s, n) in rows {
         match s.as_str() {
             "queued" => queued = n,

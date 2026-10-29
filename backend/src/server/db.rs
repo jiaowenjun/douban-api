@@ -1,7 +1,7 @@
 //! SQLite 连接与建表（weimo-ocr 风格：内嵌 bootstrap SQL，不用 sqlx migrate）。
 
 use anyhow::{Context, Result};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
 const BOOTSTRAP_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS tasks (
@@ -161,7 +161,13 @@ pub async fn connect(db_path: &std::path::Path) -> Result<SqlitePool> {
     ensure_column(&pool, "tasks", "source", "TEXT NOT NULL DEFAULT 'manual'").await?;
     // 获取方式标记：rexxar = 权威富集；intro = 重试耗尽后的 records.intro
     // 合成兜底行（无豆瓣评分，可经 refresh / requeue stale 升级回 rexxar）
-    ensure_column(&pool, "subjects", "source", "TEXT NOT NULL DEFAULT 'rexxar'").await?;
+    ensure_column(
+        &pool,
+        "subjects",
+        "source",
+        "TEXT NOT NULL DEFAULT 'rexxar'",
+    )
+    .await?;
     Ok(pool)
 }
 

@@ -134,8 +134,13 @@ impl DoubanFetcher for ReqwestFetcher {
         if !resp.status().is_success() {
             return Err(FetchError::Blocked(code));
         }
-        let html = String::from_utf8_lossy(&resp.bytes().await.map_err(|e| FetchError::Network(e.to_string()))?)
-            .into_owned();
+        let html = String::from_utf8_lossy(
+            &resp
+                .bytes()
+                .await
+                .map_err(|e| FetchError::Network(e.to_string()))?,
+        )
+        .into_owned();
         if html.len() <= 5000 {
             return Err(FetchError::Suspicious(html.len())); // 正常页面 >30KB
         }
@@ -153,7 +158,10 @@ impl DoubanFetcher for ReqwestFetcher {
             // rexxar 校验移动端来源：Referer 必须指向 m.douban.com，UA 用移动端
             //（请求级 header 覆盖 client 级桌面默认值）
             .header("Referer", crate::server::subject::REXXAR_REFERER)
-            .header(reqwest::header::USER_AGENT, crate::server::subject::MOBILE_UA)
+            .header(
+                reqwest::header::USER_AGENT,
+                crate::server::subject::MOBILE_UA,
+            )
             .send()
             .await
             .map_err(|e| {
@@ -171,8 +179,13 @@ impl DoubanFetcher for ReqwestFetcher {
         if !resp.status().is_success() {
             return Err(FetchError::Blocked(code));
         }
-        let text = String::from_utf8_lossy(&resp.bytes().await.map_err(|e| FetchError::Network(e.to_string()))?)
-            .into_owned();
+        let text = String::from_utf8_lossy(
+            &resp
+                .bytes()
+                .await
+                .map_err(|e| FetchError::Network(e.to_string()))?,
+        )
+        .into_owned();
         let value: serde_json::Value =
             serde_json::from_str(&text).map_err(|_| FetchError::Suspicious(text.len()))?;
         if value.get("title").is_none() {
@@ -205,8 +218,13 @@ impl DoubanFetcher for ReqwestFetcher {
         if !resp.status().is_success() {
             return Err(FetchError::Blocked(code));
         }
-        let text = String::from_utf8_lossy(&resp.bytes().await.map_err(|e| FetchError::Network(e.to_string()))?)
-            .into_owned();
+        let text = String::from_utf8_lossy(
+            &resp
+                .bytes()
+                .await
+                .map_err(|e| FetchError::Network(e.to_string()))?,
+        )
+        .into_owned();
         if !looks_like_feed(&text) {
             return Err(FetchError::Suspicious(text.len()));
         }
@@ -228,7 +246,9 @@ mod tests {
     #[test]
     fn looks_like_feed_accepts_real_shapes() {
         // 2026-10-28 实抓 feed 开头（含 BOM/前导空白容忍）
-        assert!(looks_like_feed("<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\">"));
+        assert!(looks_like_feed(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\">"
+        ));
         assert!(looks_like_feed("<rss version=\"2.0\"><channel>"));
         assert!(looks_like_feed("\u{feff}\n  <?xml version=\"1.0\"?>"));
     }
@@ -236,7 +256,9 @@ mod tests {
     #[test]
     fn looks_like_feed_rejects_non_xml() {
         // 拦截页（200 + HTML）与空响应都不能当 feed 用
-        assert!(!looks_like_feed("<!DOCTYPE html><html><body>blocked</body></html>"));
+        assert!(!looks_like_feed(
+            "<!DOCTYPE html><html><body>blocked</body></html>"
+        ));
         assert!(!looks_like_feed(""));
         assert!(!looks_like_feed("请开启 JavaScript"));
     }
