@@ -25,6 +25,55 @@ export async function fetchDoubanProfile(uid: string): Promise<DoubanProfile | n
 // /users/{uid}/marks
 // --------------------------------------------------------------------------- //
 
+/** 条目结构化元信息（?expand=subject 时随每条标记返回；形状与后端
+ *  subject_view 一致）。source: rexxar = 富集缓存（有豆瓣评分）；
+ *  intro = 未富集时由 records.intro 启发式合成的兜底（字段可能稀疏） */
+export type DoubanSubject = {
+  category: string
+  subject_id: string
+  title: string
+  original_title: string
+  aka: string[]
+  year: number | null
+  rating: { value: number | null; count: number | null }
+  /** 本地封面代理相对路径（rexxar 中图，比标记行小图清晰） */
+  cover: string
+  url: string
+  status: string
+  fetched_at: string | null
+  source: 'rexxar' | 'intro'
+  movie?: {
+    directors: string[]
+    actors: string[]
+    genres: string[]
+    countries: string[]
+    languages: string[]
+    durations: string[]
+    pubdate: string[]
+    is_tv: boolean | null
+    episodes_count: number | null
+  }
+  book?: {
+    authors: string[]
+    translators: string[]
+    press: string[]
+    pubdate: string[]
+    pages: string[]
+    subtitle: string
+    series: string
+  }
+  music?: {
+    singers: string[]
+    genres: string[]
+    media: string[]
+    discs: string[]
+    pubdate: string[]
+    publisher: string[]
+    version: string[]
+    songs: string[]
+  }
+}
+
 /** 一条书影音标记（字段名与后端 Record 序列化一致，snake_case） */
 export type DoubanMark = {
   category: string
@@ -42,6 +91,8 @@ export type DoubanMark = {
   cover: string
   comment_id: string
   intro: string
+  /** 条目结构化元信息（expand=subject）；旧版响应无此字段 */
+  subject?: DoubanSubject | null
 }
 
 export type DoubanMarksPage = {
@@ -62,6 +113,8 @@ export type MarksResult =
   | { ok: false; kind: 'not-cached' | 'error'; message: string }
 
 /** 拉取某维度（category+status）的标记页；只读缓存，不触发抓取。
+ *  附 expand=subject：每条标记带条目结构化元信息（已富集用 rexxar 数据，
+ *  未富集回退 intro 启发式合成，旧版后端不认该参数）。
  *  404 DIMENSION_NOT_CACHED（该用户该维度尚未同步过）单列为 not-cached，
  *  其余失败（网络/限流/鉴权等）归为 error，均不抛错 */
 export async function fetchDoubanMarks(
@@ -75,6 +128,7 @@ export async function fetchDoubanMarks(
     status: MARKS_STATUS,
     page: String(page),
     page_size: String(pageSize),
+    expand: 'subject',
   })
   try {
     const res = await fetch(

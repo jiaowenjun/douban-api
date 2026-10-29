@@ -52,6 +52,16 @@
   font-size: var(--font-size-sm);
 }
 
+/* 条目元信息（expand=subject）：首行 年份·国家·类型·片长 / 次行人名，
+   各单行省略——卡片是列表条目不是详情页 */
+.mark-card__meta {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .mark-card__comment {
   margin: 0;
   color: var(--color-text-secondary);
@@ -59,9 +69,17 @@
   line-height: var(--font-line-height-reading, 1.6);
 }
 
-.mark-card__date {
+.mark-card__footer {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
+}
+
+/* 豆瓣评分：条目侧数据（区别于我的评分金色星级），弱化呈现 */
+.mark-card__db-rating {
+  color: var(--color-text-secondary);
 }
 
 /* 评分：底色五星 + 金色按比例裁切覆盖层 */
