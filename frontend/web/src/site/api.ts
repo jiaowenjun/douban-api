@@ -117,8 +117,8 @@ export type MarksResult =
  *  （后端任一类别已同步即放行，不支持 facet 过滤）。
  *  附 expand=subject：每条标记带条目结构化元信息（已富集用 rexxar 数据，
  *  未富集回退 intro 启发式合成，旧版后端不认该参数）。
- *  facet 为可选分面过滤（格式 dim=value，多个条件用 ; 分隔，后端按类别
- *  白名单校验；同维度 OR、跨维度 AND），过滤后 total/分页均按命中集计。
+ *  ids 为可选的当页条目 id 集合（前端 dims 保序筛出的切片，顺序权威
+ *  在前端）：提供时后端按传入顺序返回，忽略 page/page_size。
  *  404 DIMENSION_NOT_CACHED（该用户该维度尚未同步过）单列为 not-cached，
  *  其余失败（网络/限流/鉴权等）归为 error，均不抛错 */
 export async function fetchDoubanMarks(
@@ -126,17 +126,17 @@ export async function fetchDoubanMarks(
   category: string,
   page = 1,
   pageSize = 20,
-  facet?: string | null,
+  ids?: readonly string[] | null,
 ): Promise<MarksResult> {
   const params = new URLSearchParams({
     category,
     status: MARKS_STATUS,
-    page: String(page),
-    page_size: String(pageSize),
+    page: String(ids?.length ? 1 : page),
+    page_size: String(ids?.length ? ids.length : pageSize),
     expand: 'subject',
   })
-  if (facet) {
-    params.set('facet', facet)
+  if (ids?.length) {
+    params.set('ids', ids.join(','))
   }
   try {
     const res = await fetch(
@@ -161,46 +161,50 @@ export async function fetchDoubanMarks(
 }
 
 // --------------------------------------------------------------------------- //
-// /users/{uid}/facets
+// /users/{uid}/subject-dims（条目维度数据，标签树纯数据源）
 // --------------------------------------------------------------------------- //
 
-/** 单个分面值及其计数（计数 = 元信息含该值的标记条数） */
-export type DoubanFacetValue = {
-  value: string
-  count: number
+/** 单条目的维度投影（后端只投影原始字段：数组原文/布尔/年份；派生与
+ *  聚合在前端 facet-engine 做——is_tv 布尔→电影/电视剧/未分类、
+ *  year→decade 均为前端语义）。字段随类别出现，缺省即无值 */
+export type DoubanDimsItem = {
+  id: string
+  /** 标记日期（YYYY-MM-DD）；items 按 date DESC 稳定序输出——排序契约 */
+  date: string
+  dims: {
+    year?: number
+    is_tv?: boolean
+    genres?: string[]
+    countries?: string[]
+    directors?: string[]
+    press?: string[]
+    authors?: string[]
+    translators?: string[]
+    singers?: string[]
+  }
 }
 
-/** 分面聚合响应；facets 键随类别——movie: genre/country/director/decade，
- *  book: press/author/translator/decade，music: genre/singer/decade。
- *  值列表按计数降序、同计数按值升序（后端排序） */
-export type DoubanFacets = {
+export type DoubanDims = {
   user: string
   category: string
   status: string
-  /** 该维度标记总数（未按分面过滤） */
   total: number
-  facets: Record<string, DoubanFacetValue[]>
+  items: DoubanDimsItem[]
 }
 
-/** 拉取某维度的分面聚合（分面树数据源，只读缓存）；可选 facet 条件
- *  （dim=value;… 与 marks 端点同语法）返回条件计数，total 为命中数——
- *  影视形态层分支内的计数数据源。维度未同步或请求失败一律返回
- *  null——树该分支静默隐藏，不打断主流程 */
-export async function fetchDoubanFacets(
+/** 拉取某维度的全部条目维度数据（轻量：每条 ~200B，聚合/筛选全在前
+ *  端）；维度未同步或请求失败返回 null——树该分支静默隐藏 */
+export async function fetchDoubanSubjectDims(
   uid: string,
   category: string,
-  facet?: string | null,
-): Promise<DoubanFacets | null> {
+): Promise<DoubanDims | null> {
   try {
     const params = new URLSearchParams({ category, status: MARKS_STATUS })
-    if (facet) {
-      params.set('facet', facet)
-    }
     const res = await fetch(
-      `/api/v1/users/${encodeURIComponent(uid)}/facets?${params}`,
+      `/api/v1/users/${encodeURIComponent(uid)}/subject-dims?${params}`,
     )
     if (!res.ok) return null
-    return (await res.json()) as DoubanFacets
+    return (await res.json()) as DoubanDims
   } catch {
     return null
   }

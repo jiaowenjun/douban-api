@@ -4,9 +4,10 @@ import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
-import { fetchDoubanMarks } from '../api'
-import type { DoubanMark } from '../api'
+import { fetchDoubanMarks, fetchDoubanSubjectDims } from '../api'
+import type { DoubanDims, DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
+import { filterIds } from '../facet-engine'
 import { facetPathKey, facetValueLabel, parseFacetPath } from '../facet-model'
 import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
@@ -59,10 +60,39 @@ export function MarksPage() {
   const facetPath = realCategory
     ? parseFacetPath(realCategory, searchParams.get('facet'))
     : []
-  const facetParam = facetPath.length ? facetPathKey(facetPath) : null
+  // 筛选命中 id 集（前端 facet-engine 算）：数据源为当前类别的维度
+  // 投影，随 uid/类别拉取缓存；无筛选为 undefined，筛选中数据未就绪
+  // 为 null（列表保持 loading）
+  const dimsKey = uid && realCategory ? `${uid}|${realCategory}` : null
+  const [dimsSnapshot, setDimsSnapshot] = useState<{
+    key: string | null
+    data: DoubanDims | null
+  }>({ key: null, data: null })
+  if (dimsKey !== dimsSnapshot.key) {
+    setDimsSnapshot({ key: dimsKey, data: null })
+  }
+  useEffect(() => {
+    if (!dimsKey || !uid || !realCategory) return
+    let cancelled = false
+    fetchDoubanSubjectDims(uid, realCategory).then((data) => {
+      if (!cancelled) setDimsSnapshot({ key: dimsKey, data })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [dimsKey, uid, realCategory])
+
+  const dimsReady =
+    dimsKey !== null && dimsSnapshot.key === dimsKey && dimsSnapshot.data
+  const matchedIds: string[] | null | undefined = !facetPath.length
+    ? undefined
+    : dimsReady && realCategory
+      ? filterIds(realCategory, dimsSnapshot.data!.items, facetPath)
+      : null
+  const facetKey = facetPathKey(facetPath)
   const requestKey =
-    uid && marksCategory
-      ? `${uid}|${marksCategory}|${facetParam ?? ''}|${reloadNonce}`
+    uid && marksCategory && matchedIds !== null
+      ? `${uid}|${marksCategory}|${facetKey}|${reloadNonce}`
       : null
 
   // 状态与它对应的请求 key 绑定；渲染期发现 key 变化即回到 loading
@@ -79,16 +109,22 @@ export function MarksPage() {
   useEffect(() => {
     if (!requestKey || !uid || !marksCategory) return
     const seq = ++seqRef.current
-    fetchDoubanMarks(uid, marksCategory, 1, PAGE_SIZE, facetParam).then(
-      (result) => {
-        if (seq !== seqRef.current) return
-        if (result.ok) {
-          setSnapshot({
-            key: requestKey,
-            state: {
-              phase: 'list',
-              items: result.data.items,
-              total: result.data.total,
+    fetchDoubanMarks(
+      uid,
+      marksCategory,
+      1,
+      PAGE_SIZE,
+      matchedIds?.slice(0, PAGE_SIZE),
+    ).then((result) => {
+      if (seq !== seqRef.current) return
+      if (result.ok) {
+        setSnapshot({
+          key: requestKey,
+          state: {
+            phase: 'list',
+            items: result.data.items,
+            // ids 模式后端 total 是当页片数，命中总数以前端筛选结果为准
+            total: matchedIds ? matchedIds.length : result.data.total,
               page: result.data.page,
               cachedAt: result.data.cached_at,
               loadingMore: false,
@@ -105,7 +141,10 @@ export function MarksPage() {
         }
       },
     )
-  }, [uid, marksCategory, requestKey, facetParam])
+    // matchedIds 为每次渲染的新数组引用，依赖它会造成请求死循环——
+    // 以稳定的 facetKey 驱动（requestKey 已含），闭包取当次值
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, marksCategory, requestKey, facetKey])
 
   async function loadMore() {
     if (!uid || !marksCategory || state.phase !== 'list' || state.loadingMore) {
@@ -122,7 +161,7 @@ export function MarksPage() {
       marksCategory,
       nextPage,
       PAGE_SIZE,
-      facetParam,
+      matchedIds?.slice((nextPage - 1) * PAGE_SIZE, nextPage * PAGE_SIZE),
     )
     if (seq !== seqRef.current) return
     if (result.ok) {
@@ -131,7 +170,7 @@ export function MarksPage() {
         state: {
           phase: 'list',
           items: [...state.items, ...result.data.items],
-          total: result.data.total,
+          total: matchedIds ? matchedIds.length : result.data.total,
           page: result.data.page,
           cachedAt: result.data.cached_at,
           loadingMore: false,

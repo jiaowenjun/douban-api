@@ -5,7 +5,8 @@ import { BookOpen, Clapperboard, Music } from 'lucide-react'
 import { TagTree } from 'weimo-ui-tagtree/components/tag-tree'
 import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 
-import type { DoubanFacets } from './api'
+import type { DoubanDims } from './api'
+import { aggregateDims } from './facet-engine'
 import {
   KIND_DIMENSION,
   PRIMARY_DIMENSION,
@@ -44,18 +45,19 @@ type TreeIndex = {
  *  计数取全局聚合）→ 主维度值叶（条件聚合，__other__ 显示「其他类型」）。
  *  形态行点击=单步筛选，值叶点击=形态+主维度双条件 */
 function buildMovieChildren(
-  rootFacets: DoubanFacets,
-  kindFacets: Record<string, DoubanFacets | undefined>,
+  items: DoubanDims['items'],
   byTag: Map<string, TagAction>,
 ): TagTreeNode[] {
   const kindKey = KIND_DIMENSION?.key
   if (!kindKey) return []
-  return (rootFacets.facets[kindKey] ?? []).map(({ value, count }) => {
+  const rootCounts = aggregateDims('movie', items)
+  return (rootCounts[kindKey] ?? []).map(({ value, count }) => {
     const kindTag = `movie/${kindKey}/${escapeFacetValue(value)}`
     byTag.set(kindTag, { category: 'movie', path: [{ dim: kindKey, value }] })
-    const scoped = kindFacets[value]
+    // 形态分支内的类型分布：条件聚合（本地纯函数）
+    const scoped = aggregateDims('movie', items, [{ dim: kindKey, value }])
     const { key: leafDim } = PRIMARY_DIMENSION.movie
-    const children = (scoped?.facets[leafDim] ?? []).map(
+    const children = (scoped[leafDim] ?? []).map(
       ({ value: leafValue, count: leafCount }) => {
         const tag = `${kindTag}/${leafDim}/${escapeFacetValue(leafValue)}`
         byTag.set(tag, {
@@ -78,11 +80,12 @@ function buildMovieChildren(
 /** 图书/音乐分支（两层）：类别根 → 主维度值叶（全局聚合） */
 function buildSimpleChildren(
   category: MarksCategory,
-  facets: DoubanFacets,
+  items: DoubanDims['items'],
   byTag: Map<string, TagAction>,
 ): TagTreeNode[] {
   const { key } = PRIMARY_DIMENSION[category]
-  return (facets.facets[key] ?? []).map(({ value, count }) => {
+  const counts = aggregateDims(category, items)
+  return (counts[key] ?? []).map(({ value, count }) => {
     const tag = `${category}/${key}/${escapeFacetValue(value)}`
     byTag.set(tag, { category, path: [{ dim: key, value }] })
     return {
@@ -99,17 +102,16 @@ function buildSimpleChildren(
  *  叶 tag 保持「类别/维度(+/维度)/值」多段——中间维度不出现在行
  *  label 但保留在 tag 语义中（选中叶的祖先自动展开按树结构生效） */
 function buildTree(
-  facetsByCategory: Partial<Record<MarksCategory, DoubanFacets>>,
-  kindFacets: Record<string, DoubanFacets | undefined>,
+  dimsByCategory: Partial<Record<MarksCategory, DoubanDims>>,
 ): TreeIndex {
   const byTag = new Map<string, TagAction>()
   const nodes = MARKS_CATEGORIES.flatMap((category) => {
-    const facets = facetsByCategory[category]
-    if (!facets) return []
+    const dims = dimsByCategory[category]
+    if (!dims) return []
     const children =
       category === 'movie' && KIND_DIMENSION
-        ? buildMovieChildren(facets, kindFacets, byTag)
-        : buildSimpleChildren(category, facets, byTag)
+        ? buildMovieChildren(dims.items, byTag)
+        : buildSimpleChildren(category, dims.items, byTag)
     if (children.length === 0) return []
     return [
       {
@@ -130,9 +132,8 @@ function buildTree(
  *  TagTree 会自动展开） */
 export function FacetTree({
   activeCategory,
+  dimsByCategory,
   expandedTags,
-  facetsByCategory,
-  kindFacets,
   onExpandedTagsChange,
   onPathSelect,
   path,
@@ -140,9 +141,8 @@ export function FacetTree({
   /** 当前路由目标：真实类别或 all（合并视图，无分面）；选中指示必属
    *  它（URL 派生）。演示页等无类别时传 undefined */
   activeCategory: NavTarget | undefined
-  facetsByCategory: Partial<Record<MarksCategory, DoubanFacets>>
-  /** 影视各形态的条件聚合（key 为形态值：电影/电视剧/未分类） */
-  kindFacets: Record<string, DoubanFacets | undefined>
+  /** 三类别维度数据（聚合/条件计数由 facet-engine 本地算） */
+  dimsByCategory: Partial<Record<MarksCategory, DoubanDims>>
   /** 当前类别的筛选路径（URL 派生，顺序即步骤） */
   path: FacetStep[]
   expandedTags: string[]
@@ -151,8 +151,8 @@ export function FacetTree({
   onPathSelect: (target: NavTarget, path: FacetStep[]) => void
 }) {
   const { nodes, byTag } = useMemo(
-    () => buildTree(facetsByCategory, kindFacets),
-    [facetsByCategory, kindFacets],
+    () => buildTree(dimsByCategory),
+    [dimsByCategory],
   )
   // 选中指示两档：筛选中选中末步对应节点；无筛选时当前导航目标顶上
   // （类别根或「全部标记」——原导航树的当前位置指示由根接管）

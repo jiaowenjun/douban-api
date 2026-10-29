@@ -3,7 +3,7 @@ import { Grid2X2 } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 
-import { fetchDoubanFacets, type DoubanFacets } from './api'
+import { fetchDoubanSubjectDims, type DoubanDims } from './api'
 import { useDoubanUser } from './douban-user'
 import { FacetTree } from './facet-tree'
 import {
@@ -51,56 +51,40 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     ? parseFacetPath(realCategory, searchParams.get('facet'))
     : []
 
-  // 分面聚合：三类别一次并行取 + 影视各形态的条件聚合（形态层值叶的
-  // 计数数据源，值列表来自全局 is_tv 维度——电影/电视剧/未分类），
-  // 快照只随 uid 变不随路由变；单类别失败/未同步该根不出现
-  const facetsKey = uid
-  const [facetsSnapshot, setFacetsSnapshot] = useState<{
+  // 条目维度数据：三类别一次并行取（轻量投影，聚合/长尾合并/条件
+  // 计数全部由前端 facet-engine 本地算），快照只随 uid 变不随路由变；
+  // 单类别失败/未同步该根不出现
+  const dimsKey = uid
+  const [dimsSnapshot, setDimsSnapshot] = useState<{
     key: string | null
     loading: boolean
-    data: Partial<Record<MarksCategory, DoubanFacets>> | null
-    kind: Record<string, DoubanFacets | undefined>
-  }>({ key: null, loading: false, data: null, kind: {} })
-  if (facetsKey !== facetsSnapshot.key) {
-    setFacetsSnapshot({ key: facetsKey, loading: true, data: null, kind: {} })
+    data: Partial<Record<MarksCategory, DoubanDims>> | null
+  }>({ key: null, loading: false, data: null })
+  if (dimsKey !== dimsSnapshot.key) {
+    setDimsSnapshot({ key: dimsKey, loading: true, data: null })
   }
   useEffect(() => {
-    if (!facetsKey) return
+    if (!dimsKey) return
     let cancelled = false
     Promise.allSettled(
-      MARKS_CATEGORIES.map((facetCategory) =>
-        fetchDoubanFacets(facetsKey, facetCategory),
+      MARKS_CATEGORIES.map((dimsCategory) =>
+        fetchDoubanSubjectDims(dimsKey, dimsCategory),
       ),
-    ).then(async (results) => {
+    ).then((results) => {
       if (cancelled) return
-      const byCategory: Partial<Record<MarksCategory, DoubanFacets>> = {}
-      MARKS_CATEGORIES.forEach((facetCategory, index) => {
+      const byCategory: Partial<Record<MarksCategory, DoubanDims>> = {}
+      MARKS_CATEGORIES.forEach((dimsCategory, index) => {
         const result = results[index]
         if (result.status === 'fulfilled' && result.value) {
-          byCategory[facetCategory] = result.value
+          byCategory[dimsCategory] = result.value
         }
       })
-      // 影视形态层的条件聚合：全局 is_tv 值到位后并行拉每个形态
-      const kinds = byCategory.movie?.facets.is_tv ?? []
-      const kindResults = await Promise.allSettled(
-        kinds.map(({ value }) =>
-          fetchDoubanFacets(facetsKey, 'movie', `is_tv=${value}`),
-        ),
-      )
-      if (cancelled) return
-      const kind: Record<string, DoubanFacets | undefined> = {}
-      kinds.forEach(({ value }, index) => {
-        const result = kindResults[index]
-        if (result.status === 'fulfilled' && result.value) {
-          kind[value] = result.value
-        }
-      })
-      setFacetsSnapshot({ key: facetsKey, loading: false, data: byCategory, kind })
+      setDimsSnapshot({ key: dimsKey, loading: false, data: byCategory })
     })
     return () => {
       cancelled = true
     }
-  }, [facetsKey])
+  }, [dimsKey])
 
   // 展开态：类别切换时重置为「当前类别根展开」；用户手动展开的
   // 其他类别在同一类别会话内保留。选中叶子到维度的链路不必记录
@@ -137,15 +121,14 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   // 筛选树区：树顶「全部标记」导航节点常在（登录即渲染，聚合加载中
   // 也可导航），三类别根随聚合数据到位渐次出现——某类别失败/未同步
   // 该根不出现
-  const facetsData = facetsSnapshot.data
+  const dimsData = dimsSnapshot.data
   const facetSection = !uid ? null : (
     <section aria-label="分面筛选" className="site-sidebar__facet">
       <div className="site-sidebar__section-hint">筛选</div>
       <FacetTree
         activeCategory={category}
+        dimsByCategory={dimsData ?? {}}
         expandedTags={expandedTags}
-        facetsByCategory={facetsData ?? {}}
-        kindFacets={facetsSnapshot.kind}
         onExpandedTagsChange={setExpandedTags}
         onPathSelect={handlePathSelect}
         path={path}

@@ -753,69 +753,54 @@ pub async fn read_marks(
     status: Status,
     page: i64,
     page_size: i64,
-    facets: &[super::facets::FacetFilter],
 ) -> AppResult<MarksPage> {
     let fetched_ms = ensure_dimension_cached(state, uid, category, status).await?;
 
     let page_size = page_size.max(1);
-    // 无分面过滤走 SQL 分页；有过滤先取全量按元信息视图过滤再内存切片
-    // （两条路径排序一致：date DESC, rowid）
-    let (items, total) = if facets.is_empty() {
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
-        )
-        .bind(uid)
-        .bind(category.key())
-        .bind(status.key())
-        .fetch_one(&state.pool)
-        .await?;
-        let offset = (page - 1).max(0) * page_size;
-        let rows = sqlx::query(
-            "SELECT subject_id, title, alt_title, my_rating, date, comment,
-                    subject_url, cover, comment_id, intro
-             FROM records
-             WHERE uid = ? AND category = ? AND dim_status = ?
-             ORDER BY date DESC, rowid
-             LIMIT ? OFFSET ?",
-        )
-        .bind(uid)
-        .bind(category.key())
-        .bind(status.key())
-        .bind(page_size)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await?;
-        let items: Vec<Record> = rows
-            .into_iter()
-            .map(|r| Record {
-                category: category.key().to_string(),
-                status: status.key().to_string(),
-                title: r.get("title"),
-                alt_title: r.get("alt_title"),
-                my_rating: r.get::<Option<i64>, _>("my_rating").map(|v| v as u8),
-                date: r.get("date"),
-                comment: r.get("comment"),
-                subject_url: r.get("subject_url"),
-                subject_id: r.get("subject_id"),
-                // 豆瓣 CDN 子域名 Referer 防盗链不一致，浏览器直连 img2/img3 会 403，
-                // 改写为本地代理端点（cache-then-serve），见 covers 模块
-                cover: cover_proxy_url(&r.get::<String, _>("cover")),
-                comment_id: r.get("comment_id"),
-                intro: r.get("intro"),
-            })
-            .collect();
-        (items, total as usize)
-    } else {
-        let (filtered, total) =
-            super::facets::filter_marks(state, uid, category, status, facets).await?;
-        let offset = ((page - 1).max(0) * page_size) as usize;
-        let items = filtered
-            .into_iter()
-            .skip(offset)
-            .take(page_size as usize)
-            .collect();
-        (items, total)
-    };
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
+    )
+    .bind(uid)
+    .bind(category.key())
+    .bind(status.key())
+    .fetch_one(&state.pool)
+    .await?;
+    let offset = (page - 1).max(0) * page_size;
+    let rows = sqlx::query(
+        "SELECT subject_id, title, alt_title, my_rating, date, comment,
+                subject_url, cover, comment_id, intro
+         FROM records
+         WHERE uid = ? AND category = ? AND dim_status = ?
+         ORDER BY date DESC, rowid
+         LIMIT ? OFFSET ?",
+    )
+    .bind(uid)
+    .bind(category.key())
+    .bind(status.key())
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+    let items: Vec<Record> = rows
+        .into_iter()
+        .map(|r| Record {
+            category: category.key().to_string(),
+            status: status.key().to_string(),
+            title: r.get("title"),
+            alt_title: r.get("alt_title"),
+            my_rating: r.get::<Option<i64>, _>("my_rating").map(|v| v as u8),
+            date: r.get("date"),
+            comment: r.get("comment"),
+            subject_url: r.get("subject_url"),
+            subject_id: r.get("subject_id"),
+            // 豆瓣 CDN 子域名 Referer 防盗链不一致，浏览器直连 img2/img3 会 403，
+            // 改写为本地代理端点（cache-then-serve），见 covers 模块
+            cover: cover_proxy_url(&r.get::<String, _>("cover")),
+            comment_id: r.get("comment_id"),
+            intro: r.get("intro"),
+        })
+        .collect();
+    let total = total as usize;
 
     Ok(MarksPage {
         user: uid.to_string(),

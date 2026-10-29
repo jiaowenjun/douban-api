@@ -3,8 +3,8 @@
 pub mod config;
 pub mod covers;
 pub mod db;
+pub mod dims;
 pub mod error;
-pub mod facets;
 pub mod fetcher;
 pub mod routes;
 pub mod service;
