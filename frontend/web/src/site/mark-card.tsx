@@ -108,10 +108,10 @@ function markDocument(mark: DoubanMark): WdfDocument {
 }
 
 /** 书影音标记卡片，三段式一级结构：顶部栏（标记日期 + 右侧元信息折叠
-    开关）/ 条目信息区（封面左，别名/元信息右，我的评分星级居首行豆瓣
-    评分右侧；可折叠，默认收起）/ 评论正文区（WdfRender 渲染标题 h1 +
-    短评段落），含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）复用
-    weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现同源
+    开关）/ 条目信息区（封面左，别名/元信息右，豆瓣评分与我的评分星级
+    收在元信息末行；可折叠，默认收起）/ 评论正文区（WdfRender 渲染标题
+    h1 + 短评段落），含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）
+    复用 weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现同源
     BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   const [metaExpanded, setMetaExpanded] = useState(false)
@@ -119,12 +119,6 @@ export function MarkCard({ mark }: MarkCardProps) {
   const cover = mark.subject?.cover || mark.cover
   const meta = mark.subject ? subjectMetaLines(mark.subject) : null
   const doubanRating = mark.subject?.rating.value
-  const metaHead = [
-    mark.alt_title,
-    doubanRating != null ? `豆瓣 ${doubanRating.toFixed(1)}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
@@ -155,12 +149,8 @@ export function MarkCard({ mark }: MarkCardProps) {
             <div className="mark-card__cover mark-card__cover--empty" />
           )}
           <div className="mark-card__info">
-            {metaHead || mark.my_rating ? (
-              <div className="mark-card__alt">
-                {metaHead}
-                {metaHead && mark.my_rating ? ' · ' : null}
-                {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-              </div>
+            {mark.alt_title ? (
+              <div className="mark-card__alt">{mark.alt_title}</div>
             ) : null}
             {meta ? (
               <>
@@ -171,6 +161,13 @@ export function MarkCard({ mark }: MarkCardProps) {
               </>
             ) : mark.intro ? (
               <div className="mark-card__intro">{mark.intro}</div>
+            ) : null}
+            {doubanRating != null || mark.my_rating ? (
+              <div className="mark-card__ratings">
+                {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
+                {mark.my_rating && doubanRating != null ? ' · ' : null}
+                {doubanRating != null ? `豆瓣 ${doubanRating.toFixed(1)}` : null}
+              </div>
             ) : null}
           </div>
         </div>

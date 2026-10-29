@@ -14,6 +14,7 @@
 .sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__alt,
 .sidebar-debug .mark-card__meta,
+.sidebar-debug .mark-card__ratings,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
 .sidebar-debug .mark-card-rating {
@@ -28,6 +29,7 @@
 .sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__alt,
 .sidebar-debug .mark-card__meta,
+.sidebar-debug .mark-card__ratings,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
 .sidebar-debug .mark-card-rating {
@@ -130,6 +132,13 @@
 }
 
 .mark-card__alt {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 评分行（元信息末行）：我的评分星级 + 豆瓣评分文字同排，弱化灰同
+   别名/元信息行 */
+.mark-card__ratings {
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
 }
