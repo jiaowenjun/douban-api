@@ -58,7 +58,7 @@ function subjectMetaLines(
       names(m?.genres, 3).join(' / '),
     ])
     const directors = names(m?.directors, 2)
-    const actors = names(m?.actors, 3)
+    const actors = names(m?.actors, 2)
     people = join([
       directors.length ? `导演 ${directors.join('、')}` : '',
       actors.length ? `主演 ${actors.join('、')}` : '',
