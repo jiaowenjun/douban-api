@@ -1,4 +1,4 @@
-/* 书影音标记卡片：封面 + 标题/评分/条目元信息/短评（列表条目）。
+/* 书影音标记卡片，四段式一级结构：顶部栏 / 条目信息区 / 评论区 / 底部栏。
    材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core 的 card-surface
    —— 由组件挂 card-surface 类提供，这里只留布局与内容排版 */
 
@@ -7,8 +7,11 @@
    更小的 --radius-sm（卡片子容器是小盒，侧边栏分组的 --radius 16px 偏大）。
    整卡根容器不描边（card-surface 自带边框，外框再描一条是噪音）也不补
    padding——它有真实 padding（10px 12px），覆盖成 2px 会扰动被调试的布局 */
+.sidebar-debug .mark-card__header,
+.sidebar-debug .mark-card__category,
+.sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
-.sidebar-debug .mark-card__body,
+.sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__title-row,
 .sidebar-debug .mark-card__title,
 .sidebar-debug .mark-card__alt,
@@ -21,8 +24,11 @@
   border-radius: var(--radius-sm);
 }
 
+.sidebar-debug .mark-card__header,
+.sidebar-debug .mark-card__category,
+.sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
-.sidebar-debug .mark-card__body,
+.sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__title-row,
 .sidebar-debug .mark-card__title,
 .sidebar-debug .mark-card__alt,
@@ -34,10 +40,31 @@
   padding: 2px;
 }
 
+/* 四个一级区域纵向排布：区域间 6px，区域内各自更紧的 gap（info 2px / footer 8px） */
 .mark-card {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 12px;
+}
+
+/* 顶部栏：左侧类别标签；space-between 预留右侧操作位（未来外链/菜单） */
+.mark-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+/* 类别标签弱化呈现（同页同类别时冗余，混合列表才承担辨识职责） */
+.mark-card__category {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-xs);
+}
+
+/* 条目信息区：封面 + 文字列的两列骨架（自根级下沉而来） */
+.mark-card__subject {
+  display: flex;
+  gap: 12px;
 }
 
 .mark-card__cover {
@@ -53,7 +80,7 @@
   border: 1px dashed var(--color-border);
 }
 
-.mark-card__body {
+.mark-card__info {
   display: grid;
   gap: 2px;
   min-width: 0;
