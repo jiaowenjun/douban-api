@@ -37,3 +37,19 @@ export type FacetSelection = {
   dim: string
   value: string
 }
+
+/** URL ?facet= 参数（dim=value）→ 选择；维度不在该类别白名单或格式
+ *  非法返回 null（侧边栏树与列表页共享 URL 的解析入口，手改 URL 的
+ *  容错由前端先行拦截，后端仍兜底校验） */
+export function parseFacetParam(
+  category: MarksCategory,
+  raw: string | null,
+): FacetSelection | null {
+  if (!raw) return null
+  const eq = raw.indexOf('=')
+  if (eq <= 0) return null
+  const dim = raw.slice(0, eq)
+  const value = raw.slice(eq + 1)
+  if (!value) return null
+  return DIMENSIONS[category].some((d) => d.key === dim) ? { dim, value } : null
+}

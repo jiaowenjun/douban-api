@@ -1,0 +1,45 @@
+/* 站点侧边栏（接管模板 sidebar 插槽，布局对齐 weimo-biji 的
+   biji-side-bar）：根纵向 flex 铺满侧边栏面板（外层 .weimo-sidebar
+   高度 100%），身份栏固定在顶、主体滚动；内边距沿用模板默认导航的
+   16px 观感 */
+.site-sidebar {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--color-text-primary);
+}
+
+.site-sidebar__body {
+  min-height: 0;
+  flex: 1;
+  padding-inline: 16px;
+  padding-block: 0 18px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.site-sidebar__body::-webkit-scrollbar {
+  display: none;
+}
+
+/* 身份栏横向占满，内边距与主体对齐（原 sidebar-header 只在模板
+   navigation 容器里吃 16px，接管后由这里补） */
+.site-sidebar .sidebar-header {
+  padding-inline: 16px;
+}
+
+/* 分面筛选区小节提示，对齐 biji-side-bar__section-hint */
+.site-sidebar__section-hint {
+  padding-block: 18px 6px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.site-sidebar__status {
+  padding-block: 12px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+}

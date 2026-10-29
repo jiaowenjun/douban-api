@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Navigate, useParams } from 'react-router'
+import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
-import { fetchDoubanFacets, fetchDoubanMarks } from '../api'
-import type { DoubanFacets, DoubanMark } from '../api'
+import { fetchDoubanMarks } from '../api'
+import type { DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
-import { FacetTree } from '../facet-tree'
-import { facetDimLabel } from '../facet-model'
-import type { FacetSelection } from '../facet-model'
+import { facetDimLabel, parseFacetParam } from '../facet-model'
 import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
@@ -36,11 +34,14 @@ function formatDate(iso: string): string {
   return iso ? iso.slice(0, 10) : ''
 }
 
-/** 标记列表页：读登录用户的缓存标记（GET /users/{uid}/marks），只读不触发抓取 */
+/** 标记列表页：读登录用户的缓存标记（GET /users/{uid}/marks），只读不触发抓取。
+ *  分面筛选状态在 URL ?facet=dim=value——侧边栏筛选树写入、本页读取驱动
+ *  请求；类别路由切换不带参数，天然清除筛选 */
 export function MarksPage() {
   const { category } = useParams()
   const view = resolveMarksView(category)
   const { uid, profile, openLogin } = useDoubanUser()
+  const [searchParams] = useSearchParams()
 
   // 请求序号：uid/类别切换或加载更多时自增，丢弃迟到的旧响应
   const seqRef = useRef(0)
@@ -48,14 +49,11 @@ export function MarksPage() {
   const [reloadNonce, setReloadNonce] = useState(0)
 
   const marksCategory = view?.category
-  // 分面筛选（单选，可清除）；类别切换时在渲染期同步清除，
-  // 避免旧类别的维度值打到新类别上（后端按类别白名单校验会 400）
-  const [facet, setFacet] = useState<FacetSelection | null>(null)
-  const [facetCategory, setFacetCategory] = useState(marksCategory)
-  if (marksCategory !== facetCategory) {
-    setFacetCategory(marksCategory)
-    setFacet(null)
-  }
+  // 分面筛选（单选，可清除）：解析自 URL，维度不在该类别白名单的
+  // 手改参数按无筛选处理（后端仍会兜底校验）
+  const facet = marksCategory
+    ? parseFacetParam(marksCategory, searchParams.get('facet'))
+    : null
   const facetParam = facet ? `${facet.dim}=${facet.value}` : null
   const requestKey =
     uid && marksCategory
@@ -72,29 +70,6 @@ export function MarksPage() {
     setSnapshot({ key: requestKey, state: { phase: 'loading' } })
   }
   const state = snapshot.state
-
-  // 分面聚合：仅随 uid/类别变化重取，与筛选选择无关；
-  // 失败/未同步返回 null，面板静默隐藏不打断列表
-  const facetsKey = uid && marksCategory ? `${uid}|${marksCategory}` : null
-  const [facetsSnapshot, setFacetsSnapshot] = useState<{
-    key: string | null
-    data: DoubanFacets | null
-  }>({ key: null, data: null })
-  if (facetsKey !== facetsSnapshot.key) {
-    setFacetsSnapshot({ key: facetsKey, data: null })
-  }
-  useEffect(() => {
-    if (!facetsKey || !uid || !marksCategory) return
-    let cancelled = false
-    fetchDoubanFacets(uid, marksCategory).then((data) => {
-      if (!cancelled) {
-        setFacetsSnapshot({ key: facetsKey, data })
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [facetsKey, uid, marksCategory])
 
   useEffect(() => {
     if (!requestKey || !uid || !marksCategory) return
@@ -169,32 +144,6 @@ export function MarksPage() {
   if (!view) {
     return <Navigate replace to={DEFAULT_MARKS_PATH} />
   }
-
-  // 分面筛选面板：聚合数据就绪才出现；标题行右侧给当前筛选的清除入口
-  const facetsData = facetsSnapshot.data
-  const facetPanel =
-    uid && marksCategory && facetsData ? (
-      <section className="marks-page__facet">
-        <div className="marks-page__facet-head">
-          <span className="marks-page__facet-title">筛选</span>
-          {facet ? (
-            <TextButton
-              onClick={() => setFacet(null)}
-              type="button"
-              variant="ghost"
-            >
-              清除筛选（{facetDimLabel(marksCategory, facet.dim)}：{facet.value}）
-            </TextButton>
-          ) : null}
-        </div>
-        <FacetTree
-          category={marksCategory}
-          facets={facetsData}
-          onSelect={setFacet}
-          selection={facet}
-        />
-      </section>
-    ) : null
 
   let content: ReactNode
   if (!uid) {
@@ -273,7 +222,6 @@ export function MarksPage() {
   return (
     <section className="marks-page">
       <h1 className="marks-page__title">{view.pageTitle}</h1>
-      {facetPanel}
       {content}
     </section>
   )

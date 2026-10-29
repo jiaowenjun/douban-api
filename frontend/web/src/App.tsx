@@ -1,18 +1,9 @@
-import {
-  HashRouter,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from 'react-router'
-import type { SiteNavigationItem } from 'weimo-ui-template/components/site-template'
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import { SiteTemplate } from 'weimo-ui-template/components/site-template'
 
 import { DoubanUserProvider } from './site/douban-user-provider'
 import {
   DEFAULT_MARKS_PATH,
-  MARKS_NAVIGATION_GROUPS,
   resolveMarksView,
 } from './site/navigation'
 import {
@@ -20,7 +11,7 @@ import {
   MarkCardDemoPage,
 } from './site/pages/mark-card-demo'
 import { MarksPage } from './site/pages/marks-page'
-import { SidebarHeader } from './site/sidebar-header'
+import { SiteSidebar } from './site/site-sidebar'
 
 /** 从 /:category 路径解析导航高亮项与顶栏标题 */
 function useMarksViewFromLocation() {
@@ -31,25 +22,17 @@ function useMarksViewFromLocation() {
 }
 
 function SiteShell() {
-  const navigate = useNavigate()
   const { pathname } = useLocation()
   const view = useMarksViewFromLocation()
   // 演示页不在主导航，顶栏标题单独给
   const isDemo = pathname === DEMO_MARK_CARD_PATH
 
-  function handleNavigate(item: SiteNavigationItem) {
-    navigate(item.href.replace(/^#/, ''))
-  }
-
   return (
     <SiteTemplate
-      activeItemId={view?.activeItemId}
-      navigationGroups={MARKS_NAVIGATION_GROUPS}
-      onNavigate={handleNavigate}
       pageTitle={isDemo ? 'MarkCard 演示' : view?.pageTitle}
       showSidebarCloseButton={false}
       siteName="weimo-douban"
-      sidebarHeader={<SidebarHeader />}
+      sidebar={(api) => <SiteSidebar onClose={api.close} />}
     >
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />

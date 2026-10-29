@@ -7,7 +7,6 @@ import type { DoubanFacets } from './api'
 import { DIMENSIONS } from './facet-model'
 import type { FacetSelection } from './facet-model'
 import type { MarksCategory } from './navigation'
-import './facet-tree.css'
 
 /** 标签值含 / 会破坏 tag 路径的层级语义，替换为全角 */
 function escapeTagValue(value: string): string {

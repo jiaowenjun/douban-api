@@ -1,8 +1,4 @@
-import type {
-  SiteNavigationGroup,
-  SiteNavigationItem,
-} from 'weimo-ui-template/components/site-template'
-
+/** 站点书影音类别键（与路由段一致） */
 export type MarksCategory = 'movie' | 'book' | 'music'
 
 /** 站点只展示「看过」（collect）的标记 */
@@ -52,15 +48,3 @@ export function resolveMarksView(
     pageTitle: `${CATEGORY_VERBS[category]}过的${CATEGORY_NOUNS[category]}`,
   }
 }
-
-export const MARKS_NAVIGATION_GROUPS: readonly SiteNavigationGroup[] = [
-  {
-    id: 'marks',
-    items: MARKS_CATEGORIES.map((category): SiteNavigationItem => ({
-      href: `#/${category}`,
-      id: category,
-      label: CATEGORY_NOUNS[category],
-    })),
-    title: '标记',
-  },
-]
