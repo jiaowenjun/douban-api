@@ -108,11 +108,12 @@ function markDocument(mark: DoubanMark): WdfDocument {
 }
 
 /** 书影音标记卡片，三段式一级结构：顶部栏（标记日期 + 右侧元信息折叠
-    开关）/ 条目信息区（封面左，别名/元信息右，豆瓣评分与我的评分星级
-    收在元信息末行；可折叠，默认收起）/ 评论正文区（WdfRender 渲染标题
-    h1 + 短评段落），含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）
-    复用 weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现同源
-    BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
+    开关）/ 条目信息区（封面左——正下方居中我的评分星级，别名/元信息
+    右，豆瓣评分收在元信息末行；可折叠，默认收起）/ 评论正文区
+    （WdfRender 渲染标题 h1 + 短评段落），含 <li> 列表条目语义；材质
+    （背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，与
+    BaseCard 同源；折叠实现同源 BaseCard metaCollapsible；纯展示除
+    折叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   const [metaExpanded, setMetaExpanded] = useState(false)
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
@@ -138,16 +139,19 @@ export function MarkCard({ mark }: MarkCardProps) {
       </div>
       <div className="mark-card__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
         <div className="mark-card__subject">
-          {cover ? (
-            <img
-              alt=""
-              className="mark-card__cover"
-              loading="lazy"
-              src={cover}
-            />
-          ) : (
-            <div className="mark-card__cover mark-card__cover--empty" />
-          )}
+          <div className="mark-card__cover-region">
+            {cover ? (
+              <img
+                alt=""
+                className="mark-card__cover"
+                loading="lazy"
+                src={cover}
+              />
+            ) : (
+              <div className="mark-card__cover mark-card__cover--empty" />
+            )}
+            {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
+          </div>
           <div className="mark-card__info">
             {mark.alt_title ? (
               <div className="mark-card__alt">{mark.alt_title}</div>
@@ -162,11 +166,9 @@ export function MarkCard({ mark }: MarkCardProps) {
             ) : mark.intro ? (
               <div className="mark-card__intro">{mark.intro}</div>
             ) : null}
-            {doubanRating != null || mark.my_rating ? (
+            {doubanRating != null ? (
               <div className="mark-card__ratings">
-                {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-                {mark.my_rating && doubanRating != null ? ' · ' : null}
-                {doubanRating != null ? `豆瓣 ${doubanRating.toFixed(1)}` : null}
+                豆瓣 {doubanRating.toFixed(1)}
               </div>
             ) : null}
           </div>

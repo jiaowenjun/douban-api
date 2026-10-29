@@ -10,6 +10,7 @@
 .sidebar-debug .mark-card__header,
 .sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
+.sidebar-debug .mark-card__cover-region,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__alt,
@@ -25,6 +26,7 @@
 .sidebar-debug .mark-card__header,
 .sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
+.sidebar-debug .mark-card__cover-region,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__alt,
@@ -93,14 +95,24 @@
   margin-top: calc(-1 * 1em);
 }
 
-/* 条目信息区（折叠内层）：封面（左，定宽列）与文字元信息（右，弹性列）
-   单行并列；min-height/overflow 是 0fr 收起时裁切几何的前提 */
+/* 条目信息区（折叠内层）：封面列（左，封面 + 正下方居中的我的评分
+   星级）与文字元信息（右，弹性列）单行并列；min-height/overflow 是
+   0fr 收起时裁切几何的前提 */
 .mark-card__subject {
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 12px;
   min-height: 0;
   overflow: hidden;
+}
+
+/* 封面区（左列）：封面 + 我的评分星级纵向排布、水平居中（列宽取
+   两者较宽者，窄的居中对齐宽的） */
+.mark-card__cover-region {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .mark-card__cover {
@@ -136,8 +148,8 @@
   font-size: var(--font-size-sm);
 }
 
-/* 评分行（元信息末行）：我的评分星级 + 豆瓣评分文字同排，弱化灰同
-   别名/元信息行 */
+/* 评分行（元信息末行）：豆瓣评分文字（我的评分星级在封面下方），弱化
+   灰同别名/元信息行 */
 .mark-card__ratings {
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
