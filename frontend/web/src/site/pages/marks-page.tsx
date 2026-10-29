@@ -7,7 +7,7 @@ import { TextButton } from 'weimo-ui-core/components/text-button'
 import { fetchDoubanMarks } from '../api'
 import type { DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
-import { facetDimLabel, facetValueLabel, parseFacetParam } from '../facet-model'
+import { facetPathKey, facetValueLabel, parseFacetPath } from '../facet-model'
 import { MarkCard } from '../mark-card'
 import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
 import './marks-page.css'
@@ -49,16 +49,17 @@ export function MarksPage() {
   const [reloadNonce, setReloadNonce] = useState(0)
 
   const marksCategory = view?.category
-  // 分面筛选（单选，可清除）：解析自 URL——仅真实类别有维度白名单，
-  // all 合并视图与手改非法参数一律按无筛选处理（后端仍会兜底校验）
+  // 分面筛选路径（可多步 AND：影视叶为 is_tv+genre 双条件，可清除）：
+  // 解析自 URL——仅真实类别有维度白名单，all 合并视图与手改非法参数
+  // 一律按无筛选处理（非法步起截断保留合法前缀，后端仍会兜底校验）
   const realCategory =
     marksCategory !== undefined && marksCategory !== 'all'
       ? marksCategory
       : undefined
-  const facet = realCategory
-    ? parseFacetParam(realCategory, searchParams.get('facet'))
-    : null
-  const facetParam = facet ? `${facet.dim}=${facet.value}` : null
+  const facetPath = realCategory
+    ? parseFacetPath(realCategory, searchParams.get('facet'))
+    : []
+  const facetParam = facetPath.length ? facetPathKey(facetPath) : null
   const requestKey =
     uid && marksCategory
       ? `${uid}|${marksCategory}|${facetParam ?? ''}|${reloadNonce}`
@@ -195,12 +196,10 @@ export function MarksPage() {
       <>
         <p className="marks-page__meta">
           {profile?.username || uid} 共 {state.total} 条
-          {facet && realCategory
-            ? ` · ${facetDimLabel(realCategory, facet.dim)}：${facetValueLabel(
-                realCategory,
-                facet.dim,
-                facet.value,
-              )}`
+          {facetPath.length > 0 && realCategory
+            ? ` · ${facetPath
+                .map((step) => facetValueLabel(realCategory, step.dim, step.value))
+                .join(' / ')}`
             : ''}
           {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
         </p>

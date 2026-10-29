@@ -573,9 +573,12 @@ async fn get_marks(
 struct FacetsQuery {
     category: Option<String>,
     status: Option<String>,
+    /// 可选分面条件（与 marks 端点同语法 dim=value，; 分隔）：条件聚合，
+    /// 计数与 total 均为命中集口径——分层树分支内的计数数据源
+    facet: Option<String>,
 }
 
-/// 全量聚合该维度各分面的值计数；维度未同步与 marks 同语义 404
+/// 聚合该维度各分面的值计数；维度未同步与 marks 同语义 404
 /// DIMENSION_NOT_CACHED，只读缓存不触发抓取
 async fn get_facets(
     State(state): State<AppState>,
@@ -592,8 +595,14 @@ async fn get_facets(
         .as_deref()
         .and_then(Status::from_key)
         .ok_or_else(|| AppError::InvalidArgument("缺少或非法 status 参数".to_string()))?;
+    let raw_facets: Vec<String> = q
+        .facet
+        .as_deref()
+        .map(|s| s.split(';').map(str::to_string).collect())
+        .unwrap_or_default();
+    let facets = facets::parse_filters(category, &raw_facets)?;
     Ok(Json(
-        facets::facet_counts(&state, &uid, category, status).await?,
+        facets::facet_counts(&state, &uid, category, status, &facets).await?,
     ))
 }
 

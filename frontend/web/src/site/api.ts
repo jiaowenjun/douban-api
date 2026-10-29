@@ -182,14 +182,20 @@ export type DoubanFacets = {
   facets: Record<string, DoubanFacetValue[]>
 }
 
-/** 拉取某维度的分面聚合（分面树数据源，只读缓存）；维度未同步或请求
- *  失败一律返回 null——分面面板静默隐藏，不打断列表页主流程 */
+/** 拉取某维度的分面聚合（分面树数据源，只读缓存）；可选 facet 条件
+ *  （dim=value;… 与 marks 端点同语法）返回条件计数，total 为命中数——
+ *  影视形态层分支内的计数数据源。维度未同步或请求失败一律返回
+ *  null——树该分支静默隐藏，不打断主流程 */
 export async function fetchDoubanFacets(
   uid: string,
   category: string,
+  facet?: string | null,
 ): Promise<DoubanFacets | null> {
   try {
     const params = new URLSearchParams({ category, status: MARKS_STATUS })
+    if (facet) {
+      params.set('facet', facet)
+    }
     const res = await fetch(
       `/api/v1/users/${encodeURIComponent(uid)}/facets?${params}`,
     )

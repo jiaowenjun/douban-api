@@ -21,13 +21,16 @@ export const MARKS_CATEGORIES: readonly MarksCategory[] = [
   'music',
 ]
 
+/** 类别中文名；movie 显示「影视」——该维度实际混合电影与电视剧
+ *  （rexxar is_tv 区分，见《条目元信息富集方案》），豆瓣 movie 类目
+ *  本身就包含剧集 */
 export const CATEGORY_NOUNS: Record<MarksCategory, string> = {
   book: '图书',
-  movie: '电影',
+  movie: '影视',
   music: '音乐',
 }
 
-/** 页面标题动词：看过的电影 / 读过的图书 / 听过的音乐 */
+/** 页面标题动词：看过的影视 / 读过的图书 / 听过的音乐 */
 const CATEGORY_VERBS: Record<MarksCategory, string> = {
   book: '读',
   movie: '看',

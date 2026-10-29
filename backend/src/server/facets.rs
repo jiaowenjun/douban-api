@@ -15,19 +15,22 @@ use super::state::AppState;
 use super::subject;
 
 /// 单个分面过滤条件（marks 端点 `facet=dim=value`）
+#[derive(Clone)]
 pub struct FacetFilter {
     pub dim: String,
     pub value: String,
 }
 
 /// 每类别的分面维度表：(维度键, 对应 meta 数组字段)。
-/// decade 不在表内：全类别通用，由视图 year 派生（"1990s"）。
+/// decade 不在表内：全类别通用，由视图 year 派生（"1990s"）；
+/// is_tv 不在表内：仅 movie，由 movie.is_tv 布尔派生（电影/电视剧/未分类）。
 fn dimension_fields(category: Category) -> &'static [(&'static str, &'static str)] {
     match category {
         Category::Movie => &[
             ("genre", "genres"),
             ("country", "countries"),
             ("director", "directors"),
+            ("is_tv", ""),
         ],
         Category::Book => &[
             ("press", "press"),
@@ -38,20 +41,29 @@ fn dimension_fields(category: Category) -> &'static [(&'static str, &'static str
     }
 }
 
-/// 该类别全部合法维度键（含 decade，顺序即聚合输出顺序）
+/// 该类别全部合法维度键（含派生维度，顺序即聚合输出顺序）
 pub fn dimension_keys(category: Category) -> Vec<&'static str> {
     let mut keys: Vec<&'static str> = dimension_fields(category).iter().map(|(d, _)| *d).collect();
     keys.push("decade");
     keys
 }
 
-/// 视图 → 某维度的值集合：meta 数组去重保序取值，decade 由 year 派生。
-/// 无值/年份非法返回空集合（该条目不计入此维度）。
+/// 视图 → 某维度的值集合：meta 数组去重保序取值；派生维度（decade 由
+/// year、is_tv 由 movie.is_tv 布尔——未富集 intro 兜底为 null 归「未分类」，
+/// 富集完成后自动归位电影/电视剧）。无值/年份非法返回空集合（该条目
+/// 不计入此维度）。
 fn values_for(category: Category, dim: &str, view: &Value) -> Vec<String> {
     if dim == "decade" {
         return match view.get("year").and_then(Value::as_i64) {
             Some(y) if (1900..2100).contains(&y) => vec![format!("{}s", y / 10 * 10)],
             _ => vec![],
+        };
+    }
+    if matches!((category, dim), (Category::Movie, "is_tv")) {
+        return match view.pointer("/movie/is_tv").and_then(Value::as_bool) {
+            Some(true) => vec!["电视剧".to_string()],
+            Some(false) => vec!["电影".to_string()],
+            None => vec!["未分类".to_string()],
         };
     }
     let Some((_, field)) = dimension_fields(category).iter().find(|(d, _)| *d == dim) else {
@@ -94,8 +106,8 @@ fn merge_enabled(category: Category, dim: &str) -> bool {
 }
 
 /// 过滤谓词：同维度多次出现 = 任一命中（OR），跨维度 = 全部命中（AND）。
-/// 值为 OTHER_VALUE 时匹配「该维度存在 singleton 值」——singleton 依据
-/// 全量视图聚合（singletons 由调用方预计算）
+/// 值为 OTHER_VALUE 时匹配「该维度存在 singleton 值」——singleton 集由
+/// 调用方按与聚合输出相同的视图基集预计算（树显示多少、过滤就命中多少）
 pub fn view_matches(
     category: Category,
     view: &Value,
@@ -275,18 +287,32 @@ async fn load_views(
     Ok(views)
 }
 
-/// GET /users/{uid}/facets：全量聚合各维度值计数（分面树数据源）。
-/// 维度未同步与 marks 同语义返回 DIMENSION_NOT_CACHED。
+/// GET /users/{uid}/facets：聚合各维度值计数（分面树数据源）。
+/// 可选 facet 条件（与 marks 端点同语法 dim=value，; 分隔）：先按谓词
+/// 过滤视图再聚合——分层树（影视 → 电影/电视剧 → 类型）的分支内计数
+/// 数据源。维度未同步与 marks 同语义返回 DIMENSION_NOT_CACHED。
 pub async fn facet_counts(
     state: &AppState,
     uid: &str,
     category: Category,
     status: Status,
+    filters: &[FacetFilter],
 ) -> AppResult<Value> {
     super::service::ensure_dimension_cached(state, uid, category, status).await?;
     let records = load_all_records(state, uid, category, status).await?;
     let views = load_views(state, category, &records).await?;
-    let facets: serde_json::Map<String, Value> = aggregate_counts(category, &views)
+    // __other__ 匹配的 singleton 基集与聚合视图基集一致（条件态同样口径）
+    let singletons = singleton_sets(category, &views);
+    let (total, scoped): (usize, Vec<Value>) = if filters.is_empty() {
+        (records.len(), views)
+    } else {
+        let filtered: Vec<Value> = views
+            .into_iter()
+            .filter(|view| view_matches(category, view, filters, &singletons))
+            .collect();
+        (filtered.len(), filtered)
+    };
+    let facets: serde_json::Map<String, Value> = aggregate_counts(category, &scoped)
         .into_iter()
         .map(|(dim, list)| {
             let values: Vec<Value> = list
@@ -300,13 +326,15 @@ pub async fn facet_counts(
         "user": uid,
         "category": category.key(),
         "status": status.key(),
-        "total": records.len(),
+        "total": total,
         "facets": Value::Object(facets),
     }))
 }
 
 /// marks 分面过滤：返回 (过滤后全量标记, 命中总数)，分页由调用方切片。
-/// singleton 集按全量视图预计算（「其他」保留值的匹配依据，与聚合口径一致）
+/// __other__ 的 singleton 基集与树的分支聚合同口径：按其余（非 __other__）
+/// 条件先过滤视图再计算——树在「电影」分支下显示的「其他类型 · N」与
+/// 点击 is_tv=电影;genre=__other__ 的命中数严格一致
 pub async fn filter_marks(
     state: &AppState,
     uid: &str,
@@ -316,7 +344,27 @@ pub async fn filter_marks(
 ) -> Result<(Vec<Record>, usize)> {
     let records = load_all_records(state, uid, category, status).await?;
     let views = load_views(state, category, &records).await?;
-    let singletons = singleton_sets(category, &views);
+    // 无 __other__ 条件时 view_matches 不会查 singleton 集，空 map 即可
+    let mut singletons: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        Default::default();
+    if filters.iter().any(|f| f.value == OTHER_VALUE) {
+        let full = singleton_sets(category, &views);
+        let pre: Vec<FacetFilter> = filters
+            .iter()
+            .filter(|f| f.value != OTHER_VALUE)
+            .cloned()
+            .collect();
+        let scoped: Vec<Value> = if pre.is_empty() {
+            views.clone()
+        } else {
+            views
+                .iter()
+                .filter(|view| view_matches(category, view, &pre, &full))
+                .cloned()
+                .collect()
+        };
+        singletons = singleton_sets(category, &scoped);
+    }
     let filtered: Vec<Record> = records
         .into_iter()
         .zip(views)
@@ -341,6 +389,20 @@ mod tests {
                 "directors": directors,
             }
         })
+    }
+
+    #[test]
+    fn values_for_is_tv_derived() {
+        let cat = Category::Movie;
+        // rexxar 布尔直派生；未富集（intro 兜底 null）归「未分类」
+        let tv = json!({"movie": {"is_tv": true}});
+        let film = json!({"movie": {"is_tv": false}});
+        let unknown = json!({"movie": {"is_tv": null}});
+        assert_eq!(values_for(cat, "is_tv", &tv), vec!["电视剧"]);
+        assert_eq!(values_for(cat, "is_tv", &film), vec!["电影"]);
+        assert_eq!(values_for(cat, "is_tv", &unknown), vec!["未分类"]);
+        // book/music 视图无 movie 节点 → 不出值（白名单也不含）
+        assert!(values_for(Category::Book, "is_tv", &unknown).is_empty());
     }
 
     #[test]

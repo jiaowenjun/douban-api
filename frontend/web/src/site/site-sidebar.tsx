@@ -6,7 +6,11 @@ import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 import { fetchDoubanFacets, type DoubanFacets } from './api'
 import { useDoubanUser } from './douban-user'
 import { FacetTree } from './facet-tree'
-import { parseFacetParam, type FacetSelection } from './facet-model'
+import {
+  facetPathKey,
+  parseFacetPath,
+  type FacetStep,
+} from './facet-model'
 import { SidebarDebugSwitch } from './sidebar-debug-switch'
 import { SidebarHeader } from './sidebar-header'
 import { SidebarStats } from './sidebar-stats'
@@ -27,10 +31,11 @@ const navNodes: TagTreeNode[] = [
 
 /** 站点侧边栏：整体接管模板 sidebar 插槽，布局对齐 weimo-biji 的
  *  biji-side-bar——身份栏固定在顶，滚动主体依次为标记统计区
- *  （StatGroup/Heatmap）→ 导航区（全部标记）→ 分面筛选树（一级
- *  类别根带图标，点行=跳该类别清筛选，兼任类别导航）。
- *  分面选择经 URL ?facet=dim=value 与列表页共享（侧边栏写、列表页
- *  读）；类别切换天然清除筛选。
+ *  （StatGroup/Heatmap）→ 导航区（全部标记）→ 分面筛选树（影视为
+ *  形态→类型三层、图书/音乐为主维度单层；一级类别根带图标，点行=
+ *  跳该类别清筛选，兼任类别导航）。
+ *  筛选路径经 URL ?facet=dim=value;… 与列表页共享（侧边栏写、列表页
+ *  读，影视叶为 is_tv+genre 双条件）；类别切换天然清除筛选。
  *  onClose 供窄屏抽屉在选中后收起 */
 export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
@@ -42,21 +47,22 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const realCategory = category !== undefined && category !== ALL_MARKS_TAG
     ? category
     : undefined
-  const selection = realCategory
-    ? parseFacetParam(realCategory, searchParams.get('facet'))
-    : null
+  const path = realCategory
+    ? parseFacetPath(realCategory, searchParams.get('facet'))
+    : []
 
-  // 分面聚合：三类别一次并行取，快照只随 uid 变不随路由变——树是
-  // 三类别常驻结构，切类别不再重取；单类别失败/未同步该根不出现
-  // （allSettled 容错，快照模式同 marks-page 渲染期回退 loading）
+  // 分面聚合：三类别一次并行取 + 影视各形态的条件聚合（形态层值叶的
+  // 计数数据源，值列表来自全局 is_tv 维度——电影/电视剧/未分类），
+  // 快照只随 uid 变不随路由变；单类别失败/未同步该根不出现
   const facetsKey = uid
   const [facetsSnapshot, setFacetsSnapshot] = useState<{
     key: string | null
     loading: boolean
     data: Partial<Record<MarksCategory, DoubanFacets>> | null
-  }>({ key: null, loading: false, data: null })
+    kind: Record<string, DoubanFacets | undefined>
+  }>({ key: null, loading: false, data: null, kind: {} })
   if (facetsKey !== facetsSnapshot.key) {
-    setFacetsSnapshot({ key: facetsKey, loading: true, data: null })
+    setFacetsSnapshot({ key: facetsKey, loading: true, data: null, kind: {} })
   }
   useEffect(() => {
     if (!facetsKey) return
@@ -65,7 +71,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
       MARKS_CATEGORIES.map((facetCategory) =>
         fetchDoubanFacets(facetsKey, facetCategory),
       ),
-    ).then((results) => {
+    ).then(async (results) => {
       if (cancelled) return
       const byCategory: Partial<Record<MarksCategory, DoubanFacets>> = {}
       MARKS_CATEGORIES.forEach((facetCategory, index) => {
@@ -74,7 +80,22 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
           byCategory[facetCategory] = result.value
         }
       })
-      setFacetsSnapshot({ key: facetsKey, loading: false, data: byCategory })
+      // 影视形态层的条件聚合：全局 is_tv 值到位后并行拉每个形态
+      const kinds = byCategory.movie?.facets.is_tv ?? []
+      const kindResults = await Promise.allSettled(
+        kinds.map(({ value }) =>
+          fetchDoubanFacets(facetsKey, 'movie', `is_tv=${value}`),
+        ),
+      )
+      if (cancelled) return
+      const kind: Record<string, DoubanFacets | undefined> = {}
+      kinds.forEach(({ value }, index) => {
+        const result = kindResults[index]
+        if (result.status === 'fulfilled' && result.value) {
+          kind[value] = result.value
+        }
+      })
+      setFacetsSnapshot({ key: facetsKey, loading: false, data: byCategory, kind })
     })
     return () => {
       cancelled = true
@@ -96,20 +117,16 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     )
   }
 
-  /** 分面选择统一处理：目标=当前类别时改查询参数即生效（null 即清除
-   *  筛选——叶子再点取消与一级导航节点点击重置都走这里）；目标为其他
-   *  类别或「全部标记」（叶子或导航节点）跳路由，带值叶子一步带筛选、
-   *  导航节点跳纯类别路由 */
-  function handleFacetSelect(
-    target: NavTarget,
-    next: FacetSelection | null,
-  ) {
+  /** 筛选路径统一处理：目标=当前类别时改查询参数即生效（空路径即清除
+   *  筛选——再点取消与一级根点击重置都走这里）；目标为其他类别或
+   *  「全部标记」跳路由，带路径一步落位、导航节点跳纯类别路由 */
+  function handlePathSelect(target: NavTarget, next: FacetStep[]) {
     if (target === category) {
-      setSearchParams(next ? { facet: `${next.dim}=${next.value}` } : {})
+      setSearchParams(next.length ? { facet: facetPathKey(next) } : {})
     } else {
       navigate(
-        next
-          ? `/${target}?facet=${encodeURIComponent(`${next.dim}=${next.value}`)}`
+        next.length
+          ? `/${target}?facet=${encodeURIComponent(facetPathKey(next))}`
           : `/${target}`,
       )
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -128,9 +145,10 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
         activeCategory={category}
         expandedTags={expandedTags}
         facetsByCategory={facetsData ?? {}}
+        kindFacets={facetsSnapshot.kind}
         onExpandedTagsChange={setExpandedTags}
-        onSelect={handleFacetSelect}
-        selection={selection}
+        onPathSelect={handlePathSelect}
+        path={path}
       />
     </section>
   )
@@ -145,7 +163,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
             aria-label="条目导航"
             nodes={navNodes}
             onSelect={(tag) => {
-              if (tag === ALL_MARKS_TAG) handleFacetSelect(ALL_MARKS_TAG, null)
+              if (tag === ALL_MARKS_TAG) handlePathSelect(ALL_MARKS_TAG, [])
             }}
             selectedTag={category === ALL_MARKS_TAG ? ALL_MARKS_TAG : undefined}
             variant="no-action"
