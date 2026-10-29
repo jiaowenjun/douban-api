@@ -83,9 +83,9 @@ function subjectMetaLines(
   return primary || people ? { primary, people } : null
 }
 
-/** 书影音标记卡片，四段式一级结构：顶部栏（标记日期）/ 条目信息区
-    （标题+评分独占首行，封面与别名/元信息并列其下）/ 评论区（短评）/
-    底部栏（豆瓣评分，无富集数据时整段不渲染），含 <li> 列表条目语义；
+/** 书影音标记卡片，四段式一级结构：顶部栏（日期居左 + 主标题居中）/
+    条目信息区（封面左，别名/元信息右）/ 评论区（短评）/ 底栏（我的评分
+    星级，水平居中，未打分时整段不渲染），含 <li> 列表条目语义；
     材质（背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，
     与 BaseCard 同源；纯展示，无链接与交互 */
 export function MarkCard({ mark }: MarkCardProps) {
@@ -98,12 +98,9 @@ export function MarkCard({ mark }: MarkCardProps) {
     <li className={getCardSurfaceClassName('mark-card')}>
       <div className="mark-card__header">
         <span>{mark.date}</span>
+        <span className="mark-card__title">{mark.title}</span>
       </div>
       <div className="mark-card__subject">
-        <div className="mark-card__title-row">
-          <span className="mark-card__title">{mark.title}</span>
-          {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-        </div>
         {cover ? (
           <img
             alt=""
@@ -115,8 +112,15 @@ export function MarkCard({ mark }: MarkCardProps) {
           <div className="mark-card__cover mark-card__cover--empty" />
         )}
         <div className="mark-card__info">
-          {mark.alt_title ? (
-            <div className="mark-card__alt">{mark.alt_title}</div>
+          {mark.alt_title || doubanRating != null ? (
+            <div className="mark-card__alt">
+              {[
+                mark.alt_title,
+                doubanRating != null ? `豆瓣 ${doubanRating.toFixed(1)}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
           ) : null}
           {meta ? (
             <>
@@ -133,9 +137,9 @@ export function MarkCard({ mark }: MarkCardProps) {
       {mark.comment ? (
         <p className="mark-card__comment">{mark.comment}</p>
       ) : null}
-      {doubanRating != null ? (
+      {mark.my_rating ? (
         <div className="mark-card__footer">
-          <span className="mark-card__db-rating">豆瓣 {doubanRating.toFixed(1)}</span>
+          <RatingStars value={mark.my_rating} />
         </div>
       ) : null}
     </li>
