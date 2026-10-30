@@ -8,6 +8,7 @@ import { WdfRender, type WdfDocument } from 'weimo-ui-editor/components/wdf-rend
 import type { DoubanMark, DoubanSubject } from './api'
 import { resolveApiUrl } from './api'
 import { formatMarkCardDateBarText } from './date-display'
+import { useSiteSettings } from './site-settings'
 import './mark-card.css'
 
 type MarkCardProps = {
@@ -114,7 +115,7 @@ type Flight = {
     水平居中独占一行、展开态居封面右侧信息列首行——两处渲染，由根
     data-expanded 的 CSS 切换）/ 可折叠条目信息区（封面 64px 左，文
     字列右——豆瓣评分「五星 + 数字」+ 单行元信息摘要或 intro 兜底；
-    内容全空时整区与开关不渲染；默认收起）/ 评论正文区（WdfRender
+    内容全空时整区与开关不渲染；初始态随站点设置，默认收起）/ 评论正文区（WdfRender
     渲染短评段落，无短评整区不渲染），含 <li> 列表条目语义。
     折叠开关切换带标题行 FLIP 共享元素过渡：两态标题副本排版逐字一
     致、纵向同位，切换时「量旧位置 → 克隆 fixed 钉旧位（脱离折叠容器
@@ -126,7 +127,12 @@ type Flight = {
     飞行中再点从克隆当前视觉位置续接。材质复用 card-surface；折叠实
     现同源 BaseCard metaCollapsible；交互仅折叠开关 */
 export function MarkCard({ mark }: MarkCardProps) {
-  const [metaExpanded, setMetaExpanded] = useState(false)
+  // 初始展开态读站点设置（设置页可改）：仅作 useState 初始化器——设置
+  // 变化不打扰已挂载卡片的手动展开态，列表页重挂载后按新默认生效
+  const { settings } = useSiteSettings()
+  const [metaExpanded, setMetaExpanded] = useState(
+    () => settings.defaultMetaExpanded,
+  )
   const cover = mark.subject?.cover || mark.cover
   const metaLine = mark.subject ? subjectMetaLine(mark.subject) : null
   const year = mark.subject?.year

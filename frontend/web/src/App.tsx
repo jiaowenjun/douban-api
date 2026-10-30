@@ -16,7 +16,9 @@ import {
   resolveMarksView,
 } from './site/navigation'
 import { MarksPage } from './site/pages/marks-page'
+import { SettingsPage } from './site/pages/settings-page'
 import { TopBarSearch } from './site/search-dialog'
+import { SiteSettingsProvider } from './site/site-settings-provider'
 import { SiteSidebar } from './site/site-sidebar'
 
 /** 从 /:category 路径解析导航高亮项与顶栏标题 */
@@ -94,12 +96,16 @@ function MarksRoute() {
 
 function SiteShell() {
   const [searchParams] = useSearchParams()
+  const { pathname } = useLocation()
   const view = useMarksViewFromLocation()
   const topBarLeading = useFacetBreadcrumb()
-  // movie 标题随形态（真一级，无「影视」聚合名；形态步由 MarksRoute
-  // 保证存在，find 不到仅重定向前一帧的兜底）；其余类别/全部标记原样
-  const pageTitle =
-    view && view.category === 'movie'
+  // 设置页不在 marks 视图解析范围内，单独给标题（pageTitle 始终驱动
+  // document.title）；movie 标题随形态（真一级，无「影视」聚合名；形态
+  // 步由 MarksRoute 保证存在，find 不到仅重定向前一帧的兜底）；其余
+  // 类别/全部标记原样
+  const pageTitle = pathname.split('/')[1] === 'settings'
+    ? '设置'
+    : view && view.category === 'movie'
       ? moviePageTitle(
           parseFacetPath('movie', searchParams.get('facet')).find(
             (step) => step.dim === 'is_tv',
@@ -120,6 +126,8 @@ function SiteShell() {
     >
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
+        {/* 静态段优先于动态 /:category，react-router 按具体度排序匹配 */}
+        <Route element={<SettingsPage />} path="/settings" />
         <Route element={<MarksRoute />} path="/:category" />
         <Route
           element={<Navigate replace to={DEFAULT_MARKS_PATH} />}
@@ -133,9 +141,11 @@ function SiteShell() {
 function App() {
   return (
     <DoubanUserProvider>
-      <HashRouter>
-        <SiteShell />
-      </HashRouter>
+      <SiteSettingsProvider>
+        <HashRouter>
+          <SiteShell />
+        </HashRouter>
+      </SiteSettingsProvider>
     </DoubanUserProvider>
   )
 }

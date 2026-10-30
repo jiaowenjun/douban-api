@@ -8,8 +8,12 @@ import './sidebar-header.css'
 
 /** 侧边栏身份栏：左侧头像 + 用户名，右侧登录/设置入口（GhostIconButton），
     样式对齐 weimo-biji 的 biji-side-bar__header；统计区/导航/筛选树
-    由 SiteSidebar 主体区承接 */
-export function SidebarHeader() {
+    由 SiteSidebar 主体区承接；onOpenSettings 跳设置页（含收抽屉） */
+export function SidebarHeader({
+  onOpenSettings,
+}: {
+  onOpenSettings: () => void
+}) {
   const { uid, profile, openLogin } = useDoubanUser()
 
   return (
@@ -61,6 +65,7 @@ export function SidebarHeader() {
           <GhostIconButton
             aria-label="打开设置"
             className="sidebar-header__button"
+            onClick={onOpenSettings}
             size="sm"
             tooltip="设置"
           >
