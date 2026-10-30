@@ -166,6 +166,13 @@
   font-size: var(--font-size-sm);
 }
 
+/* 折叠态（solo 副本）标题行文本水平居中——修饰类挂在行元素本身：
+   FLIP 飞行克隆 cloneNode 会带上它，克隆与真实 solo 渲染一致；
+   展开（inline）副本保持左对齐 */
+.mark-card-v3__title-row--solo {
+  justify-content: center;
+}
+
 /* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 200ms 同步）
    ——展开时高度收 0 并以负 margin 吞掉自己的根 1em 行间距、不占位
    （visibility 方案会保留行盒占位、展开后留空行）；opacity/visibility

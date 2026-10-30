@@ -130,9 +130,13 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
 
   const soloTitleRef = useRef<HTMLDivElement | null>(null)
   const inlineTitleRef = useRef<HTMLDivElement | null>(null)
-  // FLIP first 的跨渲染传递：切换前可见副本几何 + 旧侧是否单行（切换
-  // 后旧副本已被 0fr 折叠，子段 rect 无法回量，须在点击时先记）
-  const flipFromRef = useRef<{ rect: DOMRect; singleLine: boolean } | null>(null)
+  // FLIP first 的跨渲染传递：切换前可见副本盒几何 + 首个子段（标题）
+  // 锚点 x + 旧侧是否单行（切换后旧副本已被 0fr 折叠，须在点击时先记）
+  const flipFromRef = useRef<{
+    rect: DOMRect
+    anchor: number
+    singleLine: boolean
+  } | null>(null)
   const flightRef = useRef<Flight | null>(null)
 
   const prefersReducedMotion = () =>
@@ -166,13 +170,24 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
 
   useEffect(() => cleanupFlight, [])
 
+  // 首个子段（标题）的锚点 x：折叠态 solo 居中、展开态 inline 左对齐，
+  // 盒内内容位置随对齐方式不同——位移 dx 须按内容锚点算（盒左对盒左
+  // 在居中态不等于内容实际位移），克隆整盒平移、内容随盒走，锚点对
+  // 锚点即内容连续
+  const anchorLeft = (row: HTMLElement) =>
+    row.firstElementChild instanceof HTMLElement
+      ? row.firstElementChild.getBoundingClientRect().left
+      : row.getBoundingClientRect().left
+
   const toggleMeta = () => {
     // 飞行中再点：从克隆当前视觉位置（含进行中的 transform）续接
     let rect: DOMRect | null = null
+    let anchor = 0
     let singleLine = false
     const flight = flightRef.current
     if (flight) {
       rect = flight.clone.getBoundingClientRect()
+      anchor = anchorLeft(flight.clone)
       // 旧侧单行性沿用飞行开始时的判定（克隆即旧内容）
       singleLine = true
       cleanupFlight()
@@ -180,10 +195,11 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
       const active = metaExpanded ? inlineTitleRef.current : soloTitleRef.current
       if (active) {
         rect = active.getBoundingClientRect()
+        anchor = anchorLeft(active)
         singleLine = isSingleLineRow(active)
       }
     }
-    flipFromRef.current = rect ? { rect, singleLine } : null
+    flipFromRef.current = rect ? { rect, anchor, singleLine } : null
     setMetaExpanded((current) => !current)
   }
 
@@ -198,13 +214,14 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
     // 新侧单行判定（scrollHeight，不受过渡压扁影响）；两侧均单行即排版
     // 逐字一致（同内容同字体、单行无换行差异），纯平移严格成立
     if (!isSingleLineRow(toEl)) return
-    // 飞行终点基于稳定不变量而非 t=0 暂态盒：x 用 toEl.left（纵向过渡
-    // 不影响列 x，两向皆稳定）；y 恒等（dy=0——两副本终点都在标记行
-    // 底 + 1em 同一水平位）。若在 t=0 量 toEl 的 rect.y/height：展开向
-    // fold 顶被尚未收缩的 solo 压低约一行（克隆飞到暂态位、结束再跳回
-    // 终位＝录屏「先低后跳闪」根因），折叠向 solo 行盒被 0fr 压扁成高 0
-    // （高度门槛误判→整段跳过＝无飞行根因）
-    const dx = toEl.getBoundingClientRect().left - from.rect.left
+    // 飞行终点基于稳定不变量而非 t=0 暂态盒：dx 按首个子段锚点（居中
+    // solo 与左对齐 inline 的盒内内容位置不同，见 anchorLeft），x 两向
+    // 在 t=0 均稳定（纵向过渡不影响列 x）；y 恒等（dy=0——两副本终点
+    // 都在标记行底 + 1em 同一水平位）。若在 t=0 量 toEl 的 rect.y/
+    // height：展开向 fold 顶被尚未收缩的 solo 压低约一行（克隆飞到暂
+    // 态位、结束再跳回终位＝录屏「先低后跳闪」根因），折叠向 solo 行
+    // 盒被 0fr 压扁成高 0（高度门槛误判→整段跳过＝无飞行根因）
+    const dx = anchorLeft(toEl) - from.anchor
     const dy = 0
     // 飞行克隆：fixed 钉旧位（脱离折叠容器裁切/透明），位移到新位；
     // 克隆携带原 class，页面样式表自然生效
@@ -248,7 +265,7 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
   const renderTitleRow = (variant: 'solo' | 'inline') =>
     variant === 'solo' ? (
       <div className="mark-card-v3__title-solo">
-        <div className="mark-card-v3__title-row" ref={soloTitleRef}>
+        <div className="mark-card-v3__title-row mark-card-v3__title-row--solo" ref={soloTitleRef}>
           {titleRowContent}
         </div>
       </div>

@@ -187,6 +187,13 @@
   margin-bottom: calc(-1 * 1em);
 }
 
+/* 折叠态（solo 副本）标题行文本水平居中；展开（inline）副本保持左对
+   齐。v3 的 FLIP 克隆需修饰类挂行元素本身（cloneNode 才携带），v1 无
+   飞行克隆、容器作用域即可 */
+.mark-card__title-solo .mark-card__title-row {
+  justify-content: center;
+}
+
 /* 0fr 收起时裁切几何的前提（同折叠区内层） */
 .mark-card__title-solo .mark-card__title-row {
   min-height: 0;
