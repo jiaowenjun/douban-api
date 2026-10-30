@@ -15,7 +15,6 @@ import {
   pathTag,
   type FacetStep,
 } from './facet-model'
-import { SidebarDebugSwitch } from './sidebar-debug-switch'
 import { SidebarHeader } from './sidebar-header'
 import { SidebarStats } from './sidebar-stats'
 import {
@@ -281,7 +280,6 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
         </nav>
         {facetSection}
       </div>
-      <SidebarDebugSwitch />
     </div>
   )
 }
