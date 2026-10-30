@@ -245,7 +245,7 @@ export function MarkCard({ mark }: MarkCardProps) {
         { transform: 'translate(0px, 0px)' },
         { transform: `translate(${dx}px, ${dy}px)` },
       ],
-      { duration: 200, easing: 'ease' },
+      { duration: 280, easing: 'ease-in-out' },
     )
     fromEl.style.visibility = 'hidden'
     toEl.style.visibility = 'hidden'

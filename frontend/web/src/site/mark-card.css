@@ -84,7 +84,7 @@
   width: 16px;
   height: 16px;
   stroke: currentColor;
-  transition: transform 180ms ease;
+  transition: transform 280ms ease-in-out;
 }
 
 .mark-card__meta-toggle[data-expanded='true'] svg {
@@ -98,10 +98,10 @@
   display: grid;
   grid-template-rows: 1fr;
   transition:
-    grid-template-rows 200ms ease,
-    opacity 200ms ease,
-    margin-top 200ms ease,
-    visibility 200ms;
+    grid-template-rows 280ms ease-in-out,
+    opacity 280ms ease-in-out,
+    margin-top 280ms ease-in-out,
+    visibility 280ms;
 }
 
 .mark-card__meta-region[data-expanded='false'] {
@@ -174,7 +174,7 @@
   justify-content: center;
 }
 
-/* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 200ms 同步）
+/* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 280ms 同步）
    ——展开时高度收 0 并以负 margin 吞掉自己的根 1em 行间距、不占位
    （visibility 方案会保留行盒占位、展开后留空行）；opacity/visibility
    与折叠区动画交叉淡换，两方向均无跳变 */
@@ -182,10 +182,10 @@
   display: grid;
   grid-template-rows: 1fr;
   transition:
-    grid-template-rows 200ms ease,
-    opacity 200ms ease,
-    margin-bottom 200ms ease,
-    visibility 200ms;
+    grid-template-rows 280ms ease-in-out,
+    opacity 280ms ease-in-out,
+    margin-bottom 280ms ease-in-out,
+    visibility 280ms;
 }
 
 .mark-card[data-expanded='true'] .mark-card__title-solo {
