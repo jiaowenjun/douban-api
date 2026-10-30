@@ -138,14 +138,16 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
   const prefersReducedMotion = () =>
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 
-  // 单行判定：行盒高 ≤ 主标题行高 × 1.45。不能用子段 getClientRects——
-  // flex 项会被块化成块盒，内部换几行都只有一个 rect，检测不到换行
+  // 单行判定：内容自然高（scrollHeight）≤ 主标题行高 × 1.45。不能用
+  // 子段 getClientRects——flex 项会被块化成块盒，内部换几行都只有一
+  // 个 rect；也不能用 rect.height——折叠过渡中的副本被 0fr 压扁成高 0
+  // （scrollHeight 仍反映真实行盒高）
   const isSingleLineRow = (row: HTMLElement) => {
     const title = row.querySelector('.mark-card-v3__title')
     const cs = getComputedStyle(title ?? row)
     const lineHeight =
       parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
-    return row.getBoundingClientRect().height <= lineHeight * 1.45
+    return row.scrollHeight <= lineHeight * 1.45
   }
 
   const cleanupFlight = () => {
@@ -193,12 +195,17 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
     const fromEl = metaExpanded ? soloTitleRef.current : inlineTitleRef.current
     if (!toEl || !fromEl) return
     if (prefersReducedMotion() || typeof toEl.animate !== 'function') return
-    const to = toEl.getBoundingClientRect()
-    // 新侧单行判定 + 与旧侧行盒高一致（±2px）——两侧均单行即保证排版
+    // 新侧单行判定（scrollHeight，不受过渡压扁影响）；两侧均单行即排版
     // 逐字一致（同内容同字体、单行无换行差异），纯平移严格成立
-    const toSingleLine =
-      isSingleLineRow(toEl) && Math.abs(to.height - from.rect.height) < 2
-    if (!toSingleLine) return
+    if (!isSingleLineRow(toEl)) return
+    // 飞行终点基于稳定不变量而非 t=0 暂态盒：x 用 toEl.left（纵向过渡
+    // 不影响列 x，两向皆稳定）；y 恒等（dy=0——两副本终点都在标记行
+    // 底 + 1em 同一水平位）。若在 t=0 量 toEl 的 rect.y/height：展开向
+    // fold 顶被尚未收缩的 solo 压低约一行（克隆飞到暂态位、结束再跳回
+    // 终位＝录屏「先低后跳闪」根因），折叠向 solo 行盒被 0fr 压扁成高 0
+    // （高度门槛误判→整段跳过＝无飞行根因）
+    const dx = toEl.getBoundingClientRect().left - from.rect.left
+    const dy = 0
     // 飞行克隆：fixed 钉旧位（脱离折叠容器裁切/透明），位移到新位；
     // 克隆携带原 class，页面样式表自然生效
     const clone = fromEl.cloneNode(true) as HTMLElement
@@ -211,8 +218,6 @@ export function MarkCardv3({ mark }: MarkCardv3Props) {
       pointerEvents: 'none',
     })
     document.body.appendChild(clone)
-    const dx = to.left - from.rect.left
-    const dy = to.top - from.rect.top
     const anim = clone.animate(
       [
         { transform: 'translate(0px, 0px)' },
