@@ -1,6 +1,6 @@
-/* 书影音标记卡片，三段式一级结构：顶部栏 / 条目信息区 / 评论正文区。
-   材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core 的 card-surface
-   —— 由组件挂 card-surface 类提供，这里只留布局与内容排版 */
+/* 书影音标记卡片，三段式一级结构：顶部标记行 / 可折叠条目信息区 /
+   评论正文区。材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core
+   的 card-surface——由组件挂 card-surface 类提供，这里只留布局与内容排版 */
 
 /* 侧边栏 DEBUG 开关（html.sidebar-debug）开启时描边卡片内部子容器，便于调布局。
    描边样式对齐侧边栏（1px solid --color-border + 2px 临时内边距）；圆角用
@@ -10,14 +10,15 @@
 .sidebar-debug .mark-card__header,
 .sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
-.sidebar-debug .mark-card__cover-region,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__title-row,
+.sidebar-debug .mark-card__douban-rating,
 .sidebar-debug .mark-card__meta,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
-.sidebar-debug .mark-card-rating {
+.sidebar-debug .mark-card-rating,
+.sidebar-debug .mark-card-douban-stars {
   outline: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
@@ -25,14 +26,15 @@
 .sidebar-debug .mark-card__header,
 .sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
-.sidebar-debug .mark-card__cover-region,
 .sidebar-debug .mark-card__cover,
 .sidebar-debug .mark-card__info,
 .sidebar-debug .mark-card__title-row,
+.sidebar-debug .mark-card__douban-rating,
 .sidebar-debug .mark-card__meta,
 .sidebar-debug .mark-card__intro,
 .sidebar-debug .mark-card__comment,
-.sidebar-debug .mark-card-rating {
+.sidebar-debug .mark-card-rating,
+.sidebar-debug .mark-card-douban-stars {
   padding: 2px;
 }
 
@@ -45,15 +47,19 @@
   padding: 10px 12px;
 }
 
-/* 顶部栏：日期居左；1fr auto 1fr 三槽的右槽钉元信息折叠开关。高度对齐
-   BaseCard 紧凑行模型：定高一行文本行盒（sm 13px × 1.2），28px 的 sm
-   折叠按钮溢出居中绘制（上下各 6.2px 落在卡片 padding 内）。grid 与
-   flex 的溢出对齐机制不同：align-items 只管条目在行内对齐（行被按钮
-   撑到 28px），行本身对齐容器中线须由 align-content: center 承担——
-   缺它则行钉容器顶、按钮整体下坠，日期随之偏下 */
+/* 顶部标记行：日期 · 看过/读过/听过 · 我的评分星级（同在左槽 span 内，
+   星级 inline-block 与文本同行基线对齐——顶栏是 grid，散写的节点会成
+   为独立 grid 项被自动布局错位）；右槽钉元信息折叠开关。两槽
+   minmax(0,1fr) auto——左槽占满按钮外的全部宽度（旧三槽 1fr auto 1fr
+   左槽仅半宽，标记信息加长后窄卡即换行）。高度对齐 BaseCard 紧凑行模
+   型：定高一行文本行盒（sm 13px × 1.2），28px 的 sm 折叠按钮溢出居中
+   绘制（上下各 6.2px 落在卡片 padding 内）。grid 与 flex 的溢出对齐机
+   制不同：align-items 只管条目在行内对齐（行被按钮撑到 28px），行本身
+   对齐容器中线须由 align-content: center 承担——缺它则行钉容器顶、按
+   钮整体下坠，日期随之偏下 */
 .mark-card__header {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   align-content: center;
   column-gap: 8px;
@@ -62,9 +68,9 @@
   font-size: var(--font-size-sm);
 }
 
-/* 元信息折叠开关（对齐 BaseCard meta-toggle）：钉右槽，图标随展开旋转 */
+/* 元信息折叠开关（对齐 BaseCard meta-toggle）：钉第 2 槽，图标随展开旋转 */
 .mark-card__meta-toggle {
-  grid-column: 3;
+  grid-column: 2;
   justify-self: end;
   color: var(--color-text-placeholder);
   border-radius: var(--radius-round);
@@ -100,24 +106,15 @@
   margin-top: calc(-1 * 1em);
 }
 
-/* 条目信息区（折叠内层）：封面列（左，封面 + 正下方居中的我的评分
-   星级）与文字元信息（右，弹性列）单行并列；min-height/overflow 是
-   0fr 收起时裁切几何的前提 */
+/* 条目信息区（折叠内层）：封面（左）与文字元信息（右，弹性列）单行
+   并列；min-height/overflow 是 0fr 收起时裁切几何的前提（我的评分星
+   级已上移顶栏标记行，封面列不再需要包裹层） */
 .mark-card__subject {
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 12px;
   min-height: 0;
   overflow: hidden;
-}
-
-/* 封面区（左列）：封面 + 我的评分星级纵向排布、水平居中（列宽取
-   两者较宽者，窄的居中对齐宽的） */
-.mark-card__cover-region {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
 }
 
 .mark-card__cover {
@@ -149,12 +146,47 @@
   --md-font-size: var(--font-size-base);
 }
 
-/* 可选标题行（元信息区首行）：「标题 · 可选标题 · 豆瓣评分」，可选段
-   全缺时整行不渲染（标题由正文区 h1 承载）；弱化灰同元信息行，超长
-   自然换行不省略 */
+/* 标题行（元信息区首行）：「标题 (年份) 别名」——可选段（年份/别名）
+   全缺时整行不渲染（标题由正文区 h1 承载，孤行纯重复）；弱化灰同元
+   信息行，flex 间距分段、bdi 隔离 RTL 别名，超长自然换行不省略 */
 .mark-card__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
+}
+
+/* 豆瓣评分行（元信息区第二行）：五星 + 数字，无「豆瓣」标签、与元信
+   息同级弱灰 sm（rating/2 换算星宽，aria-label 保留评分来源） */
+.mark-card__douban-rating {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 豆瓣评分五星：填充星与元信息文字同色（--color-text-placeholder）、
+   底星为未选中轨道 --color-border（更弱一档，保留填充/未填充区分），
+   整体比我的评分的收敛 15% 配方更沉 */
+.mark-card-douban-stars {
+  position: relative;
+  display: inline-block;
+  margin-right: 4px;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.mark-card-douban-stars__base {
+  color: var(--color-border);
+}
+
+.mark-card-douban-stars__fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--color-text-placeholder);
 }
 
 .mark-card__intro {
@@ -162,9 +194,10 @@
   font-size: var(--font-size-sm);
 }
 
-/* 条目元信息（expand=subject）：首行 年份·国家/社·类型（物理规格不展示），
-   其后导演/主演（图书作者/译者、音乐歌手）各角色一行，各单行省略——
-   卡片是列表条目不是详情页；字色与可选标题行同为弱化灰 */
+/* 条目元信息（元信息区第三行）：单行摘要「国家地区 / 类型 / 导演 /
+   主演」（图书出版社/作者/译者，音乐类型/歌手）——「 / 」分隔不同元
+   信息、空格分隔同域多值、无角色标签，年份已上移标题行、物理规格不
+   展示；单行省略——卡片是列表条目不是详情页 */
 .mark-card__meta {
   overflow: hidden;
   color: var(--color-text-placeholder);
@@ -173,10 +206,12 @@
   text-overflow: ellipsis;
 }
 
-/* 评分：底色五星 + 按比例裁切的单色覆盖层（黑白灰，随明暗主题翻转）。
-   配色对齐 weimo-ui-core 开关/滑块：未填充星 = 未选中轨道 --color-border，
-   填充星 = 选中轨道/指示条同一收敛档 color-mix(bg-primary, bg-card 15%)
-   ——亮主题深灰近黑、暗主题浅灰近白，不引入裸色值 */
+/* 我的评分星级（顶栏标记行内）：底色五星 + 按比例裁切的单色覆盖层
+   （黑白灰，随明暗主题翻转）。配色对齐 weimo-ui-core 开关/滑块：未填
+   充星 = 未选中轨道 --color-border，填充星 = 选中轨道/指示条同一收敛
+   档 color-mix(bg-primary, bg-card 15%)——亮主题深灰近黑、暗主题浅灰
+   近白，不引入裸色值；用户评分属「行为」标注，比豆瓣五星（元信息文
+   字同色，见上方 mark-card-douban-stars）亮一档 */
 .mark-card-rating {
   position: relative;
   display: inline-block;

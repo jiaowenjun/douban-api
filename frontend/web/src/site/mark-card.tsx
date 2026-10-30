@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
@@ -12,18 +12,29 @@ type MarkCardProps = {
   mark: DoubanMark
 }
 
-/** 评分星级：底色五星 + 按比例裁切的单色覆盖层（黑白灰随明暗主题翻转，
- *  两段 ★★★★★ 叠加）；配色见 css 中开关/滑块同源说明 */
-function RatingStars({ value }: { value: number }) {
-  const label = `我的评分：${value} 星`
+/** 五星评分：底色五星 + 按比例裁切的覆盖层（两段 ★★★★★ 叠加），
+ *  value 为 0–5 的小数也精确支持（豆瓣 8.5 分 /2 = 4.25 星 → 85% 宽
+ *  覆盖）。两种评分同一叠加裁切技术，填充色由传入根类名在 CSS 侧区
+ *  分：我的评分 = 黑白灰收敛 15% 配方（随明暗主题翻转）、豆瓣评分 =
+ *  元信息文字同色（--color-text-placeholder），仅凭位置与语境区分；
+ *  与 mark-card-v2.tsx 的 StarRating 同源实现 */
+function StarRating({
+  className,
+  label,
+  value,
+}: {
+  className: string
+  label: string
+  value: number
+}) {
   return (
-    <span aria-label={label} className="mark-card-rating" title={label}>
-      <span aria-hidden="true" className="mark-card-rating__base">
+    <span aria-label={label} className={className} title={label}>
+      <span aria-hidden="true" className={`${className}__base`}>
         ★★★★★
       </span>
       <span
         aria-hidden="true"
-        className="mark-card-rating__fill"
+        className={`${className}__fill`}
         style={{ width: `${(value / 5) * 100}%` }}
       >
         ★★★★★
@@ -32,59 +43,48 @@ function RatingStars({ value }: { value: number }) {
   )
 }
 
-/** 取数组前 n 个非空项，顿号连接 */
+/** 取数组前 n 个非空项 */
 function names(list: string[] | undefined, n: number): string[] {
   return (list ?? []).filter((s) => s).slice(0, n)
 }
 
-function join(parts: string[]): string {
-  return parts.filter(Boolean).join(' · ')
+/** 标记动词：站点当前只展示 collect（MARKS_STATUS 恒为 'collect'），按
+ *  类别推导——看过/读过/听过。用户评分属「行为」，与日期动词同处顶栏 */
+const CATEGORY_VERBS: Record<string, string> = {
+  movie: '看过',
+  book: '读过',
+  music: '听过',
 }
 
-/** 条目元信息 → 首行"年份 · 国家/社 · 类型"（物理规格如片长/页数/介质
- *  不展示——对识别条目无用）+ 人名行数组（电影导演/主演各一行、图书
- *  作者/译者各一行、音乐歌手一行）。intro 兜底源字段稀疏，逐项过滤，
- *  全空返回 null（由调用方回退 intro 原文） */
-function subjectMetaLines(
-  subject: DoubanSubject,
-): { primary: string; people: string[] } | null {
-  let primary: string
-  let people: string[]
+/** 条目元信息 → 单行摘要：影视「国家地区 / 类型 / 导演 / 主演」、图书
+ *  「出版社 / 作者 / 译者」、音乐「类型 / 歌手」——不同元信息以「 / 」
+ *  分隔，同一元信息内多值以空格分隔，不带「导演」「主演」等角色标签；
+ *  物理规格如片长/页数不展示——卡片是列表条目不是详情页，超长由 CSS
+ *  省略。intro 兜底源字段稀疏，逐项过滤，全空返回 null（由调用方回退
+ *  intro 原文）。与 mark-card-v2.tsx 的 subjectMetaLine 同源 */
+function subjectMetaLine(subject: DoubanSubject): string | null {
+  let parts: string[]
   if (subject.category === 'movie') {
     const m = subject.movie
-    primary = join([
-      subject.year ? String(subject.year) : '',
+    parts = [
       names(m?.countries, 2).join(' '),
-      names(m?.genres, 3).join(' / '),
-    ])
-    const directors = names(m?.directors, 2)
-    const actors = names(m?.actors, 2)
-    people = [
-      directors.length ? `导演 ${directors.join('、')}` : '',
-      actors.length ? `主演 ${actors.join('、')}` : '',
-    ].filter(Boolean)
+      names(m?.genres, 3).join(' '),
+      names(m?.directors, 2).join(' '),
+      names(m?.actors, 2).join(' '),
+    ]
   } else if (subject.category === 'book') {
     const b = subject.book
-    primary = join([
-      b?.pubdate?.[0] || (subject.year ? String(subject.year) : ''),
-      names(b?.press, 1)[0] ?? '',
-    ])
-    const authors = names(b?.authors, 3)
-    const translators = names(b?.translators, 2)
-    people = [
-      authors.length ? `作者 ${authors.join('、')}` : '',
-      translators.length ? `译者 ${translators.join('、')}` : '',
-    ].filter(Boolean)
+    parts = [
+      names(b?.press, 1).join(' '),
+      names(b?.authors, 3).join(' '),
+      names(b?.translators, 2).join(' '),
+    ]
   } else {
     const m = subject.music
-    primary = join([
-      m?.pubdate?.[0] || (subject.year ? String(subject.year) : ''),
-      names(m?.genres, 2).join(' / '),
-    ])
-    const singers = names(m?.singers, 3)
-    people = singers.length ? [`歌手 ${singers.join('、')}`] : []
+    parts = [names(m?.genres, 2).join(' '), names(m?.singers, 3).join(' ')]
   }
-  return primary || people.length > 0 ? { primary, people } : null
+  const line = parts.filter(Boolean).join(' / ')
+  return line || null
 }
 
 /** 标题 + 短评 → WDF 文档：标题固定 h1（weimo 卡片体系的标题级——
@@ -107,31 +107,45 @@ function markDocument(mark: DoubanMark): WdfDocument {
   return { schema: 'weimo.document', version: 1, root: { type: 'doc', content } }
 }
 
-/** 书影音标记卡片，三段式一级结构：顶部栏（标记日期 + 右侧元信息折叠
-    开关）/ 条目信息区（封面左——正下方居中我的评分星级，文字列右——
-    首行可选标题行「标题 · 可选标题 · 豆瓣评分」，其后年份国家类型与
-    导演/主演各角色一行；可折叠，默认收起）/ 评论正文区（WdfRender 渲染
-    标题 h1 + 短评段落），含 <li> 列表条目语义；材质（背景/边框/圆角/
-    阴影）复用 weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现
-    同源 BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
+/** 书影音标记卡片，三段式一级结构：顶部标记行（日期 · 看过/读过/听
+    过 · 我的评分星级 + 右侧元信息折叠开关）/ 可折叠条目信息区（封面
+    左，文字列右——首行「标题 (年份) 别名」，第二行豆瓣评分「五星 +
+    数字」（rating/2 换算星宽，无标签、aria-label 保留来源），第三行
+    单行元信息摘要（「 / 」分隔元信息、空格分隔同域多值、无角色标
+    签），无结构化数据回退 intro 原文；默认收起）/ 评论正文区
+    （WdfRender 渲染标题 h1 + 短评段落），含 <li> 列表条目语义；材质
+    （背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，与
+    BaseCard 同源；折叠实现同源 BaseCard metaCollapsible；纯展示除折
+    叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   const [metaExpanded, setMetaExpanded] = useState(false)
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
   const cover = mark.subject?.cover || mark.cover
-  const meta = mark.subject ? subjectMetaLines(mark.subject) : null
+  const metaLine = mark.subject ? subjectMetaLine(mark.subject) : null
+  const year = mark.subject?.year
   const doubanRating = mark.subject?.rating.value
-  // 可选标题行的可选段（可选标题/豆瓣评分）；全缺时整行不渲染——标题
-  // 已由正文区 h1 承载，孤行纯重复
-  const optionalTitleSegments = [
-    mark.alt_title,
-    doubanRating != null ? `${doubanRating.toFixed(1)}分` : '',
-  ].filter(Boolean)
-  const titleRowSegments = [mark.title, ...optionalTitleSegments]
+  // 标题行的可选段（年份/别名）全缺时整行不渲染——标题已由正文区 h1
+  // 承载，孤行纯重复
+  const hasOptionalTitleSegment = year != null || Boolean(mark.alt_title)
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
       <div className="mark-card__header">
-        <span>{mark.date}</span>
+        {/* 日期·动词·星级必须同在一个 span 内：顶栏是 grid，散写的
+            文本节点/元素会成为独立 grid 项被自动布局错位 */}
+        <span>
+          {mark.date} · {CATEGORY_VERBS[mark.category] ?? '标记'}
+          {mark.my_rating ? (
+            <>
+              {' · '}
+              <StarRating
+                className="mark-card-rating"
+                label={`我的评分：${mark.my_rating} 星`}
+                value={mark.my_rating}
+              />
+            </>
+          ) : null}
+        </span>
         <GhostIconButton
           aria-expanded={metaExpanded}
           aria-label={metaExpanded ? '收起元信息' : '展开元信息'}
@@ -146,43 +160,37 @@ export function MarkCard({ mark }: MarkCardProps) {
       </div>
       <div className="mark-card__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
         <div className="mark-card__subject">
-          <div className="mark-card__cover-region">
-            {cover ? (
-              <img
-                alt=""
-                className="mark-card__cover"
-                loading="lazy"
-                src={cover}
-              />
-            ) : (
-              <div className="mark-card__cover mark-card__cover--empty" />
-            )}
-            {mark.my_rating ? <RatingStars value={mark.my_rating} /> : null}
-          </div>
+          {cover ? (
+            <img
+              alt=""
+              className="mark-card__cover"
+              loading="lazy"
+              src={cover}
+            />
+          ) : (
+            <div className="mark-card__cover mark-card__cover--empty" />
+          )}
           <div className="mark-card__info">
-            {optionalTitleSegments.length > 0 ? (
-              // 各段 <bdi> 隔离：阿拉伯文等 RTL 可选标题若混入同一文本
-              // 节点，bidi 重排会把其后的「8.9分」拆散到行两端
+            {hasOptionalTitleSegment ? (
               <div className="mark-card__title-row">
-                {titleRowSegments.map((segment, index) => (
-                  <Fragment key={`${index}:${segment}`}>
-                    {index > 0 ? ' · ' : null}
-                    <bdi>{segment}</bdi>
-                  </Fragment>
-                ))}
+                <bdi>{mark.title}</bdi>
+                {year != null ? <span>({year})</span> : null}
+                {/* bdi 隔离：阿文等 RTL 别名在行内自持方向、不扰动前后段 */}
+                {mark.alt_title ? <bdi>{mark.alt_title}</bdi> : null}
               </div>
             ) : null}
-            {meta ? (
-              <>
-                {meta.primary ? (
-                  <div className="mark-card__meta">{meta.primary}</div>
-                ) : null}
-                {meta.people.map((line) => (
-                  <div className="mark-card__meta" key={line}>
-                    {line}
-                  </div>
-                ))}
-              </>
+            {doubanRating != null ? (
+              <div className="mark-card__douban-rating">
+                <StarRating
+                  className="mark-card-douban-stars"
+                  label={`豆瓣评分：${doubanRating.toFixed(1)} 分`}
+                  value={doubanRating / 2}
+                />
+                {doubanRating.toFixed(1)}
+              </div>
+            ) : null}
+            {metaLine ? (
+              <div className="mark-card__meta">{metaLine}</div>
             ) : mark.intro ? (
               <div className="mark-card__intro">{mark.intro}</div>
             ) : null}
