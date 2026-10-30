@@ -8,6 +8,7 @@ import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 import type { DoubanDims } from './api'
 import { aggregateDims } from './facet-engine'
 import {
+  GROUP_DIMENSION,
   KIND_DIMENSION,
   PRIMARY_DIMENSION,
   escapeFacetValue,
@@ -50,38 +51,76 @@ type TreeIndex = {
   byTag: Map<string, TagAction>
 }
 
-/** 主维度（类型）值叶构建（条件聚合按 filters 前缀，叶路径=
- *  filters+叶步）：影视分支复用——挂国家/地区值叶下（三层），形态
- *  全无国家数据的兜底路径直挂形态节点下（两层） */
+/** 主维度值叶构建（条件聚合按 filters 前缀，叶路径= filters+叶步）：
+ *  挂分组值叶下（三层，topKUnder 封顶语境），分组维度无值的兜底
+ *  路径与音乐直挂形态节点/类别根下（两层，singleton 合并语境） */
 function buildPrimaryLeaves(
+  category: MarksCategory,
   items: DoubanDims['items'],
   filters: readonly FacetStep[],
   parentTag: string,
   byTag: Map<string, TagAction>,
 ): TagTreeNode[] {
-  const { key: leafDim } = PRIMARY_DIMENSION.movie
-  const scoped = aggregateDims('movie', items, filters)
+  const { key: leafDim } = PRIMARY_DIMENSION[category]
+  const scoped = aggregateDims(category, items, filters)
   return (scoped[leafDim] ?? []).map(({ value, count }) => {
     const tag = `${parentTag}/${leafDim}/${escapeFacetValue(value)}`
     byTag.set(tag, {
-      category: 'movie',
+      category,
       path: [...filters, { dim: leafDim, value }],
     })
     return {
       tag,
-      label: facetValueLabel('movie', leafDim, value),
+      label: facetValueLabel(category, leafDim, value),
       itemCount: count,
     }
   })
 }
 
+/** 分组值叶 + 其下主维度值叶（三层钻取的下两层，分组维度见
+ *  GROUP_DIMENSION）：分组值叶挂 parent 下（条件聚合，country 值叶
+ *  自身 topK 封顶、decade 不封顶），每片叶再挂主维度值叶；无分组
+ *  维度（音乐）或分组维度全无值时兜底回主维度直挂（两层） */
+function buildGroupedChildren(
+  category: MarksCategory,
+  items: DoubanDims['items'],
+  parentFilter: readonly FacetStep[],
+  parentTag: string,
+  byTag: Map<string, TagAction>,
+): TagTreeNode[] {
+  const group = GROUP_DIMENSION[category]
+  if (!group) {
+    return buildPrimaryLeaves(category, items, parentFilter, parentTag, byTag)
+  }
+  const groups = aggregateDims(category, items, parentFilter)[group.key] ?? []
+  let children = groups.map(({ value, count }) => {
+    const tag = `${parentTag}/${group.key}/${escapeFacetValue(value)}`
+    const path: FacetStep[] = [...parentFilter, { dim: group.key, value }]
+    byTag.set(tag, { category, path })
+    return {
+      tag,
+      label: facetValueLabel(category, group.key, value),
+      itemCount: count,
+      children: buildPrimaryLeaves(category, items, path, tag, byTag),
+    }
+  })
+  if (children.length === 0) {
+    children = buildPrimaryLeaves(
+      category,
+      items,
+      parentFilter,
+      parentTag,
+      byTag,
+    )
+  }
+  return children
+}
+
 /** 影视形态一级节点：各形态（is_tv 派生：电影/电视剧/未分类，计数取
  *  全局聚合）直接作一级节点——无「影视」类别根（原挂其下，提升后少
- *  一层钻取），图标对齐类别根观感。各形态统为三层：国家/地区值叶
- *  直接作二级（无分组行——计数前五 + 其他地区，topK 折叠规则见
- *  facet-engine/DIMENSIONS），类型值叶挂其下；形态全无国家数据
- *  （维度缺失/未富集）兜底回类型直挂两层。形态行点击=单步筛选，
- *  值叶点击=形态+维度多条件 */
+ *  一层钻取），图标对齐类别根观感；其下走 buildGroupedChildren 的
+ *  国家/地区值叶→类型值叶三层（分组维度全无值兜底回两层）。形态行
+ *  点击=单步筛选，值叶点击=形态+维度多条件 */
 function buildMovieNodes(
   items: DoubanDims['items'],
   byTag: Map<string, TagAction>,
@@ -92,58 +131,27 @@ function buildMovieNodes(
   return (rootCounts[kindKey] ?? []).map(({ value, count }) => {
     const kindTag = `movie/${kindKey}/${escapeFacetValue(value)}`
     byTag.set(kindTag, { category: 'movie', path: [{ dim: kindKey, value }] })
-    const kindFilter: FacetStep[] = [{ dim: kindKey, value }]
-    const countries = aggregateDims('movie', items, kindFilter).country ?? []
-    let children = countries.map(({ value: cValue, count: cCount }) => {
-      const tag = `${kindTag}/country/${escapeFacetValue(cValue)}`
-      const path: FacetStep[] = [
-        ...kindFilter,
-        { dim: 'country', value: cValue },
-      ]
-      byTag.set(tag, { category: 'movie', path })
-      return {
-        tag,
-        label: facetValueLabel('movie', 'country', cValue),
-        itemCount: cCount,
-        children: buildPrimaryLeaves(items, path, tag, byTag),
-      }
-    })
-    // 兜底：该形态全无国家数据（维度缺失/未富集）回类型直挂两层
-    if (children.length === 0) {
-      children = buildPrimaryLeaves(items, kindFilter, kindTag, byTag)
-    }
     return {
       tag: kindTag,
       label: value,
       itemCount: count,
       icon: KIND_ICONS[value] ?? CATEGORY_ICONS.movie,
-      children,
-    }
-  })
-}
-
-/** 图书/音乐分支（两层）：类别根 → 主维度值叶（全局聚合） */
-function buildSimpleChildren(
-  category: MarksCategory,
-  items: DoubanDims['items'],
-  byTag: Map<string, TagAction>,
-): TagTreeNode[] {
-  const { key } = PRIMARY_DIMENSION[category]
-  const counts = aggregateDims(category, items)
-  return (counts[key] ?? []).map(({ value, count }) => {
-    const tag = `${category}/${key}/${escapeFacetValue(value)}`
-    byTag.set(tag, { category, path: [{ dim: key, value }] })
-    return {
-      tag,
-      label: facetValueLabel(category, key, value),
-      itemCount: count,
+      children: buildGroupedChildren(
+        'movie',
+        items,
+        [{ dim: kindKey, value }],
+        kindTag,
+        byTag,
+      ),
     }
   })
 }
 
 /** 三类别常驻树：影视无类别根——各形态节点（电影/电视剧/…，见
  *  buildMovieNodes）直接一级、与图书/音乐的类别根并列；图书/音乐为
- *  「类别根（点行=跳该类别清筛选）→ 主维度值叶」两层。叶/形态行计数
+ *  「类别根（点行=跳该类别清筛选）→ 分组值叶 → 主维度值叶」三层
+ *  （图书 年代→出版社、音乐 流派→年代，见 buildGroupedChildren）。
+ *  叶/形态行计数
  *  走 itemCount（tagtree 0.3.0 起渲染在行尾折叠开关左侧，与开关同占位
  *  色），图书/音乐根行亦带 itemCount=类别条目总数；计数已按降序返回
  *  直接保序；某类别缺失（未同步/拉取失败）
@@ -157,11 +165,19 @@ function buildTree(
   const nodes = MARKS_CATEGORIES.flatMap((category) => {
     const dims = dimsByCategory[category]
     if (!dims) return []
-    // 影视：形态节点多个直接作一级；图书/音乐：单类别根包主维度叶
+    // 影视：形态节点多个直接作一级；图书/音乐：单类别根，其下走
+    // buildGroupedChildren 三层（分组值叶→主维度值叶，分组全无值
+    // 兜底回主维度直挂两层）
     if (category === 'movie' && KIND_DIMENSION) {
       return buildMovieNodes(dims.items, byTag)
     }
-    const children = buildSimpleChildren(category, dims.items, byTag)
+    const children = buildGroupedChildren(
+      category,
+      dims.items,
+      [],
+      category,
+      byTag,
+    )
     if (children.length === 0) return []
     return [
       {

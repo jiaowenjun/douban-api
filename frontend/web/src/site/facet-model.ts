@@ -2,10 +2,10 @@ import type { MarksCategory, NavTarget } from './navigation'
 
 /** 分面维度的展示顺序与文案（键集合由后端保证，顺序与命名归前端）。
  *  作 URL ?facet= 白名单校验与 meta 行文案；树上按维度另配展示规则：
- *  影视各形态走 is_tv→country 值叶→主维度 三层（见
- *  PRIMARY_DIMENSION），country 值叶封顶（条目 topK=5）、country 下
- *  的 genre 三级封顶为条件规则——均见 facet-engine topKUnder；
- *  图书/音乐为主维度单层值叶 */
+ *  影视各形态走 is_tv→country 值叶→主维度、图书/音乐走分组值叶→
+ *  主维度 三层（见 GROUP_DIMENSION/PRIMARY_DIMENSION），country 值叶
+ *  封顶（条目 topK=5），分组之下的主维度封顶为条件规则——均见
+ *  facet-engine topKUnder */
 export const DIMENSIONS: Record<
   MarksCategory,
   readonly { key: string; label: string; topK?: number; otherLabel?: string }[]
@@ -33,16 +33,31 @@ export const DIMENSIONS: Record<
   ],
 }
 
-/** 每类别的树展示主维度：影视=类型（挂在 is_tv 形态层下，见树构建）、
- *  图书=出版社（图书无类型/分类数据——rexxar tags 仅 2/55 有值、丛书
- *  聚合 ≤2，出版社是 book 元数据里头部聚合力最强的内容谱系维度）、
- *  音乐=流派 */
+/** 每类别的树展示主维度（底层值叶，挂分组值叶之下见
+ *  GROUP_DIMENSION）：影视=类型、图书=出版社（图书无类型/分类数据
+ *  ——rexxar tags 仅 2/55 有值、丛书聚合 ≤2，出版社是 book 元数据里
+ *  头部聚合力最强的内容谱系维度）、音乐=年代 */
 export const PRIMARY_DIMENSION: Record<
   MarksCategory,
   { key: string; label: string }
 > = {
   book: { key: 'press', label: '出版社' },
   movie: { key: 'genre', label: '类型' },
+  music: { key: 'decade', label: '年代' },
+}
+
+/** 主维度之上的分组维度（树为 根/形态 → 分组值叶 → 主维度值叶 三层，
+ *  值叶均按计数降序）：影视=country（挂各形态一级节点下）、图书=
+ *  decade、音乐=genre（挂类别根下；decade 由 year 每 10 年派生）。
+ *  分组值叶自身封顶走 DIMENSIONS 条目 topK（country=5，decade/genre
+ *  不封顶），分组之下的主维度值叶封顶是条件规则——facet-engine
+ *  topKUnder 按本表判定 */
+export const GROUP_DIMENSION: Record<
+  MarksCategory,
+  { key: string; label: string } | null
+> = {
+  book: { key: 'decade', label: '年代' },
+  movie: { key: 'country', label: '国家/地区' },
   music: { key: 'genre', label: '流派' },
 }
 

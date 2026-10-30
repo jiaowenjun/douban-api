@@ -6,7 +6,9 @@
 import type { DoubanDimsItem } from './api'
 import {
   DIMENSIONS,
+  GROUP_DIMENSION,
   OTHER_FACET_VALUE,
+  PRIMARY_DIMENSION,
   type FacetStep,
 } from './facet-model'
 import type { MarksCategory } from './navigation'
@@ -64,26 +66,27 @@ function topKOf(category: MarksCategory, dim: string): number | undefined {
   return DIMENSIONS[category].find((d) => d.key === dim)?.topK
 }
 
-/** movie/genre 在 country 步之下（各形态国家值叶的三级类型层）的
- *  封顶值：五个最多的类型 + 其他类型 */
-const GENRE_TOP_K_UNDER_COUNTRY = 5
+/** 主维度挂分组值叶下（树三层钻取，见 GROUP_DIMENSION）的封顶值：
+ *  五个最多的值 + 其他 */
+const PRIMARY_TOP_K = 5
 
-/** 维度在给定步骤序列下的树上展示值上限：country 恒为 DIMENSIONS
- *  配置的 topK（国家值叶前五）；movie/genre 仅当序列含 country 步时
- *  封顶（GENRE_TOP_K_UNDER_COUNTRY），其余场合（无国家数据形态的
- *  兜底两层类型叶）不封顶、走 singleton 合并——展示聚合（传
+/** 维度在给定步骤序列下的树上展示值上限：主维度仅当序列含本类别
+ *  分组维度步时封顶（PRIMARY_TOP_K），其余场合（分组维度无值的
+ *  兜底两层、音乐主维度直挂）不封顶、走 singleton 合并；分组维度
+ *  自身（country）恒为 DIMENSIONS 配置的 topK——展示聚合（传
  *  filters）与 __other__ 匹配（传该步前缀）两侧同源此判定，口径唯一 */
 function topKUnder(
   category: MarksCategory,
   dim: string,
   steps: readonly Pick<FacetStep, 'dim'>[],
 ): number | undefined {
+  const group = GROUP_DIMENSION[category]
   if (
-    category === 'movie' &&
-    dim === 'genre' &&
-    steps.some((s) => s.dim === 'country')
+    group &&
+    dim === PRIMARY_DIMENSION[category].key &&
+    steps.some((s) => s.dim === group.key)
   ) {
-    return GENRE_TOP_K_UNDER_COUNTRY
+    return PRIMARY_TOP_K
   }
   return topKOf(category, dim)
 }
@@ -186,13 +189,13 @@ export function itemMatches(
 export type DimCounts = { value: string; count: number }[]
 
 /** 聚合：各维度值计数（计数 = 含该值的条目数），排序计数降序、同计数
- *  按值升序。展示封顶（topKUnder 按 filters 判定）优先：值数超上限时
- *  仅留计数前 topK（country 国家值叶；genre 在 country 条件聚合下），
- *  其余收 __other__（计数 = 含展示集外值的条目数，多值条目只计一次
- *  ——封顶已含 singleton 长尾，取代 singleton 合并）；未封顶的开启
- *  维度 singleton 值 ≥2 个时收进 __other__ 钉末尾（仅 1 个保留原值）。
- *  filters 提供时先按命中集过滤再聚合（条件聚合，如影视形态层分支内
- *  的类型分布） */
+ *  按值升序。封顶语境（topKUnder 按 filters 判定，分组值叶自身与
+ *  分组之下的主维度）优先且独占：值数超上限时仅留计数前 topK，其余
+ *  收 __other__（计数 = 含展示集外值的条目数，多值条目只计一次）；
+ *  未超上限原样全展——singleton 合并不参与（封顶已保证行数上限，
+ *  小桶折叠反而丢信息）。非封顶语境的开启维度 singleton 值 ≥2 个时
+ *  收进 __other__ 钉末尾（仅 1 个保留原值）。filters 提供时先按命中集
+ *  过滤再聚合（条件聚合，如影视形态层分支内的类型分布） */
 export function aggregateDims(
   category: MarksCategory,
   items: readonly DoubanDimsItem[],
@@ -208,15 +211,19 @@ export function aggregateDims(
     )
     list.sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : 1))
     const topK = topKUnder(category, dim, filters)
-    if (topK !== undefined && list.length > topK) {
-      const displayed = new Set(list.slice(0, topK).map((x) => x.value))
-      const restCount = scoped.filter((it) =>
-        itemValues(category, dim, it).some((v) => !displayed.has(v)),
-      ).length
-      out[dim] = [
-        ...list.slice(0, topK),
-        { value: OTHER_FACET_VALUE, count: restCount },
-      ]
+    if (topK !== undefined) {
+      if (list.length > topK) {
+        const displayed = new Set(list.slice(0, topK).map((x) => x.value))
+        const restCount = scoped.filter((it) =>
+          itemValues(category, dim, it).some((v) => !displayed.has(v)),
+        ).length
+        out[dim] = [
+          ...list.slice(0, topK),
+          { value: OTHER_FACET_VALUE, count: restCount },
+        ]
+      } else {
+        out[dim] = list
+      }
       continue
     }
     if (mergeEnabled(category, dim)) {
