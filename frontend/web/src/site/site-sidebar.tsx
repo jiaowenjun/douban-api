@@ -162,7 +162,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   // 该根不出现
   const facetSection = !uid ? null : (
     <section aria-label="分面筛选" className="site-sidebar__facet">
-      <div className="site-sidebar__section-hint">筛选</div>
+      <div className="site-sidebar__section-hint">分类筛选</div>
       <FacetTree
         activeCategory={category}
         dimsByCategory={dimsData}
