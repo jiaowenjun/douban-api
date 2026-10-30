@@ -1,0 +1,304 @@
+/* MarkCardv4 = MarkCard（v1）四段式结构的样式副本（前缀 mark-card-v4__）
+   + View Transitions 附加规则：布局规则与 mark-card.css 逐项同源，差异
+   仅在文末 VT 段（标题行 view-transition-name 挂当前态副本、VT 运行期
+   禁用底层折叠过渡、动画时长对齐 200ms）；副本独立维护，原型验证结束
+   后随胜出方案归并 */
+
+/* 侧边栏 DEBUG 开关（html.sidebar-debug）开启时描边卡片内部子容器，便于调布局。
+   描边样式对齐侧边栏（1px solid --color-border + 2px 临时内边距）；圆角用
+   更小的 --radius-sm（卡片子容器是小盒，侧边栏分组的 --radius 16px 偏大）。
+   整卡根容器不描边（card-surface 自带边框，外框再描一条是噪音）也不补
+   padding——它有真实 padding（10px 12px），覆盖成 2px 会扰动被调试的布局 */
+.sidebar-debug .mark-card-v4__header,
+.sidebar-debug .mark-card-v4__title-solo,
+.sidebar-debug .mark-card-v4__meta-region,
+.sidebar-debug .mark-card-v4__subject,
+.sidebar-debug .mark-card-v4__cover,
+.sidebar-debug .mark-card-v4__info,
+.sidebar-debug .mark-card-v4__title-row,
+.sidebar-debug .mark-card-v4__douban-rating,
+.sidebar-debug .mark-card-v4__meta,
+.sidebar-debug .mark-card-v4__intro,
+.sidebar-debug .mark-card-v4__comment,
+.sidebar-debug .mark-card-v4-rating,
+.sidebar-debug .mark-card-v4-douban-stars {
+  outline: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-debug .mark-card-v4__header,
+.sidebar-debug .mark-card-v4__title-solo,
+.sidebar-debug .mark-card-v4__meta-region,
+.sidebar-debug .mark-card-v4__subject,
+.sidebar-debug .mark-card-v4__cover,
+.sidebar-debug .mark-card-v4__info,
+.sidebar-debug .mark-card-v4__title-row,
+.sidebar-debug .mark-card-v4__douban-rating,
+.sidebar-debug .mark-card-v4__meta,
+.sidebar-debug .mark-card-v4__intro,
+.sidebar-debug .mark-card-v4__comment,
+.sidebar-debug .mark-card-v4-rating,
+.sidebar-debug .mark-card-v4-douban-stars {
+  padding: 2px;
+}
+
+/* 三个一级区域纵向排布：区域间 1em（随卡片字号缩放） */
+
+.mark-card-v4 {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  padding: 10px 12px;
+}
+
+/* 顶部标记行：日期 · 看过/读过/听过 · 我的评分星级（同在左槽 span 内，
+   星级 inline-block 与文本同行基线对齐——顶栏是 grid，散写的节点会成
+   为独立 grid 项被自动布局错位）；右槽钉元信息折叠开关。两槽
+   minmax(0,1fr) auto——左槽占满按钮外的全部宽度（旧三槽 1fr auto 1fr
+   左槽仅半宽，标记信息加长后窄卡即换行）。高度对齐 BaseCard 紧凑行模
+   型：定高一行文本行盒（sm 13px × 1.2），28px 的 sm 折叠按钮溢出居中
+   绘制（上下各 6.2px 落在卡片 padding 内）。grid 与 flex 的溢出对齐机
+   制不同：align-items 只管条目在行内对齐（行被按钮撑到 28px），行本身
+   对齐容器中线须由 align-content: center 承担——缺它则行钉容器顶、按
+   钮整体下坠，日期随之偏下 */
+.mark-card-v4__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  align-content: center;
+  column-gap: 8px;
+  height: calc(var(--font-size-sm) * 1.2);
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 元信息折叠开关（对齐 BaseCard meta-toggle）：钉第 2 槽，图标随展开旋转 */
+.mark-card-v4__meta-toggle {
+  grid-column: 2;
+  justify-self: end;
+  color: var(--color-text-placeholder);
+  border-radius: var(--radius-round);
+}
+
+.mark-card-v4__meta-toggle svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  transition: transform 180ms ease;
+}
+
+.mark-card-v4__meta-toggle[data-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+/* 条目信息区折叠（对齐 BaseCard meta-region，内容 = 封面 + 豆瓣评分 +
+   元信息行；标题行已上移常驻）：grid-rows 0fr/1fr 过渡，收起时负
+   margin 吞掉根 1em 区域间距 */
+.mark-card-v4__meta-region {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 200ms ease,
+    margin-top 200ms ease,
+    visibility 200ms;
+}
+
+.mark-card-v4__meta-region[data-expanded='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin-top: calc(-1 * 1em);
+}
+
+/* 条目信息区（折叠内层，展开态布局与 v2 身份区一致）：封面（左）与
+   文字元信息（右，弹性列——标题行 --inline 副本 + 豆瓣评分 + 元信息
+   行）单行并列、顶对齐；min-height/overflow 是 0fr 收起时裁切几何的
+   前提（我的评分星级已上移顶栏标记行，封面列不再需要包裹层） */
+.mark-card-v4__subject {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  align-items: start;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mark-card-v4__cover {
+  width: 64px;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-xs, 4px);
+  object-fit: cover;
+  background: var(--color-bg-raised);
+}
+
+.mark-card-v4__cover--empty {
+  border: 1px dashed var(--color-border);
+}
+
+.mark-card-v4__info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  align-content: start;
+}
+
+/* 评论正文区（WdfRender 渲染短评段落，无标题——标题由元信息区标题行
+   唯一承载；无短评整区不渲染）：正文段落 scoped 覆写回站点 token，保
+   持卡片原有的次级灰与基准字号 */
+.mark-card-v4__comment {
+  --md-paragraph-color: var(--color-text-secondary);
+  --md-font-size: var(--font-size-base);
+}
+
+/* 标题行「标题 (年份) 别名」：主标题层级向 v2 对齐（见 __title），年
+   份/别名继承本行弱灰 sm、baseline 与 16px 主标题共行协调；bdi 隔离
+   RTL 别名，超长自然换行不省略。两处渲染（tsx renderTitleRow）：solo
+   副本收起态独占一行（标记行下、常驻可见），inline 副本居封面右侧信
+   息列首行（与 v2 身份区布局一致，收起时随折叠区裁切隐藏），根
+   data-expanded 切换 */
+.mark-card-v4__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 200ms 同步）
+   ——展开时高度收 0 并以负 margin 吞掉自己的根 1em 行间距、不占位
+   （visibility 方案会保留行盒占位、展开后留空行）；opacity/visibility
+   与折叠区动画交叉淡换，两方向均无跳变 */
+.mark-card-v4__title-solo {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 200ms ease,
+    margin-bottom 200ms ease,
+    visibility 200ms;
+}
+
+.mark-card-v4[data-expanded='true'] .mark-card-v4__title-solo {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin-bottom: calc(-1 * 1em);
+}
+
+/* 0fr 收起时裁切几何的前提（同折叠区内层） */
+.mark-card-v4__title-solo .mark-card-v4__title-row {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 主标题：字级字色向 MarkCardv2 的标题对齐（16px / 650 / primary） */
+.mark-card-v4__title {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+/* 豆瓣评分行（元信息区第二行）：五星 + 数字，无「豆瓣」标签、与元信
+   息同级弱灰 sm（rating/2 换算星宽，aria-label 保留评分来源） */
+.mark-card-v4__douban-rating {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 豆瓣评分五星：填充星与元信息文字同色（--color-text-placeholder）、
+   底星为未选中轨道 --color-border（更弱一档，保留填充/未填充区分），
+   整体比我的评分的收敛 15% 配方更沉 */
+.mark-card-v4-douban-stars {
+  position: relative;
+  display: inline-block;
+  margin-right: 4px;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.mark-card-v4-douban-stars__base {
+  color: var(--color-border);
+}
+
+.mark-card-v4-douban-stars__fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--color-text-placeholder);
+}
+
+.mark-card-v4__intro {
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+/* 条目元信息（元信息区第三行）：单行摘要「国家地区 / 类型 / 导演 /
+   主演」（图书出版社/作者/译者，音乐类型/歌手）——「 / 」分隔不同元
+   信息、空格分隔同域多值、无角色标签，年份已上移标题行、物理规格不
+   展示；单行省略——卡片是列表条目不是详情页 */
+.mark-card-v4__meta {
+  overflow: hidden;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 我的评分星级（顶栏标记行内）：底色五星 + 按比例裁切的单色覆盖层
+   （黑白灰，随明暗主题翻转）。配色对齐 weimo-ui-core 开关/滑块：未填
+   充星 = 未选中轨道 --color-border，填充星 = 选中轨道/指示条同一收敛
+   档 color-mix(bg-primary, bg-card 15%)——亮主题深灰近黑、暗主题浅灰
+   近白，不引入裸色值；用户评分属「行为」标注，比豆瓣五星（元信息文
+   字同色，见上方 mark-card-v4-douban-stars）亮一档 */
+.mark-card-v4-rating {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.mark-card-v4-rating__base {
+  color: var(--color-border);
+}
+
+.mark-card-v4-rating__fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-bg-primary), var(--color-bg-card) 15%);
+}
+
+/* ------------------------------------------------------------------ */
+/* View Transitions：标题行共享元素过渡（与 v3 的 FLIP 路线对照）        */
+/* ------------------------------------------------------------------ */
+
+/* name 只挂「当前态副本」：两副本同帧同名会让整个 transition 被 skip；
+   每卡唯一 name 由组件内联 --vt-title 提供（comment_id 清洗） */
+.mark-card-v4[data-expanded='false'] .mark-card-v4__title-solo .mark-card-v4__title-row,
+.mark-card-v4[data-expanded='true'] .mark-card-v4__info > .mark-card-v4__title-row {
+  view-transition-name: var(--vt-title);
+}
+
+/* VT 运行期（html 挂标记类，组件 toggle 里增删）禁用折叠区/solo 的底
+   层 CSS 过渡：新快照捕获的是瞬时终态，底层动画只会在快照层下播完然
+   后跳变，须由快照动画全权接管 */
+:root.mark-card-v4-vt .mark-card-v4__meta-region,
+:root.mark-card-v4-vt .mark-card-v4__title-solo {
+  transition: none;
+}
+
+/* VT 默认 250ms，对齐现有折叠动画的 200ms 节奏（通配所有过渡组） */
+:root.mark-card-v4-vt::view-transition-group(*) {
+  animation-duration: 200ms;
+}

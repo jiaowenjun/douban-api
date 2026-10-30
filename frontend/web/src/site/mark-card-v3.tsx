@@ -1,0 +1,330 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+
+import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
+import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
+import { WdfRender, type WdfDocument } from 'weimo-ui-editor/components/wdf-render'
+
+import type { DoubanMark, DoubanSubject } from './api'
+import './mark-card-v3.css'
+
+type MarkCardv3Props = {
+  mark: DoubanMark
+}
+
+/** 五星评分：底色五星 + 按比例裁切的覆盖层（两段 ★★★★★ 叠加），
+ *  value 为 0–5 的小数也精确支持（豆瓣 8.5 分 /2 = 4.25 星 → 85% 宽
+ *  覆盖）。与 mark-card.tsx 的 StarRating 同源实现，配色由根类名在
+ *  CSS 侧区分（我的评分收敛 15% / 豆瓣评分元信息同色） */
+function StarRating({
+  className,
+  label,
+  value,
+}: {
+  className: string
+  label: string
+  value: number
+}) {
+  return (
+    <span aria-label={label} className={className} title={label}>
+      <span aria-hidden="true" className={`${className}__base`}>
+        ★★★★★
+      </span>
+      <span
+        aria-hidden="true"
+        className={`${className}__fill`}
+        style={{ width: `${(value / 5) * 100}%` }}
+      >
+        ★★★★★
+      </span>
+    </span>
+  )
+}
+
+/** 取数组前 n 个非空项 */
+function names(list: string[] | undefined, n: number): string[] {
+  return (list ?? []).filter((s) => s).slice(0, n)
+}
+
+/** 标记动词：看过/读过/听过（站点 status 恒 collect，按类别推导） */
+const CATEGORY_VERBS: Record<string, string> = {
+  movie: '看过',
+  book: '读过',
+  music: '听过',
+}
+
+/** 条目元信息 → 单行摘要（与 mark-card.tsx 的 subjectMetaLine 同源） */
+function subjectMetaLine(subject: DoubanSubject): string | null {
+  let parts: string[]
+  if (subject.category === 'movie') {
+    const m = subject.movie
+    parts = [
+      names(m?.countries, 2).join(' '),
+      names(m?.genres, 3).join(' '),
+      names(m?.directors, 2).join(' '),
+      names(m?.actors, 2).join(' '),
+    ]
+  } else if (subject.category === 'book') {
+    const b = subject.book
+    parts = [
+      names(b?.press, 1).join(' '),
+      names(b?.authors, 3).join(' '),
+      names(b?.translators, 2).join(' '),
+    ]
+  } else {
+    const m = subject.music
+    parts = [names(m?.genres, 2).join(' '), names(m?.singers, 3).join(' ')]
+  }
+  const line = parts.filter(Boolean).join(' / ')
+  return line || null
+}
+
+/** 短评 → WDF 文档：仅正文段落（无标题），无短评返回 null */
+function commentDocument(mark: DoubanMark): WdfDocument | null {
+  if (!mark.comment) return null
+  return {
+    schema: 'weimo.document',
+    version: 1,
+    root: {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: mark.comment }],
+        },
+      ],
+    },
+  }
+}
+
+/** 标题行飞行动画（FLIP）的在飞状态：克隆节点 + WAAPI 动画句柄 +
+ *  飞行期间被隐藏的两个真实副本（动画结束/取消时恢复） */
+type Flight = {
+  anim: Animation
+  clone: HTMLElement
+  fromEl: HTMLElement
+  toEl: HTMLElement
+}
+
+/** MarkCardv3：MarkCard（v1）四段式结构 + 标题行共享元素过渡原型。
+    与 v1 的唯一差异是折叠开关的动画层——两态标题副本（收起独占一行 /
+    展开居封面右侧）切换时，用「量旧位置 → 克隆 fixed 钉旧位 → 位移到
+    新位」的 FLIP 让标题看起来连续移动；克隆脱离折叠容器的裁切与透明
+    过渡（真实新副本在 0fr 展开区内会被裁/淡入，直接动画它不像连续移
+    动）。两副本行盒排版一致（同字号字重、纵向同位、横向差恒为封面宽
+    +列距），故平移即可、无需缩放；两态任一侧换行（行盒高超出单行
+    阈值，isSingleLineRow——子段 getClientRects 因 flex 项块化检测不到
+    换行，不可用）则
+    放弃 FLIP 回退现有 CSS 交叉淡换。prefers-reduced-motion / 无 WAAPI
+    同样直接回退；飞行中再点从克隆当前视觉位置续接。其余结构与样式与
+    v1 逐项同源（类名前缀 mark-card-v3__），见 mark-card.tsx 注释 */
+export function MarkCardv3({ mark }: MarkCardv3Props) {
+  const [metaExpanded, setMetaExpanded] = useState(false)
+  const cover = mark.subject?.cover || mark.cover
+  const metaLine = mark.subject ? subjectMetaLine(mark.subject) : null
+  const year = mark.subject?.year
+  const doubanRating = mark.subject?.rating.value
+  const commentDoc = commentDocument(mark)
+  const hasSubjectInfo =
+    Boolean(cover) || doubanRating != null || Boolean(metaLine) || Boolean(mark.intro)
+
+  const soloTitleRef = useRef<HTMLDivElement | null>(null)
+  const inlineTitleRef = useRef<HTMLDivElement | null>(null)
+  // FLIP first 的跨渲染传递：切换前可见副本几何 + 旧侧是否单行（切换
+  // 后旧副本已被 0fr 折叠，子段 rect 无法回量，须在点击时先记）
+  const flipFromRef = useRef<{ rect: DOMRect; singleLine: boolean } | null>(null)
+  const flightRef = useRef<Flight | null>(null)
+
+  const prefersReducedMotion = () =>
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+
+  // 单行判定：行盒高 ≤ 主标题行高 × 1.45。不能用子段 getClientRects——
+  // flex 项会被块化成块盒，内部换几行都只有一个 rect，检测不到换行
+  const isSingleLineRow = (row: HTMLElement) => {
+    const title = row.querySelector('.mark-card-v3__title')
+    const cs = getComputedStyle(title ?? row)
+    const lineHeight =
+      parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+    return row.getBoundingClientRect().height <= lineHeight * 1.45
+  }
+
+  const cleanupFlight = () => {
+    const flight = flightRef.current
+    if (!flight) return
+    flightRef.current = null
+    try {
+      flight.anim.cancel()
+    } catch {
+      /* 已结束的动画 cancel 无害 */
+    }
+    flight.clone.remove()
+    flight.fromEl.style.visibility = ''
+    flight.toEl.style.visibility = ''
+  }
+
+  useEffect(() => cleanupFlight, [])
+
+  const toggleMeta = () => {
+    // 飞行中再点：从克隆当前视觉位置（含进行中的 transform）续接
+    let rect: DOMRect | null = null
+    let singleLine = false
+    const flight = flightRef.current
+    if (flight) {
+      rect = flight.clone.getBoundingClientRect()
+      // 旧侧单行性沿用飞行开始时的判定（克隆即旧内容）
+      singleLine = true
+      cleanupFlight()
+    } else {
+      const active = metaExpanded ? inlineTitleRef.current : soloTitleRef.current
+      if (active) {
+        rect = active.getBoundingClientRect()
+        singleLine = isSingleLineRow(active)
+      }
+    }
+    flipFromRef.current = rect ? { rect, singleLine } : null
+    setMetaExpanded((current) => !current)
+  }
+
+  useLayoutEffect(() => {
+    const from = flipFromRef.current
+    flipFromRef.current = null
+    if (!from || !from.singleLine) return
+    const toEl = metaExpanded ? inlineTitleRef.current : soloTitleRef.current
+    const fromEl = metaExpanded ? soloTitleRef.current : inlineTitleRef.current
+    if (!toEl || !fromEl) return
+    if (prefersReducedMotion() || typeof toEl.animate !== 'function') return
+    const to = toEl.getBoundingClientRect()
+    // 新侧单行判定 + 与旧侧行盒高一致（±2px）——两侧均单行即保证排版
+    // 逐字一致（同内容同字体、单行无换行差异），纯平移严格成立
+    const toSingleLine =
+      isSingleLineRow(toEl) && Math.abs(to.height - from.rect.height) < 2
+    if (!toSingleLine) return
+    // 飞行克隆：fixed 钉旧位（脱离折叠容器裁切/透明），位移到新位；
+    // 克隆携带原 class，页面样式表自然生效
+    const clone = fromEl.cloneNode(true) as HTMLElement
+    Object.assign(clone.style, {
+      position: 'fixed',
+      left: `${from.rect.left}px`,
+      top: `${from.rect.top}px`,
+      width: `${from.rect.width}px`,
+      margin: '0',
+      pointerEvents: 'none',
+    })
+    document.body.appendChild(clone)
+    const dx = to.left - from.rect.left
+    const dy = to.top - from.rect.top
+    const anim = clone.animate(
+      [
+        { transform: 'translate(0px, 0px)' },
+        { transform: `translate(${dx}px, ${dy}px)` },
+      ],
+      { duration: 200, easing: 'ease' },
+    )
+    fromEl.style.visibility = 'hidden'
+    toEl.style.visibility = 'hidden'
+    flightRef.current = { anim, clone, fromEl, toEl }
+    anim.finished
+      .then(() => {
+        if (flightRef.current?.anim === anim) cleanupFlight()
+      })
+      .catch(() => {
+        /* cancel 走 cleanupFlight，这里只吞 abort */
+      })
+  }, [metaExpanded])
+
+  const titleRowContent = (
+    <>
+      <bdi className="mark-card-v3__title">{mark.title}</bdi>
+      {year != null ? <span>({year})</span> : null}
+      {/* bdi 隔离：阿文等 RTL 别名在行内自持方向、不扰动前后段 */}
+      {mark.alt_title ? <bdi>{mark.alt_title}</bdi> : null}
+    </>
+  )
+  const renderTitleRow = (variant: 'solo' | 'inline') =>
+    variant === 'solo' ? (
+      <div className="mark-card-v3__title-solo">
+        <div className="mark-card-v3__title-row" ref={soloTitleRef}>
+          {titleRowContent}
+        </div>
+      </div>
+    ) : (
+      <div className="mark-card-v3__title-row" ref={inlineTitleRef}>
+        {titleRowContent}
+      </div>
+    )
+
+  return (
+    <li className={getCardSurfaceClassName('mark-card-v3')} data-expanded={metaExpanded ? 'true' : 'false'}>
+      <div className="mark-card-v3__header">
+        {/* 日期·动词·星级必须同在一个 span 内：顶栏是 grid，散写的
+            文本节点/元素会成为独立 grid 项被自动布局错位 */}
+        <span>
+          {mark.date} · {CATEGORY_VERBS[mark.category] ?? '标记'}
+          {mark.my_rating ? (
+            <>
+              {' · '}
+              <StarRating
+                className="mark-card-v3-rating"
+                label={`我的评分：${mark.my_rating} 星`}
+                value={mark.my_rating}
+              />
+            </>
+          ) : null}
+        </span>
+        {hasSubjectInfo ? (
+          <GhostIconButton
+            aria-expanded={metaExpanded}
+            aria-label={metaExpanded ? '收起元信息' : '展开元信息'}
+            className="mark-card-v3__meta-toggle"
+            data-expanded={metaExpanded ? 'true' : undefined}
+            onClick={toggleMeta}
+            size="sm"
+            type="button"
+          >
+            <ChevronRight aria-hidden="true" />
+          </GhostIconButton>
+        ) : null}
+      </div>
+      {renderTitleRow('solo')}
+      {hasSubjectInfo ? (
+        <div className="mark-card-v3__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
+          <div className="mark-card-v3__subject">
+            {cover ? (
+              <img
+                alt=""
+                className="mark-card-v3__cover"
+                loading="lazy"
+                src={cover}
+              />
+            ) : (
+              <div className="mark-card-v3__cover mark-card-v3__cover--empty" />
+            )}
+            <div className="mark-card-v3__info">
+              {renderTitleRow('inline')}
+              {doubanRating != null ? (
+                <div className="mark-card-v3__douban-rating">
+                  <StarRating
+                    className="mark-card-v3-douban-stars"
+                    label={`豆瓣评分：${doubanRating.toFixed(1)} 分`}
+                    value={doubanRating / 2}
+                  />
+                  {doubanRating.toFixed(1)}
+                </div>
+              ) : null}
+              {metaLine ? (
+                <div className="mark-card-v3__meta">{metaLine}</div>
+              ) : mark.intro ? (
+                <div className="mark-card-v3__intro">{mark.intro}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {commentDoc ? (
+        <div className="mark-card-v3__comment">
+          <WdfRender content={commentDoc} />
+        </div>
+      ) : null}
+    </li>
+  )
+}

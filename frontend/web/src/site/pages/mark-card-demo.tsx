@@ -4,6 +4,8 @@ import { Link } from 'react-router'
 import type { DoubanMark } from '../api'
 import { MarkCard } from '../mark-card'
 import { MarkCardv2 } from '../mark-card-v2'
+import { MarkCardv3 } from '../mark-card-v3'
+import { MarkCardv4 } from '../mark-card-v4'
 import './mark-card-demo.css'
 
 /** 演示页路由（HashRouter 下即 #/demo/mark-card）；纯 mock 数据，不请求后端 */
@@ -204,14 +206,27 @@ const NARROW_MARKS = [
   }),
 ]
 
+type CardVariant = 'v1' | 'v2' | 'v3' | 'v4'
+
+const CARD_VARIANTS: Array<{
+  key: CardVariant
+  label: string
+  component: (props: { mark: DoubanMark }) => React.JSX.Element
+}> = [
+  { key: 'v1', label: 'MarkCard（现行）', component: MarkCard },
+  { key: 'v2', label: 'MarkCardv2（常驻）', component: MarkCardv2 },
+  { key: 'v3', label: 'MarkCardv3（FLIP）', component: MarkCardv3 },
+  { key: 'v4', label: 'MarkCardv4（VT）', component: MarkCardv4 },
+]
+
 function CardList({
   items,
   variant,
 }: {
   items: DoubanMark[]
-  variant: 'v1' | 'v2'
+  variant: CardVariant
 }) {
-  const Card = variant === 'v2' ? MarkCardv2 : MarkCard
+  const Card = CARD_VARIANTS.find((v) => v.key === variant)?.component ?? MarkCard
   return (
     <ul className="mark-card-demo__list">
       {items.map((item) => (
@@ -245,7 +260,7 @@ function DemoSection({
  *  供调整卡片样式时对照；配合顶栏主题切换可核对明暗两套配色；
  *  v1/v2 切换用同一批 mock 对比两代卡片 */
 export function MarkCardDemoPage() {
-  const [variant, setVariant] = useState<'v1' | 'v2'>('v1')
+  const [variant, setVariant] = useState<CardVariant>('v1')
   return (
     <section className="mark-card-demo">
       <h1 className="mark-card-demo__title">MarkCard 组件演示</h1>
@@ -255,27 +270,23 @@ export function MarkCardDemoPage() {
         <code>site/mark-card.tsx</code> 与 <code>site/mark-card-v2.tsx</code>。
       </p>
       <div aria-label="卡片版本切换" className="mark-card-demo__switch" role="group">
-        <button
-          aria-pressed={variant === 'v1'}
-          data-active={variant === 'v1' ? 'true' : undefined}
-          onClick={() => setVariant('v1')}
-          type="button"
-        >
-          MarkCard（现行）
-        </button>
-        <button
-          aria-pressed={variant === 'v2'}
-          data-active={variant === 'v2' ? 'true' : undefined}
-          onClick={() => setVariant('v2')}
-          type="button"
-        >
-          MarkCardv2（新版）
-        </button>
+        {CARD_VARIANTS.map((v) => (
+          <button
+            aria-pressed={variant === v.key}
+            data-active={variant === v.key ? 'true' : undefined}
+            key={v.key}
+            onClick={() => setVariant(v.key)}
+            type="button"
+          >
+            {v.label}
+          </button>
+        ))}
       </div>
       <p className="mark-card-demo__switch-note">
-        v2 三区常驻无折叠：标记行「日期 · 看过 · 我的评分」（左对齐）/
-        身份区「封面 64px · 标题 · 年份」+「可选标题 · 豆瓣评分」+ 单行
-        元信息（国家类型·导演主演等，超长省略）；正文仅短评、不再重复标题。
+        v1 现行折叠卡；v2 全常驻零交互；v3/v4 基于 v1 结构的标题行共享
+        元素过渡原型——v3 用 FLIP 飞行克隆（脱离折叠容器裁切），v4 用
+        View Transitions（快照接管动画）；两者换行标题均回退现有 CSS
+        交叉淡换。
       </p>
 
       <DemoSection
