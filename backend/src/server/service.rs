@@ -832,18 +832,27 @@ pub struct AllMarksPage {
     pub items: Vec<Record>,
 }
 
+/// 我的评分筛选（marks category=all 专用）：精确星级（my_rating = N）
+/// 或 N 星及以下（my_rating <= N，SQL 比较天然排除未评 NULL）。键形
+/// 态与 URL ?rating= 参数同构（"N"/"lteN"），路由层解析校验
+#[derive(Clone, Copy, Debug)]
+pub enum RatingFilter {
+    Exact(i64),
+    AtMost(i64),
+}
+
 /// 三类别合并分页读：维度门禁放行口径比单类别宽——任一类别已同步即
 /// 返回（已同步部分的记录），三类别全未同步才 DIMENSION_NOT_CACHED；
 /// cached_at/fresh 取三维度最近一次抓取。排序与单类别一致
 /// （date DESC, rowid），跨类别按日期自然归并；Record.category 用行
 /// 自身类别（expand=subject 时路由层按它分组查视图）。
-/// rating 为我的评分筛选（1-5 星，路由层已校验；None=不过滤），
-/// 计数与列表同口径加 `my_rating = ?`
+/// rating 为我的评分筛选（路由层已解析校验；None=不过滤），计数与
+/// 列表同口径加评分子句
 pub async fn read_all_marks(
     state: &AppState,
     uid: &str,
     status: Status,
-    rating: Option<i64>,
+    rating: Option<RatingFilter>,
     page: i64,
     page_size: i64,
 ) -> AppResult<AllMarksPage> {
@@ -869,10 +878,12 @@ pub async fn read_all_marks(
 
     let page_size = page_size.max(1);
     // 评分筛选子句拼进两条 SQL（与 ids 模式的 placeholders 拼装同款）：
-    // 值为路由层校验过的 1-5 整数，内联无注入面
-    let rating_clause = rating
-        .map(|r| format!(" AND my_rating = {r}"))
-        .unwrap_or_default();
+    // 值为路由层校验过的 1-5 整数，内联无注入面；<= 比较天然排除未评
+    let rating_clause = match rating {
+        None => String::new(),
+        Some(RatingFilter::Exact(r)) => format!(" AND my_rating = {r}"),
+        Some(RatingFilter::AtMost(r)) => format!(" AND my_rating <= {r}"),
+    };
     let total: i64 = sqlx::query_scalar(&format!(
         "SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?{rating_clause}"
     ))

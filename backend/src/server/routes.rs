@@ -445,9 +445,33 @@ struct MarksQuery {
     /// 200 与 page_size 一致。单字符串 + 逗号而非重复参数：axum Query
     /// 的 serde 反序列化不支持单 key 收集为序列
     ids: Option<String>,
-    /// 我的评分筛选（1-5 星）：仅 category=all 合并视图支持——单类别
-    /// 筛选走前端 dims ids 模式，评分不在其中
-    rating: Option<i64>,
+    /// 我的评分筛选："N"（1-5 精确星级）或 "lteN"（N 星及以下，未评
+    /// NULL 不入档）：仅 category=all 合并视图支持——单类别筛选走前端
+    /// dims ids 模式，评分不在其中
+    rating: Option<String>,
+}
+
+/// rating 参数解析："N"（1-5 精确星级）或 "lteN"（1-5，N 星及以下
+/// ——「三分及以下」类区间入口；SQL 的 my_rating <= N 天然排除未评 NULL）
+fn parse_rating(raw: &str) -> AppResult<service::RatingFilter> {
+    use super::error::AppError;
+    let invalid = || {
+        AppError::InvalidArgument(
+            "rating 须为 1-5 星级或 lteN（N 星及以下）".to_string(),
+        )
+    };
+    let (prefix, num) = match raw.strip_prefix("lte") {
+        Some(n) => ("lte", n),
+        None => ("", raw),
+    };
+    let value: i64 = num.parse().map_err(|_| invalid())?;
+    if !(1..=5).contains(&value) {
+        return Err(invalid());
+    }
+    Ok(match prefix {
+        "lte" => service::RatingFilter::AtMost(value),
+        _ => service::RatingFilter::Exact(value),
+    })
 }
 
 async fn get_marks(
@@ -473,22 +497,17 @@ async fn get_marks(
         }
     };
 
-    // 我的评分筛选：1-5 星合法；仅 all 合并视图支持（单类别评分筛选
-    // 无前端入口，ids 模式命中维度白名单在前端 dims 已滤，均不与 rating 同用）
-    let rating = match q.rating {
+    // 我的评分筛选：仅 all 合并视图支持（单类别评分筛选无前端入口，
+    // ids 模式命中维度白名单在前端 dims 已滤，均不与 rating 同用）
+    let rating = match q.rating.as_deref() {
         None => None,
-        Some(r) if (1..=5).contains(&r) => {
+        Some(raw) => {
             if q.category.as_deref() != Some("all") {
                 return Err(AppError::InvalidArgument(
                     "rating 仅支持 category=all".to_string(),
                 ));
             }
-            Some(r)
-        }
-        Some(_) => {
-            return Err(AppError::InvalidArgument(
-                "rating 须为 1-5 的星级".to_string(),
-            ))
+            Some(parse_rating(raw)?)
         }
     };
 

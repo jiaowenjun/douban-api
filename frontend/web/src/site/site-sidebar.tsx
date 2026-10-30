@@ -21,10 +21,12 @@ import {
   MARKS_CATEGORIES,
   NAV_RATING_STEPS,
   parseRatingParam,
+  ratingKeyMatches,
   ratingNavTag,
   resolveMarksView,
   type MarksCategory,
   type NavTarget,
+  type RatingKey,
 } from './navigation'
 import './site-sidebar.css'
 
@@ -76,27 +78,27 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   // 行尾计数随 dims 数据挂：全部标记=三类别条目总数（dims 全量投影
   // length 求和，与筛选树类别根/统计区同源——某类别未同步/拉取失败
   // 数据为 null 计 0，合并视图本就只含已同步类别）；评分子节点=
-  // my_rating 命中数（my_rating 随 dims item 平铺下发）。三类别查询
-  // 全部 settle 才显示（失败也 settle 为 null 数据），避免加载中途先
-  // 亮部分和再跳变
+  // 键命中数（ratingKeyMatches，'lteN' 区间与后端 <= 比较同口径，
+  // my_rating 随 dims item 平铺下发）。三类别查询全部 settle 才显示
+  // （失败也 settle 为 null 数据），避免加载中途先亮部分和再跳变
   const dimsQueries = { movie: movieDims, book: bookDims, music: musicDims }
   const countsReady =
     uid !== null && MARKS_CATEGORIES.every((c) => dimsQueries[c].isSuccess)
   const navItems = MARKS_CATEGORIES.flatMap(
     (c) => dimsData[c]?.items ?? [],
   )
-  const ratingCount = (value: number) =>
-    navItems.filter((item) => item.my_rating === value).length
+  const ratingCount = (key: RatingKey) =>
+    navItems.filter((item) => ratingKeyMatches(key, item.my_rating)).length
   const navNodes: TagTreeNode[] = [
     {
       tag: ALL_MARKS_TAG,
       label: '全部标记',
       icon: <Grid2X2 aria-hidden="true" />,
       itemCount: countsReady ? navItems.length : undefined,
-      children: NAV_RATING_STEPS.map(({ value, label }) => ({
-        tag: ratingNavTag(value),
+      children: NAV_RATING_STEPS.map(({ key, label }) => ({
+        tag: ratingNavTag(key),
         label,
-        itemCount: countsReady ? ratingCount(value) : undefined,
+        itemCount: countsReady ? ratingCount(key) : undefined,
       })),
     },
   ]
@@ -145,11 +147,11 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   /** 「全部标记」评分子节点：目标必为 all——已在 all 视图改 ?rating=
    *  即生效（再点同评分取消，父行点击经 handlePathSelect 空路径全清），
    *  在其他类别则跳路由携带 */
-  function handleRatingSelect(value: number) {
+  function handleRatingSelect(key: RatingKey) {
     if (category === ALL_MARKS_TAG) {
-      setSearchParams(rating === value ? {} : { rating: String(value) })
+      setSearchParams(rating === key ? {} : { rating: key })
     } else {
-      navigate(`/${ALL_MARKS_TAG}?rating=${value}`)
+      navigate(`/${ALL_MARKS_TAG}?rating=${key}`)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
     onClose()
@@ -187,9 +189,9 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
                 return
               }
               const hit = NAV_RATING_STEPS.find(
-                (step) => ratingNavTag(step.value) === tag,
+                (step) => ratingNavTag(step.key) === tag,
               )
-              if (hit) handleRatingSelect(hit.value)
+              if (hit) handleRatingSelect(hit.key)
             }}
             // 选中指示两档：all 视图评分筛选中选中对应子节点（祖先
             // 自动展开），否则当前导航目标顶上

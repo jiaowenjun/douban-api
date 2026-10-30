@@ -115,7 +115,7 @@ export type MarksResult =
 /** 拉取某维度（category+status）的标记页；只读缓存，不触发抓取。
  *  category 另接受 'all'：书影音三类别按日期归并的合并视图
  *  （后端任一类别已同步即放行，不支持 facet 过滤；rating 为可选的
- *  我的评分筛选 1-5 星，仅 all 视图支持）。
+ *  我的评分筛选键 'N'/'lteN'，仅 all 视图支持）。
  *  附 expand=subject：每条标记带条目结构化元信息（已富集用 rexxar 数据，
  *  未富集回退 intro 启发式合成，旧版后端不认该参数）。
  *  ids 为可选的当页条目 id 集合（前端 dims 保序筛出的切片，顺序权威
@@ -128,7 +128,7 @@ export async function fetchDoubanMarks(
   page = 1,
   pageSize = 20,
   ids?: readonly string[] | null,
-  rating?: number | null,
+  rating?: string | null,
 ): Promise<MarksResult> {
   const params = new URLSearchParams({
     category,

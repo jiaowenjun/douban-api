@@ -21,7 +21,7 @@ import {
   DEFAULT_MARKS_PATH,
   moviePageTitle,
   parseRatingParam,
-  RATING_NOUNS,
+  ratingFilterLabel,
   resolveMarksView,
 } from '../navigation'
 import './marks-page.css'
@@ -249,7 +249,7 @@ export function MarksPage() {
                 .map((step) => facetValueLabel(realCategory, step.dim, step.value))
                 .join(' / ')}`
             : ''}
-          {rating ? ` · 我的${RATING_NOUNS[rating]}标记` : ''}
+          {rating ? ` · ${ratingFilterLabel(rating)}` : ''}
           {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
         </p>
         <ul className="marks-list">

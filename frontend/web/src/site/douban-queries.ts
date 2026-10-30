@@ -27,7 +27,7 @@ export const MARKS_PAGE_SIZE = 20
 /** 层级 query key 工厂（对齐 biji workspaceQueryKeys 模式）：uid 作用域
  *  → 数据域 → 参数。marks 的 ids 为筛选命中 id 切片 join（subject_id
  *  纯数字不含逗号），null = 无筛选；rating 为「全部标记」视图的我的
- *  评分筛选（1-5 星，null = 无筛选） */
+ *  评分筛选键（'N'/'lteN'，null = 无筛选） */
 export const doubanQueryKeys = {
   all: ['douban'] as const,
   uid: (uid: string) => ['douban', uid] as const,
@@ -40,7 +40,7 @@ export const doubanQueryKeys = {
     category: string,
     page: number,
     ids: readonly string[] | null | undefined,
-    rating?: number | null,
+    rating?: string | null,
   ) =>
     [
       ...doubanQueryKeys.uid(uid),
@@ -107,7 +107,7 @@ export function useDoubanMarksPageQuery(args: {
   category: string | null
   page: number
   ids?: readonly string[] | null
-  rating?: number | null
+  rating?: string | null
   enabled: boolean
 }) {
   const uid = args.uid ?? ''
@@ -141,7 +141,7 @@ export function fetchDoubanMarksPage(args: {
   category: string
   page: number
   ids?: readonly string[] | null
-  rating?: number | null
+  rating?: string | null
 }): Promise<MarksResult> {
   return queryClient.fetchQuery({
     queryKey: doubanQueryKeys.marksPage(

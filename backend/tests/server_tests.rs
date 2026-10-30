@@ -641,14 +641,16 @@ fn rated_record(subject_id: &str, comment_id: &str, rating: Option<u8>, date: &s
 #[tokio::test]
 async fn all_marks_rating_filter_and_validation() {
     let (_dir, state) = setup().await;
-    // 跨 movie/book 两类别各两条：五星×2（跨类别）、四星×1、未评×1——
-    // 验证合并视图按 my_rating 过滤时计数与条目同口径、跨类别按日期归并
+    // 跨 movie/book 两类别：五星×2（跨类别）、四星×1、三星×1、未评×1
+    // ——验证合并视图按 my_rating 过滤时计数与条目同口径、跨类别按
+    // 日期归并；lte 区间档（三分及以下）命中 1-3 星且未评不入档
     seed_ok_dimension(
         &state,
         Category::Movie,
         vec![
             rated_record("m1", "c1", Some(5), "2026-01-03"),
             rated_record("m2", "c2", Some(4), "2026-01-02"),
+            rated_record("m3", "c5", Some(3), "2026-01-05"),
         ],
     )
     .await;
@@ -663,7 +665,7 @@ async fn all_marks_rating_filter_and_validation() {
     .await;
 
     let app = build_app(state.clone());
-    // 无筛选：4 条
+    // 无筛选：5 条
     let (code, v) = request(
         app.clone(),
         Method::GET,
@@ -673,7 +675,7 @@ async fn all_marks_rating_filter_and_validation() {
     )
     .await;
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(v["total"], 4);
+    assert_eq!(v["total"], 5);
 
     // rating=5：跨类别命中 2 条，日期倒序（book 更新在前），未评不入档
     let (code, v) = request(
@@ -705,6 +707,20 @@ async fn all_marks_rating_filter_and_validation() {
     assert_eq!(v["total"], 1);
     assert_eq!(v["items"][0]["subject_id"], "m2");
 
+    // rating=lte3（三分及以下）：仅三星命中，四/五星与未评均不入档
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect&rating=lte3",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 1);
+    assert_eq!(v["items"][0]["subject_id"], "m3");
+    assert_eq!(v["items"][0]["my_rating"], 3);
+
     // rating=1：无命中返回空页（total=0 而非 404）
     let (code, v) = request(
         app.clone(),
@@ -718,17 +734,25 @@ async fn all_marks_rating_filter_and_validation() {
     assert_eq!(v["total"], 0);
     assert_eq!(v["items"].as_array().unwrap().len(), 0);
 
-    // 非法星级与单类别携带 rating 均 400
-    let (code, v) = request(
-        app.clone(),
-        Method::GET,
-        "/api/v1/users/wenjun30/marks?category=all&status=collect&rating=6",
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(code, StatusCode::BAD_REQUEST, "{v}");
-    assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+    // 非法星级/区间与单类别携带 rating 均 400
+    for uri in [
+        "rating=6",
+        "rating=abc",
+        "rating=lte0",
+        "rating=lte9",
+        "rating=lte",
+    ] {
+        let (code, v) = request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/v1/users/wenjun30/marks?category=all&status=collect&{uri}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(code, StatusCode::BAD_REQUEST, "{uri}: {v}");
+        assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+    }
     let (code, v) = request(
         app,
         Method::GET,
