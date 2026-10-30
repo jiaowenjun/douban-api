@@ -18,6 +18,7 @@ import {
   MarkCardDemoPage,
 } from './site/pages/mark-card-demo'
 import { MarksPage } from './site/pages/marks-page'
+import { TopBarSearch } from './site/search-dialog'
 import { SiteSidebar } from './site/site-sidebar'
 
 /** 从 /:category 路径解析导航高亮项与顶栏标题 */
@@ -71,8 +72,11 @@ function SiteShell() {
     <SiteTemplate
       pageTitle={isDemo ? 'MarkCard 演示' : view?.pageTitle}
       showSidebarCloseButton={false}
+      // 顶栏右侧主题切换让位给搜索入口（主题仍随系统 defaultTheme 同步 html.dark）
+      showThemeToggle={false}
       siteName="weimo-douban"
       sidebar={(api) => <SiteSidebar onClose={api.close} />}
+      topBarActions={<TopBarSearch />}
       topBarLeading={topBarLeading}
     >
       <Routes>
