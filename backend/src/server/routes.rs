@@ -61,6 +61,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}", get(get_sync).delete(delete_sync))
         .route("/syncs/{task_id}/result", get(get_result))
         .route("/syncs/{task_id}/events", get(get_sync_events))
+        .route("/users/{uid}/syncs", post(create_user_sync))
         .route("/users/{uid}/cache-version", get(get_cache_version))
         .route("/users/{uid}/marks", get(get_marks))
         .route("/users/{uid}/subject-dims", get(get_subject_dims))
@@ -275,6 +276,8 @@ async fn create_sync(State(state): State<AppState>, body: Bytes) -> AppResult<Re
         },
     )
     .await?;
+    let cached = outcome.cached_dimensions;
+    let created = outcome.created_dimensions;
 
     // 有限同步等待：wait_timeout 内完成则返回终态
     let mut view = outcome.view;
@@ -289,9 +292,15 @@ async fn create_sync(State(state): State<AppState>, body: Bytes) -> AppResult<Re
         }
     }
 
-    let mut body = serde_json::to_value(&view).map_err(|e| AppError::Internal(e.to_string()))?;
-    body["cached_dimensions"] = json!(outcome.cached_dimensions);
-    body["created_dimensions"] = json!(outcome.created_dimensions);
+    task_response(&view, cached, created)
+}
+
+/// 任务创建响应：TaskView 附 cached/created 维度计数，终态 200 / 进行中 202
+/// （create_sync 与自助端点共用）
+fn task_response(view: &TaskView, cached: usize, created: usize) -> AppResult<Response> {
+    let mut body = serde_json::to_value(view).map_err(|e| AppError::Internal(e.to_string()))?;
+    body["cached_dimensions"] = json!(cached);
+    body["created_dimensions"] = json!(created);
 
     let code = if TERMINAL_STATUSES.contains(&view.status.as_str()) {
         StatusCode::OK
@@ -299,6 +308,30 @@ async fn create_sync(State(state): State<AppState>, body: Bytes) -> AppResult<Re
         StatusCode::ACCEPTED
     };
     Ok((code, Json(body)).into_response())
+}
+
+/// 自助首发同步（POST /users/{uid}/syncs）：web 前端登录后检测到数据未
+/// 同步（marks 404 DIMENSION_NOT_CACHED）时自动触发。参数固定为全类别
+/// collect、不 refresh——重复触发由 create_task 内建兜底（新鲜缓存直接
+/// done、queued/running 并入 single-flight、队列上限拒绝），不会重复抓
+/// 取；鉴权/限流随 /api/v1 全局中间件（未配置 token 的自部署站点即 web
+/// 部署现状可直接调用，配置 token 后与其余端点一致需携带）
+async fn create_user_sync(State(state): State<AppState>, Path(uid): Path<String>) -> AppResult<Response> {
+    let outcome = service::create_task(
+        &state,
+        CreateTaskInput {
+            user: uid,
+            categories: Category::ALL.to_vec(),
+            statuses: vec![Status::Collect],
+            refresh: false,
+        },
+    )
+    .await?;
+    task_response(
+        &outcome.view,
+        outcome.cached_dimensions,
+        outcome.created_dimensions,
+    )
 }
 
 async fn get_sync(

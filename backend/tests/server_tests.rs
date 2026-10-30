@@ -585,6 +585,51 @@ async fn invalid_arguments_return_400_envelope() {
 }
 
 #[tokio::test]
+async fn user_self_sync_creates_task_and_joins_in_flight() {
+    let (_dir, state) = setup().await;
+    let app = build_app(state.clone());
+
+    // 首次触发：无 body，固定全类别 collect，任务 queued（202）
+    let (code, v) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/users/wenjun30/syncs",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    assert_eq!(v["user"], "wenjun30");
+    assert_eq!(v["status"], "queued");
+    assert_eq!(v["created_dimensions"], 3);
+    let first_task = v["task_id"].as_str().unwrap().to_string();
+
+    // 重复触发：维度仍 queued → single-flight 并入（新任务、维度 waiting，不重置抓取）
+    let (code, v) = request(
+        app.clone(),
+        Method::POST,
+        "/api/v1/users/wenjun30/syncs",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    assert_ne!(v["task_id"].as_str().unwrap(), first_task);
+
+    // 非法 uid：400 参数错误
+    let (code, v) = request(
+        app,
+        Method::POST,
+        "/api/v1/users/bad%20uid/syncs",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+}
+
+#[tokio::test]
 async fn marks_pagination_and_not_cached() {
     let (_dir, state) = setup().await;
     let records = parse_items(

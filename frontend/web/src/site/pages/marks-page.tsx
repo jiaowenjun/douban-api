@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
 import type { DoubanMark } from '../api'
+import { DoubanDataQueryError, triggerDoubanFirstSync } from '../api'
 import { useDoubanUser } from '../douban-user'
 import {
+  doubanQueryKeys,
   fetchDoubanMarksPage,
   MarksQueryError,
   MARKS_PAGE_SIZE,
@@ -25,9 +27,15 @@ import {
   ratingFilterLabel,
   resolveMarksView,
 } from '../navigation'
+import { queryClient } from '../../query-client'
 import './marks-page.css'
 
 const PAGE_SIZE = MARKS_PAGE_SIZE
+
+/** 首发同步会话级去重（跨导航存活）：uid → 触发结果。重复触发本身
+ *  无害（后端 single-flight 并入运行中任务），去重只为避免每次导航
+ *  到未同步视图都发一次 POST；刷新页面后 Set 清空重触发亦安全 */
+const firstSyncState = new Map<string, 'triggering' | 'syncing' | 'failed'>()
 
 /** RFC3339 → YYYY-MM-DD（cached_at 只取日期粒度即可） */
 function formatDate(iso: string): string {
@@ -133,7 +141,13 @@ export function MarksPage() {
         ? { phase: 'not-cached' }
         : { phase: 'error', message: marksQuery.error.message }
       : dimsQuery.isError && matchedIds === null
-        ? { phase: 'error', message: dimsQuery.error.message }
+        ? // 筛选态下 dims 未就绪的门控错误：404 未同步归入 not-cached
+          // （首登自动同步对其生效——默认落地 /movie 必带形态筛选步，
+          // 未同步用户先撞到的就是这条路），其余才算加载失败
+          dimsQuery.error instanceof DoubanDataQueryError &&
+            dimsQuery.error.kind === 'not-cached'
+          ? { phase: 'not-cached' }
+          : { phase: 'error', message: dimsQuery.error.message }
         : { phase: 'loading' }
     : {
           phase: 'list',
@@ -143,6 +157,38 @@ export function MarksPage() {
           loadedPages: 1 + moreSnapshot.pages.length,
           cachedAt: first.data.cached_at,
         }
+
+  // 首发同步：数据未同步（not-cached）时自动触发一次自助全量同步，
+  // 成功后展示同步中引导；同步发布时 revision bump → 版本查询感知 →
+  // 版本 key 变化自动重拉，数据无需手动刷新即出现。展示态 render 期
+  // 直读会话级 Map（uid 天然隔离，无切号重置），异步回填后 tick 触发
+  // 重渲染——effect 内不同步 setState（React Compiler 会因此放弃优化
+  // 整个组件）；触发失败本会话不自动重试（刷新页面重走一次）
+  const [, setFirstSyncTick] = useState(0)
+  const syncPhase = uid ? firstSyncState.get(uid) : undefined
+  useEffect(() => {
+    if (state.phase !== 'not-cached' || !uid) return
+    if (firstSyncState.has(uid)) return
+    firstSyncState.set(uid, 'triggering')
+    void triggerDoubanFirstSync(uid).then((task) => {
+      firstSyncState.set(uid, task ? 'syncing' : 'failed')
+      setFirstSyncTick((tick) => tick + 1)
+    })
+  }, [state.phase, uid])
+
+  // 同步中每 10s 失效版本查询：发布瞬间尽快感知 revision bump（60s
+  // 常规轮询兜底），版本变化触发全量查询按新 key 自动重拉
+  useEffect(() => {
+    if (state.phase !== 'not-cached' || syncPhase !== 'syncing' || !uid) {
+      return
+    }
+    const timer = setInterval(() => {
+      void queryClient.invalidateQueries({
+        queryKey: [...doubanQueryKeys.uid(uid), 'versions'],
+      })
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [state.phase, syncPhase, uid])
 
   async function loadMore() {
     if (
@@ -203,15 +249,28 @@ export function MarksPage() {
   } else if (state.phase === 'loading') {
     content = <div className="marks-page__placeholder">加载中…</div>
   } else if (state.phase === 'not-cached') {
-    content = (
-      <div className="marks-page__placeholder">
-        <p>用户 {profile?.username || uid} 的数据还没有同步过。</p>
-        <p className="marks-page__hint">
-          本站只读缓存，请先在服务端发起一次同步，完成后刷新本页即可看到
-          {displayTitle}的记录。
-        </p>
-      </div>
-    )
+    // 首发同步三档展示：触发中/同步中给自动同步引导（完成后自动翻页），
+    // 触发失败回落手动指引
+    content =
+      syncPhase === 'triggering' || syncPhase === 'syncing' ? (
+        <div className="marks-page__placeholder">
+          <p>
+            首次使用：正在从豆瓣同步 {profile?.username || uid} 的标记。
+          </p>
+          <p className="marks-page__hint">
+            全量抓取通常需要几分钟，完成后这里会自动展示，无需手动刷新。
+          </p>
+        </div>
+      ) : (
+        <div className="marks-page__placeholder">
+          <p>用户 {profile?.username || uid} 的数据还没有同步过。</p>
+          <p className="marks-page__hint">
+            {syncPhase === 'failed'
+              ? '自动同步发起失败（服务不可达或请求被限流），请稍后刷新页面重试，或在管理端手动发起同步。'
+              : `本站只读缓存，请先在服务端发起一次同步，完成后刷新本页即可看到${displayTitle}的记录。`}
+          </p>
+        </div>
+      )
   } else if (state.phase === 'error') {
     content = (
       <div className="marks-page__placeholder">

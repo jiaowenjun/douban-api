@@ -11,6 +11,7 @@ import {
   queryClient,
 } from '../query-client'
 import {
+  DoubanDataQueryError,
   fetchCacheVersions,
   fetchDoubanMarks,
   fetchDoubanProfile,
@@ -73,7 +74,8 @@ export function useCacheVersionsQuery(uid: string | null) {
 
 async function requireData<T>(promise: Promise<T | null>): Promise<T> {
   const data = await promise
-  if (data === null) throw new Error('数据暂不可用，请稍后重试')
+  // null 只来自端点 404——该维度从未同步过
+  if (data === null) throw new DoubanDataQueryError('not-cached', '数据还没有同步过')
   return data
 }
 

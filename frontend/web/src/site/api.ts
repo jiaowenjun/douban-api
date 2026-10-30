@@ -44,17 +44,33 @@ export type DoubanProfile = {
   avatar: string
 }
 
-/** Request a published revision; failures stay outside the persistent query cache. */
+/** 版本化数据查询失败：kind 区分「未同步」（端点 404，数据从未抓取——
+ *  可触发首发同步）与一般失败（网络/限流/服务端错误） */
+export class DoubanDataQueryError extends Error {
+  kind: 'not-cached' | 'error'
+  constructor(kind: 'not-cached' | 'error', message: string) {
+    super(message)
+    this.kind = kind
+  }
+}
+
+/** Request a published revision; failures stay outside the persistent query cache.
+ *  404（维度未同步）返回 null 由查询层转 not-cached 错误，其余失败抛错。 */
 async function fetchVersionedJson<T>(uid: string, endpoint: string, params: URLSearchParams, version?: string): Promise<T | null> {
   if (version && version !== 'unversioned' && version !== 'pending') params.set('cache_version', version)
   try {
-    const response = await fetch(`${API_BASE}/users/${encodeURIComponent(uid)}/${endpoint}?${params}`, { headers: authHeaders })
+    const response = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/${endpoint}?${params}`)
     if (!response.ok) {
       if (response.status === 409) void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
-      return null
+      // 404 = 该维度从未同步过（合法空态，调用方区分处理）
+      if (response.status === 404) return null
+      throw new DoubanDataQueryError('error', `请求失败（HTTP ${response.status}）`)
     }
     return await response.json() as T
-  } catch { return null }
+  } catch (error) {
+    if (error instanceof DoubanDataQueryError) throw error
+    throw new DoubanDataQueryError('error', '网络错误，请稍后重试')
+  }
 }
 
 /** 用户资料；失败返回 null，由查询层保留旧数据并提供重试。 */
@@ -251,6 +267,36 @@ export type DoubanDims = {
  *  端）；维度未同步或请求失败返回 null——树该分支静默隐藏 */
 export function fetchDoubanSubjectDims(uid: string, category: string, version?: string): Promise<DoubanDims | null> {
   return fetchVersionedJson(uid, 'subject-dims', new URLSearchParams({ category, status: MARKS_STATUS }), version)
+}
+
+// --------------------------------------------------------------------------- //
+// /users/{uid}/syncs（自助首发同步）
+// --------------------------------------------------------------------------- //
+
+/** 首发同步任务视图（自助触发端点返回，字段与 admin /syncs 的 TaskView
+ *  一致，这里只消费状态做展示） */
+export type DoubanSyncTask = {
+  task_id: string
+  user: string
+  status: string
+}
+
+/** 触发自助首发同步：POST /users/{uid}/syncs——服务端固定全类别 collect、
+ *  不 refresh，重复触发由后端 create_task 内建兜底（新鲜缓存直接 done、
+ *  queued/running 并入 single-flight、队列上限拒绝），不会重复抓取。
+ *  失败返回 null 不抛错（前端回落手动引导文案） */
+export async function triggerDoubanFirstSync(
+  uid: string,
+): Promise<DoubanSyncTask | null> {
+  try {
+    const res = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/syncs`, {
+      method: 'POST',
+    })
+    if (!res.ok) return null
+    return (await res.json()) as DoubanSyncTask
+  } catch {
+    return null
+  }
 }
 
 // --------------------------------------------------------------------------- //

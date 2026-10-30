@@ -90,6 +90,7 @@ Base URL：`http://{host}:8080/api/v1`（默认端口 8080，可配置）
 | # | 方法 | 路径 | 用途 |
 |---|---|---|---|
 | 1 | POST | `/syncs` | 创建同步任务（核心入口） |
+| 1a | POST | `/users/{uid}/syncs` | 自助首发同步（web 首次登录自动触发；参数固定全类别 collect 不 refresh，响应同 /syncs） |
 | 2 | GET | `/syncs/{task_id}` | 查询任务状态与进度 |
 | 3 | GET | `/syncs` | 任务列表（过滤、游标分页；默认不含 auto 任务） |
 | 4 | DELETE | `/syncs/{task_id}` | 删除任务记录（数据保留） |
@@ -143,6 +144,8 @@ Content-Type: application/json
 | `wait_timeout` | int(秒) | `0` | `0`–`30`；>0 时服务端最多等待该时长，完成即返回 `completed` |
 
 > 注：数据直接入 SQLite，不再有 `formats` 参数（传入未知字段将返回 400）。
+
+**变体：自助首发同步**（`POST /api/v1/users/{uid}/syncs`，无请求体）：web 前端登录后检测到数据未同步（marks 404 `DIMENSION_NOT_CACHED`）时自动调用。参数服务端固定为全类别 `collect`、`refresh=false`，响应体与 `/syncs` 一致（TaskView + cached/created 维度计数）。重复触发安全：新鲜缓存维度直接 `done`、queued/running 维度并入 single-flight（不重置抓取）、队列上限拒绝；鉴权/限流随 `/api/v1` 全局中间件（未配置 token 的自部署站点可直接调用，配置 token 后与其余端点一致需携带）。
 
 响应 `202 Accepted`：
 
