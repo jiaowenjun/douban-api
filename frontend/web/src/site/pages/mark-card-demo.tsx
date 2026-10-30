@@ -1,11 +1,7 @@
-import { useState } from 'react'
 import { Link } from 'react-router'
 
 import type { DoubanMark } from '../api'
 import { MarkCard } from '../mark-card'
-import { MarkCardv2 } from '../mark-card-v2'
-import { MarkCardv3 } from '../mark-card-v3'
-import { MarkCardv4 } from '../mark-card-v4'
 import './mark-card-demo.css'
 
 /** 演示页路由（HashRouter 下即 #/demo/mark-card）；纯 mock 数据，不请求后端 */
@@ -206,31 +202,11 @@ const NARROW_MARKS = [
   }),
 ]
 
-type CardVariant = 'v1' | 'v2' | 'v3' | 'v4'
-
-const CARD_VARIANTS: Array<{
-  key: CardVariant
-  label: string
-  component: (props: { mark: DoubanMark }) => React.JSX.Element
-}> = [
-  { key: 'v1', label: 'MarkCard（现行）', component: MarkCard },
-  { key: 'v2', label: 'MarkCardv2（常驻）', component: MarkCardv2 },
-  { key: 'v3', label: 'MarkCardv3（FLIP）', component: MarkCardv3 },
-  { key: 'v4', label: 'MarkCardv4（VT）', component: MarkCardv4 },
-]
-
-function CardList({
-  items,
-  variant,
-}: {
-  items: DoubanMark[]
-  variant: CardVariant
-}) {
-  const Card = CARD_VARIANTS.find((v) => v.key === variant)?.component ?? MarkCard
+function CardList({ items }: { items: DoubanMark[] }) {
   return (
     <ul className="mark-card-demo__list">
       {items.map((item) => (
-        <Card key={item.comment_id} mark={item} />
+        <MarkCard key={item.comment_id} mark={item} />
       ))}
     </ul>
   )
@@ -257,64 +233,43 @@ function DemoSection({
 }
 
 /** MarkCard 组件演示页：静态 mock 数据覆盖各字段组合与极端情况，
- *  供调整卡片样式时对照；配合顶栏主题切换可核对明暗两套配色；
- *  v1/v2 切换用同一批 mock 对比两代卡片 */
+ *  供调整卡片样式时对照；配合顶栏主题切换可核对明暗两套配色 */
 export function MarkCardDemoPage() {
-  const [variant, setVariant] = useState<CardVariant>('v1')
   return (
     <section className="mark-card-demo">
       <h1 className="mark-card-demo__title">MarkCard 组件演示</h1>
       <p className="mark-card-demo__desc">
         纯静态 mock，不请求后端；真实数据列表见
         <Link to="/movie">看过的电影</Link>。卡片组件在
-        <code>site/mark-card.tsx</code> 与 <code>site/mark-card-v2.tsx</code>。
-      </p>
-      <div aria-label="卡片版本切换" className="mark-card-demo__switch" role="group">
-        {CARD_VARIANTS.map((v) => (
-          <button
-            aria-pressed={variant === v.key}
-            data-active={variant === v.key ? 'true' : undefined}
-            key={v.key}
-            onClick={() => setVariant(v.key)}
-            type="button"
-          >
-            {v.label}
-          </button>
-        ))}
-      </div>
-      <p className="mark-card-demo__switch-note">
-        v1 现行折叠卡；v2 全常驻零交互；v3/v4 基于 v1 结构的标题行共享
-        元素过渡原型——v3 用 FLIP 飞行克隆（脱离折叠容器裁切），v4 用
-        View Transitions（快照接管动画）；两者换行标题均回退现有 CSS
-        交叉淡换。
+        <code>site/mark-card.tsx</code>。
       </p>
 
       <DemoSection
         description="所有字段齐备的基准形态；附阿文（RTL）可选标题回归用例"
         title="完整字段"
       >
-        <CardList items={[FULL_MARK, RTL_MARK]} variant={variant} />
+        <CardList items={[FULL_MARK, RTL_MARK]} />
       </DemoSection>
 
       <DemoSection
         description="单色覆盖层按 1/5 比例裁切，验证各档填充宽度"
         title="评分 1–5 星"
       >
-        <CardList items={RATING_MARKS} variant={variant} />
+        <CardList items={RATING_MARKS} />
       </DemoSection>
 
       <DemoSection
         description="可选字段逐一缺失，直到只剩标题与日期"
         title="字段缺省"
       >
-        <CardList items={MISSING_FIELD_MARKS} variant={variant} />
+        <CardList items={MISSING_FIELD_MARKS} />
       </DemoSection>
 
       <DemoSection
         description="标题/又名自动换行，简介与短评不限行数，卡片随正文撑开高度"
         title="长文本完整展示"
       >
-        <CardList items={LONG_TEXT_MARKS} variant={variant} />
+        <CardList items={LONG_TEXT_MARKS} />
       </DemoSection>
 
       <DemoSection
@@ -322,7 +277,7 @@ export function MarkCardDemoPage() {
         title="窄容器"
       >
         <div className="mark-card-demo__narrow">
-          <CardList items={NARROW_MARKS} variant={variant} />
+          <CardList items={NARROW_MARKS} />
         </div>
       </DemoSection>
     </section>

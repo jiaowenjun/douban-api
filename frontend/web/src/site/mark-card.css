@@ -1,7 +1,8 @@
-/* 书影音标记卡片，四段式一级结构：顶部标记行 / 标题行（常驻）/
-   可折叠条目信息区 / 评论正文区。材质（背景/边框/圆角/阴影，明暗双态）
-   复用 weimo-ui-core 的 card-surface——由组件挂 card-surface 类提供，
-   这里只留布局与内容排版 */
+/* 书影音标记卡片（FLIP 版 MarkCard 扶正），四段式一级结构：顶部标记行 /
+   标题行（常驻，折叠态水平居中）/ 可折叠条目信息区 / 评论正文区。材质
+   （背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core 的 card-surface
+   ——由组件挂 card-surface 类提供，这里只留布局与内容排版；FLIP 标题
+   飞行动画层全在 tsx（飞行克隆为 fixed 定位 + 内联样式，不占本文件） */
 
 /* 侧边栏 DEBUG 开关（html.sidebar-debug）开启时描边卡片内部子容器，便于调布局。
    描边样式对齐侧边栏（1px solid --color-border + 2px 临时内边距）；圆角用
@@ -166,6 +167,13 @@
   font-size: var(--font-size-sm);
 }
 
+/* 折叠态（solo 副本）标题行文本水平居中——修饰类挂在行元素本身：
+   FLIP 飞行克隆 cloneNode 会带上它，克隆与真实 solo 渲染一致；
+   展开（inline）副本保持左对齐 */
+.mark-card__title-row--solo {
+  justify-content: center;
+}
+
 /* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 200ms 同步）
    ——展开时高度收 0 并以负 margin 吞掉自己的根 1em 行间距、不占位
    （visibility 方案会保留行盒占位、展开后留空行）；opacity/visibility
@@ -187,20 +195,13 @@
   margin-bottom: calc(-1 * 1em);
 }
 
-/* 折叠态（solo 副本）标题行文本水平居中；展开（inline）副本保持左对
-   齐。v3 的 FLIP 克隆需修饰类挂行元素本身（cloneNode 才携带），v1 无
-   飞行克隆、容器作用域即可 */
-.mark-card__title-solo .mark-card__title-row {
-  justify-content: center;
-}
-
 /* 0fr 收起时裁切几何的前提（同折叠区内层） */
 .mark-card__title-solo .mark-card__title-row {
   min-height: 0;
   overflow: hidden;
 }
 
-/* 主标题：字级字色向 MarkCardv2 的标题对齐（16px / 650 / primary） */
+/* 主标题：卡片内最高层级（16px / 650 / primary，标题唯一出现处） */
 .mark-card__title {
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
@@ -257,12 +258,12 @@
   text-overflow: ellipsis;
 }
 
-/* 我的评分星级（顶栏标记行内）：底色五星 + 按比例裁切的单色覆盖层
-   （黑白灰，随明暗主题翻转）。配色对齐 weimo-ui-core 开关/滑块：未填
-   充星 = 未选中轨道 --color-border，填充星 = 选中轨道/指示条同一收敛
-   档 color-mix(bg-primary, bg-card 15%)——亮主题深灰近黑、暗主题浅灰
-   近白，不引入裸色值；用户评分属「行为」标注，比豆瓣五星（元信息文
-   字同色，见上方 mark-card-douban-stars）亮一档 */
+/* 我的评分星级（顶栏标记行内）：底色五星 + 按比例裁切的单色覆盖层。
+   未填充星 = 未选中轨道 --color-border；填充星现与豆瓣评分/元信息文
+   字同色 --color-text-placeholder（原为 ui-core 开关/滑块同款收敛 15%
+   配方、比元信息亮一档，恢复时改回：
+   color: color-mix(in srgb, var(--color-bg-primary), var(--color-bg-card) 15%)
+   ——实测原值 暗主题 rgb(213,213,213)/亮主题 rgb(71,71,71)） */
 .mark-card-rating {
   position: relative;
   display: inline-block;
@@ -282,5 +283,5 @@
   inset: 0;
   overflow: hidden;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--color-bg-primary), var(--color-bg-card) 15%);
+  color: var(--color-text-placeholder);
 }
