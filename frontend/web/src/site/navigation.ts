@@ -37,6 +37,22 @@ const CATEGORY_VERBS: Record<MarksCategory, string> = {
   music: '听',
 }
 
+/** 列表 meta 行完成态动词：芝麻 已看过 183 部影视 */
+export const CATEGORY_PAST_VERBS: Record<MarksCategory, string> = {
+  book: '已读过',
+  movie: '已看过',
+  music: '已听过',
+}
+
+/** 列表 meta 行量词名词，与 CATEGORY_PAST_VERBS 配对拼「已看过 183
+ *  部影视」；影视筛了电影/电视剧形态时列表页把名词提升为该形态
+ *  （…部电影/…部电视剧，见 marks-page meta 行） */
+export const CATEGORY_UNIT_NOUNS: Record<MarksCategory, string> = {
+  book: '本书',
+  movie: '部影视',
+  music: '张专辑',
+}
+
 export function isMarksCategory(value: string): value is MarksCategory {
   return value in CATEGORY_NOUNS
 }

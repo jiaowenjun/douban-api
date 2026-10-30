@@ -15,7 +15,12 @@ import {
 import { filterIds } from '../facet-engine'
 import { facetPathKey, facetValueLabel, parseFacetPath } from '../facet-model'
 import { MarkCard } from '../mark-card'
-import { DEFAULT_MARKS_PATH, resolveMarksView } from '../navigation'
+import {
+  CATEGORY_PAST_VERBS,
+  CATEGORY_UNIT_NOUNS,
+  DEFAULT_MARKS_PATH,
+  resolveMarksView,
+} from '../navigation'
 import './marks-page.css'
 
 const PAGE_SIZE = MARKS_PAGE_SIZE
@@ -200,12 +205,29 @@ export function MarksPage() {
   } else {
     const hasMore = state.items.length < state.total
     const syncedDate = formatDate(state.cachedAt)
+    // meta 行名词：影视筛了电影/电视剧形态时提升为该形态（…部电影/
+    // …部电视剧），该步从后缀去除避免「部电影 · 电影」重复；未分类
+    // 形态与其他类别不提升。all 合并视图为「已标记 N 条书影音」
+    const kindStep =
+      realCategory === 'movie'
+        ? facetPath.find((step) => step.dim === 'is_tv')
+        : undefined
+    const kindNoun =
+      kindStep && (kindStep.value === '电影' || kindStep.value === '电视剧')
+        ? `部${kindStep.value}`
+        : null
+    const suffixPath = kindNoun
+      ? facetPath.filter((step) => step.dim !== 'is_tv')
+      : facetPath
     content = (
       <>
         <p className="marks-page__meta">
-          {profile?.username || uid} 共 {state.total} 条
-          {facetPath.length > 0 && realCategory
-            ? ` · ${facetPath
+          {profile?.username || uid}
+          {realCategory
+            ? ` ${CATEGORY_PAST_VERBS[realCategory]} ${state.total} ${kindNoun ?? CATEGORY_UNIT_NOUNS[realCategory]}`
+            : ` 已标记 ${state.total} 条书影音`}
+          {suffixPath.length > 0 && realCategory
+            ? ` · ${suffixPath
                 .map((step) => facetValueLabel(realCategory, step.dim, step.value))
                 .join(' / ')}`
             : ''}
