@@ -118,7 +118,8 @@ function buildSimpleChildren(
  *  buildMovieNodes）直接一级、与图书/音乐的类别根并列；图书/音乐为
  *  「类别根（点行=跳该类别清筛选）→ 主维度值叶」两层。叶/形态行计数
  *  走 itemCount（tagtree 0.3.0 起渲染在行尾折叠开关左侧，与开关同占位
- *  色）；计数已按降序返回直接保序；某类别缺失（未同步/拉取失败）
+ *  色），图书/音乐根行亦带 itemCount=类别条目总数；计数已按降序返回
+ *  直接保序；某类别缺失（未同步/拉取失败）
  *  或无值则不出根。叶 tag 保持「类别/维度(+/维度)/值」多段——中间
  *  维度不出现在行 label 但保留在 tag 语义中（选中叶的祖先自动展开
  *  按树结构生效） */
@@ -139,6 +140,9 @@ function buildTree(
       {
         tag: category,
         label: CATEGORY_NOUNS[category],
+        // 根行计数=类别条目总数（items 为全量轻量投影）——不是叶计数之和：
+        // 主维度可能长尾合并（__other__）或有条目无该维度值，求和会偏小
+        itemCount: dims.items.length,
         icon: CATEGORY_ICONS[category],
         children,
       },
