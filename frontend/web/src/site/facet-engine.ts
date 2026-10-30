@@ -189,13 +189,15 @@ export function itemMatches(
 export type DimCounts = { value: string; count: number }[]
 
 /** 聚合：各维度值计数（计数 = 含该值的条目数），排序计数降序、同计数
- *  按值升序。封顶语境（topKUnder 按 filters 判定，分组值叶自身与
- *  分组之下的主维度）优先且独占：值数超上限时仅留计数前 topK，其余
- *  收 __other__（计数 = 含展示集外值的条目数，多值条目只计一次）；
- *  未超上限原样全展——singleton 合并不参与（封顶已保证行数上限，
- *  小桶折叠反而丢信息）。非封顶语境的开启维度 singleton 值 ≥2 个时
- *  收进 __other__ 钉末尾（仅 1 个保留原值）。filters 提供时先按命中集
- *  过滤再聚合（条件聚合，如影视形态层分支内的类型分布） */
+ *  按值升序；例外 decade——年代值叶不按计数排，按年代本身升序（值
+ *  格式统一「YYYYs」，字符串升序即年代先后）。封顶语境（topKUnder
+ *  按 filters 判定，分组值叶自身与分组之下的主维度）优先且独占：值数
+ *  超上限时仅留计数前 topK，其余收 __other__（计数 = 含展示集外值的
+ *  条目数，多值条目只计一次）；未超上限原样全展——singleton 合并
+ *  不参与（封顶已保证行数上限，小桶折叠反而丢信息）。非封顶语境的
+ *  开启维度 singleton 值 ≥2 个时收进 __other__ 钉末尾（仅 1 个保留
+ *  原值）。filters 提供时先按命中集过滤再聚合（条件聚合，如影视形态
+ *  层分支内的类型分布） */
 export function aggregateDims(
   category: MarksCategory,
   items: readonly DoubanDimsItem[],
@@ -209,7 +211,12 @@ export function aggregateDims(
     const list: DimCounts = [...valueCounts(category, dim, scoped)].map(
       ([value, count]) => ({ value, count }),
     )
-    list.sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : 1))
+    // decade 按年代本身升序（见头注释）；其余维度计数降序、同计数值升序
+    if (dim === 'decade') {
+      list.sort((a, b) => (a.value < b.value ? -1 : 1))
+    } else {
+      list.sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : 1))
+    }
     const topK = topKUnder(category, dim, filters)
     if (topK !== undefined) {
       if (list.length > topK) {
