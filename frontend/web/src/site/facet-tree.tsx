@@ -233,6 +233,9 @@ export function FacetTree({
   return (
     <TagTree
       aria-label="分面筛选"
+      // 空树只剩「从未同步」一种可达路径（失败走侧边栏重试行），默认
+      // 「暂无标签」指代不明，换分类语境文案
+      emptyLabel="暂无分类数据"
       expandedTags={expandedTags}
       nodes={nodes}
       onExpandedTagsChange={onExpandedTagsChange}

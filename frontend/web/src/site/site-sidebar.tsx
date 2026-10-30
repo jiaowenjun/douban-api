@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Grid2X2 } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
+import { TextButton } from 'weimo-ui-core/components/text-button'
 import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 
 import type { DoubanDims } from './api'
@@ -44,7 +45,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { uid } = useDoubanUser()
+  const { uid, openLogin } = useDoubanUser()
   const category = resolveMarksView(pathname.split('/')[1])?.category
   // 分面仅真实类别有维度（all 合并视图无分面）
   const realCategory = category !== undefined && category !== ALL_MARKS_TAG
@@ -60,48 +61,67 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
       : undefined
 
   // 条目维度数据：三类别并行查询（轻量投影，聚合/长尾合并/条件计数
-  // 全部由前端 facet-engine 本地算），与列表页共用同一缓存（key 带
-  // uid 作用域，10 分钟新鲜期内类别来回切零请求）；单类别失败/未同步
-  // 该根不出现
+  // 全部由前端 facet-engine 本地算），与列表页共用同一缓存（版本进
+  // query key，版本不变零请求）；失败为 error 态（下方重试行给出口），
+  // 某类别无数据该根不出现
   const movieDims = useDoubanDimsQuery(uid, 'movie')
   const bookDims = useDoubanDimsQuery(uid, 'book')
   const musicDims = useDoubanDimsQuery(uid, 'music')
-  const dimsData: Partial<Record<MarksCategory, DoubanDims>> = {
-    movie: movieDims.data ?? undefined,
-    book: bookDims.data ?? undefined,
-    music: musicDims.data ?? undefined,
-  }
+  // 引用钉住（仅数据真正变化才换新对象）——FacetTree 内部
+  // useMemo([dimsByCategory]) 据此不再被任意重渲染（URL 变化、60s
+  // 版本轮询）击穿而全量重跑 buildTree 聚合；React Compiler 通常会
+  // 自动 memo，这里显式声明意图（与 facet-tree 手写 useMemo 同风格）
+  const dimsData = useMemo<Partial<Record<MarksCategory, DoubanDims>>>(
+    () => ({
+      movie: movieDims.data,
+      book: bookDims.data,
+      music: musicDims.data,
+    }),
+    [movieDims.data, bookDims.data, musicDims.data],
+  )
+
+  // 三类别查询的 settle 观测：全部 isPending（含版本清单未就绪的
+  // disabled 阶段）= 筛选区加载占位；任一 error = 轻量重试行（版本
+  // 轮询成功后 Provider 会自动 refetch error 态查询，重试只是立即出口）
+  const dimsQueries = { movie: movieDims, book: bookDims, music: musicDims }
+  const dimsLoading = MARKS_CATEGORIES.every((c) => dimsQueries[c].isPending)
+  const dimsError = MARKS_CATEGORIES.some((c) => dimsQueries[c].isError)
+  const countsReady =
+    uid !== null && MARKS_CATEGORIES.every((c) => !dimsQueries[c].isPending)
 
   // 导航区节点：全部标记（书影音合并视图入口，图标对齐 biji-side-bar
   // 全部笔记的 Grid2X2；类别导航由筛选树一级根兼任，不在此重复），其
   // 下挂我的评分快捷筛选子节点（点击设 ?rating=，见 handleRatingSelect）。
   // 行尾计数随 dims 数据挂：全部标记=三类别条目总数（dims 全量投影
-  // length 求和，与筛选树类别根/统计区同源——某类别未同步/拉取失败
-  // 数据为 null 计 0，合并视图本就只含已同步类别）；评分子节点=
-  // 键命中数（ratingKeyMatches，'lteN' 区间与后端 <= 比较同口径，
-  // my_rating 随 dims item 平铺下发）。三类别查询全部 settle 才显示
-  // （失败也 settle 为 null 数据），避免加载中途先亮部分和再跳变
-  const dimsQueries = { movie: movieDims, book: bookDims, music: musicDims }
-  const countsReady =
-    uid !== null && MARKS_CATEGORIES.every((c) => !dimsQueries[c].isPending)
-  const navItems = MARKS_CATEGORIES.flatMap(
-    (c) => dimsData[c]?.items ?? [],
-  )
-  const ratingCount = (key: RatingKey) =>
-    navItems.filter((item) => ratingKeyMatches(key, item.my_rating)).length
-  const navNodes: TagTreeNode[] = [
-    {
-      tag: ALL_MARKS_TAG,
-      label: '全部标记',
-      icon: <Grid2X2 aria-hidden="true" />,
-      itemCount: countsReady ? navItems.length : undefined,
-      children: NAV_RATING_STEPS.map(({ key, label }) => ({
-        tag: ratingNavTag(key),
-        label,
-        itemCount: countsReady ? ratingCount(key) : undefined,
-      })),
+  // length 求和，与筛选树类别根/统计区同源——失败/未同步的类别无数据
+  // 计 0，合并视图本就只含已同步类别）；评分子节点=键命中数
+  // （ratingKeyMatches，'lteN' 区间与后端 <= 比较同口径，my_rating 随
+  // dims item 平铺下发）。三类别查询全部 settle 才显示（error 也算
+  // settle），避免加载中途先亮部分和再跳变；useMemo 与 dimsData 同理
+  // 钉住引用，跨类别过滤计数不随无关重渲染重跑
+  const navNodes = useMemo<TagTreeNode[]>(
+    () => {
+      const navItems = MARKS_CATEGORIES.flatMap(
+        (c) => dimsData[c]?.items ?? [],
+      )
+      const ratingCount = (key: RatingKey) =>
+        navItems.filter((item) => ratingKeyMatches(key, item.my_rating)).length
+      return [
+        {
+          tag: ALL_MARKS_TAG,
+          label: '全部标记',
+          icon: <Grid2X2 aria-hidden="true" />,
+          itemCount: countsReady ? navItems.length : undefined,
+          children: NAV_RATING_STEPS.map(({ key, label }) => ({
+            tag: ratingNavTag(key),
+            label,
+            itemCount: countsReady ? ratingCount(key) : undefined,
+          })),
+        },
+      ]
     },
-  ]
+    [countsReady, dimsData],
+  )
 
   // 展开态：类别切换时重置为「当前类别根展开」；用户手动展开的
   // 其他类别在同一类别会话内保留。选中叶子到维度的链路不必记录
@@ -139,8 +159,10 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
           ? `/${target}?facet=${encodeURIComponent(facetPathKey(next))}`
           : `/${target}`,
       )
-      window.scrollTo({ top: 0, behavior: 'smooth' })
     }
+    // 筛选切换后列表整体重排变短，视口回顶两类路径（改参数/跳路由）
+    // 行为一致，避免同视图切换后悬在半空位置
+    window.scrollTo({ top: 0, behavior: 'smooth' })
     onClose()
   }
 
@@ -152,17 +174,45 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
       setSearchParams(rating === key ? {} : { rating: key })
     } else {
       navigate(`/${ALL_MARKS_TAG}?rating=${key}`)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
     }
+    // 回顶口径同 handlePathSelect
+    window.scrollTo({ top: 0, behavior: 'smooth' })
     onClose()
   }
 
-  // 筛选树区：树顶「全部标记」导航节点常在（登录即渲染，聚合加载中
-  // 也可导航），三类别根随聚合数据到位渐次出现——某类别失败/未同步
-  // 该根不出现
-  const facetSection = !uid ? null : (
-    <section aria-label="分面筛选" className="site-sidebar__facet">
-      <div className="site-sidebar__section-hint">分类筛选</div>
+  /** 筛选区重试出口：只重发失败类别的 dims 查询（版本轮询 60s 内
+   *  也会自动 refetch error 态查询，这里是立即恢复的手动出口） */
+  function retryFailedDims() {
+    for (const c of MARKS_CATEGORIES) {
+      if (dimsQueries[c].isError) void dimsQueries[c].refetch()
+    }
+  }
+
+  // 筛选树区三态：未登录给登录引导（分面数据随登录而来，空侧边栏
+  // 需要可发现的入口）；三类别查询全部加载中给占位行——TagTree 默认
+  // 空态「暂无标签」会把加载期误表达为空态；任一类别失败给轻量重试
+  // 行（见 retryFailedDims），已就绪的类别根照常渐次出现
+  const facetBody = !uid ? (
+    <div className="site-sidebar__login-hint">
+      <p>登录豆瓣账号后，可在这里按分类筛选你的书影音标记。</p>
+      <TextButton onClick={openLogin} type="button">
+        登录豆瓣账号
+      </TextButton>
+    </div>
+  ) : dimsLoading ? (
+    <p className="site-sidebar__status" role="status">
+      筛选加载中…
+    </p>
+  ) : (
+    <>
+      {dimsError ? (
+        <div className="site-sidebar__failed">
+          <span>筛选数据暂不可用</span>
+          <TextButton onClick={retryFailedDims} type="button" variant="ghost">
+            重试
+          </TextButton>
+        </div>
+      ) : null}
       <FacetTree
         activeCategory={category}
         dimsByCategory={dimsData}
@@ -171,6 +221,12 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
         onPathSelect={handlePathSelect}
         path={path}
       />
+    </>
+  )
+  const facetSection = (
+    <section aria-label="分面筛选" className="site-sidebar__facet">
+      <div className="site-sidebar__section-hint">分类筛选</div>
+      {facetBody}
     </section>
   )
 

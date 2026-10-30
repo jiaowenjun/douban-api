@@ -31,3 +31,14 @@
   font-size: 13px;
   line-height: 1.4;
 }
+
+/* 失败且无旧数据可回退时的轻量重试行（占位色 + ghost 文字按钮） */
+.sidebar-stats__failed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 12px 4px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+}

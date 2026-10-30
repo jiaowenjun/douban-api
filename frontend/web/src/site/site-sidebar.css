@@ -42,3 +42,40 @@
   font-size: 13px;
   line-height: 1.2;
 }
+
+/* 筛选区加载占位行：节奏对齐统计区的 sidebar-stats__status
+   （section-hint 已带 18px 顶距，这里只补下方呼吸） */
+.site-sidebar__status {
+  margin: 0;
+  padding-block: 2px 4px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* 筛选区失败重试行：占位色文字 + ghost 文字按钮，不夺统计区视觉 */
+.site-sidebar__failed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 2px 4px;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* 未登录筛选区登录引导：文案 + 按钮纵排，文案与占位行同色系 */
+.site-sidebar__login-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 2px 4px;
+}
+
+.site-sidebar__login-hint p {
+  margin: 0;
+  color: var(--color-text-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+}
