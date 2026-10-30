@@ -64,15 +64,15 @@ function topKOf(category: MarksCategory, dim: string): number | undefined {
   return DIMENSIONS[category].find((d) => d.key === dim)?.topK
 }
 
-/** movie/genre 在 country 步之下（电影形态国家值叶的三级类型层）的
+/** movie/genre 在 country 步之下（各形态国家值叶的三级类型层）的
  *  封顶值：五个最多的类型 + 其他类型 */
 const GENRE_TOP_K_UNDER_COUNTRY = 5
 
 /** 维度在给定步骤序列下的树上展示值上限：country 恒为 DIMENSIONS
  *  配置的 topK（国家值叶前五）；movie/genre 仅当序列含 country 步时
- *  封顶（GENRE_TOP_K_UNDER_COUNTRY），其余场合（形态直挂两层的
- *  类型叶）不封顶、走 singleton 合并——展示聚合（传 filters）与
- *  __other__ 匹配（传该步前缀）两侧同源此判定，口径唯一 */
+ *  封顶（GENRE_TOP_K_UNDER_COUNTRY），其余场合（无国家数据形态的
+ *  兜底两层类型叶）不封顶、走 singleton 合并——展示聚合（传
+ *  filters）与 __other__ 匹配（传该步前缀）两侧同源此判定，口径唯一 */
 function topKUnder(
   category: MarksCategory,
   dim: string,

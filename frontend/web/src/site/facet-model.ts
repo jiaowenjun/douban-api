@@ -2,7 +2,7 @@ import type { MarksCategory, NavTarget } from './navigation'
 
 /** 分面维度的展示顺序与文案（键集合由后端保证，顺序与命名归前端）。
  *  作 URL ?facet= 白名单校验与 meta 行文案；树上按维度另配展示规则：
- *  影视走 is_tv→（电影形态经 country 值叶）→主维度 分层（见
+ *  影视各形态走 is_tv→country 值叶→主维度 三层（见
  *  PRIMARY_DIMENSION），country 值叶封顶（条目 topK=5）、country 下
  *  的 genre 三级封顶为条件规则——均见 facet-engine topKUnder；
  *  图书/音乐为主维度单层值叶 */
