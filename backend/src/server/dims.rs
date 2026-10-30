@@ -1,4 +1,5 @@
-//! 条目维度数据（标签树的纯数据源）——按维度投影每条标记的元信息，
+//! 条目维度数据（标签树的纯数据源）——按维度投影每条标记的元信息
+//! （条目维度走 dims 对象，标记级字段 my_rating 平铺在 item 顶层），
 //! 不做任何聚合/过滤/排序计数/长尾合并等展示决策（那些归前端
 //! facet-engine）。数据合成口径与列表页一致：subjects 已富集用
 //! rexxar meta，未富集回退 intro 启发式（load_views 共用管线）。
@@ -111,6 +112,9 @@ pub async fn subject_dims(
             json!({
                 "id": record.subject_id,
                 "date": record.date,
+                // 标记级字段（用户自己的评分，非条目维度）：前端「全部
+                // 标记」导航子节点按它计数，随维度投影一并下发
+                "my_rating": record.my_rating,
                 "dims": project_dims(category, view),
             })
         })

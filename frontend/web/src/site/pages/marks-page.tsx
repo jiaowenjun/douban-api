@@ -20,6 +20,8 @@ import {
   CATEGORY_UNIT_NOUNS,
   DEFAULT_MARKS_PATH,
   moviePageTitle,
+  parseRatingParam,
+  RATING_NOUNS,
   resolveMarksView,
 } from '../navigation'
 import './marks-page.css'
@@ -54,6 +56,10 @@ export function MarksPage() {
   const facetPath = realCategory
     ? parseFacetPath(realCategory, searchParams.get('facet'))
     : []
+  // 我的评分筛选（侧边栏「全部标记」子节点写入）：仅 all 合并视图有
+  // 此参数，非法值按无筛选处理（后端仍会兜底校验）
+  const rating =
+    marksCategory === 'all' ? parseRatingParam(searchParams.get('rating')) : undefined
   // 占位文案展示名：movie 随形态（真一级，无「影视」聚合名；形态步由
   // App 的 MarksRoute 重定向保证，兜底电影），其余类别用页面标题
   const displayTitle =
@@ -80,13 +86,16 @@ export function MarksPage() {
     category: marksCategory ?? null,
     page: 1,
     ids: matchedIds?.slice(0, PAGE_SIZE),
+    rating,
     enabled: uid !== null && marksCategory !== undefined && matchedIds !== null,
   })
 
   // 加载更多累积页（page ≥ 2 的追加数据）：列表身份变化（uid/类别/
-  // 筛选）时按 key 比对清空（render 期调整，模式同旧 snapshot）
+  // 筛选/评分）时按 key 比对清空（render 期调整，模式同旧 snapshot）
   const listKey =
-    uid && marksCategory ? `${uid}|${marksCategory}|${facetKey}` : null
+    uid && marksCategory
+      ? `${uid}|${marksCategory}|${facetKey}|${rating ?? ''}`
+      : null
   const [moreSnapshot, setMoreSnapshot] = useState<{
     key: string | null
     pages: DoubanMark[][]
@@ -148,6 +157,7 @@ export function MarksPage() {
       category: marksCategory,
       page: nextPage,
       ids: matchedIds?.slice((nextPage - 1) * PAGE_SIZE, nextPage * PAGE_SIZE),
+      rating,
     })
     setMoreSnapshot((s) => {
       // 期间类别/筛选已切换：丢弃迟到页（对齐旧 seqRef 竞态防护）
@@ -214,7 +224,8 @@ export function MarksPage() {
     const syncedDate = formatDate(state.cachedAt)
     // meta 行名词：影视筛了电影/电视剧形态时提升为该形态（…部电影/
     // …部电视剧），该步从后缀去除避免「部电影 · 电影」重复；未分类
-    // 形态与其他类别不提升。all 合并视图为「已标记 N 条书影音」
+    // 形态与其他类别不提升。all 合并视图为「已标记 N 条书影音」，评分
+    // 筛选时后缀追加「· 我的N星标记」
     const kindStep =
       realCategory === 'movie'
         ? facetPath.find((step) => step.dim === 'is_tv')
@@ -238,6 +249,7 @@ export function MarksPage() {
                 .map((step) => facetValueLabel(realCategory, step.dim, step.value))
                 .join(' / ')}`
             : ''}
+          {rating ? ` · 我的${RATING_NOUNS[rating]}标记` : ''}
           {syncedDate ? ` · 同步于 ${syncedDate}` : ''}
         </p>
         <ul className="marks-list">

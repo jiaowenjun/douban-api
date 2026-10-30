@@ -836,11 +836,14 @@ pub struct AllMarksPage {
 /// 返回（已同步部分的记录），三类别全未同步才 DIMENSION_NOT_CACHED；
 /// cached_at/fresh 取三维度最近一次抓取。排序与单类别一致
 /// （date DESC, rowid），跨类别按日期自然归并；Record.category 用行
-/// 自身类别（expand=subject 时路由层按它分组查视图）
+/// 自身类别（expand=subject 时路由层按它分组查视图）。
+/// rating 为我的评分筛选（1-5 星，路由层已校验；None=不过滤），
+/// 计数与列表同口径加 `my_rating = ?`
 pub async fn read_all_marks(
     state: &AppState,
     uid: &str,
     status: Status,
+    rating: Option<i64>,
     page: i64,
     page_size: i64,
 ) -> AppResult<AllMarksPage> {
@@ -865,21 +868,27 @@ pub async fn read_all_marks(
     }
 
     let page_size = page_size.max(1);
-    let total: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?")
-            .bind(uid)
-            .bind(status.key())
-            .fetch_one(&state.pool)
-            .await?;
+    // 评分筛选子句拼进两条 SQL（与 ids 模式的 placeholders 拼装同款）：
+    // 值为路由层校验过的 1-5 整数，内联无注入面
+    let rating_clause = rating
+        .map(|r| format!(" AND my_rating = {r}"))
+        .unwrap_or_default();
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?{rating_clause}"
+    ))
+    .bind(uid)
+    .bind(status.key())
+    .fetch_one(&state.pool)
+    .await?;
     let offset = (page - 1).max(0) * page_size;
-    let rows = sqlx::query(
+    let rows = sqlx::query(&format!(
         "SELECT category, subject_id, title, alt_title, my_rating, date, comment,
                 subject_url, cover, comment_id, intro
          FROM records
-         WHERE uid = ? AND dim_status = ?
+         WHERE uid = ? AND dim_status = ?{rating_clause}
          ORDER BY date DESC, rowid
-         LIMIT ? OFFSET ?",
-    )
+         LIMIT ? OFFSET ?"
+    ))
     .bind(uid)
     .bind(status.key())
     .bind(page_size)

@@ -18,26 +18,25 @@ import { SidebarHeader } from './sidebar-header'
 import { SidebarStats } from './sidebar-stats'
 import {
   ALL_MARKS_TAG,
+  MARKS_CATEGORIES,
+  NAV_RATING_STEPS,
+  parseRatingParam,
+  ratingNavTag,
   resolveMarksView,
   type MarksCategory,
   type NavTarget,
 } from './navigation'
 import './site-sidebar.css'
 
-/** 导航区节点：全部标记（书影音合并视图入口，图标对齐 biji-side-bar
- *  全部笔记的 Grid2X2；类别导航由筛选树一级根兼任，不在此重复） */
-const navNodes: TagTreeNode[] = [
-  { tag: ALL_MARKS_TAG, label: '全部标记', icon: <Grid2X2 aria-hidden="true" /> },
-]
-
 /** 站点侧边栏：整体接管模板 sidebar 插槽，布局对齐 weimo-biji 的
  *  biji-side-bar——身份栏固定在顶，滚动主体依次为标记统计区
- *  （StatGroup/Heatmap）→ 导航区（全部标记）→ 分面筛选树（影视各
- *  形态提升一级、图书/音乐为分组值叶→主维度值叶三层；类别根/形态
- *  节点带图标，图书/音乐根点行=跳该类别清筛选兼任导航，影视形态
- *  节点点行=设形态筛选）。
+ *  （StatGroup/Heatmap）→ 导航区（全部标记，下挂我的评分子节点）→
+ *  分面筛选树（影视各形态提升一级、图书/音乐为分组值叶→主维度值叶
+ *  三层；类别根/形态节点带图标，图书/音乐根点行=跳该类别清筛选兼任
+ *  导航，影视形态节点点行=设形态筛选）。
  *  筛选路径经 URL ?facet=dim=value;… 与列表页共享（侧边栏写、列表页
- *  读，影视叶为 is_tv+genre 双条件）；类别切换天然清除筛选。
+ *  读，影视叶为 is_tv+genre 双条件）；评分筛选走 ?rating=N（仅全部
+ *  标记视图）；类别切换天然清除筛选。
  *  onClose 供窄屏抽屉在选中后收起 */
 export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
@@ -52,6 +51,11 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const path = realCategory
     ? parseFacetPath(realCategory, searchParams.get('facet'))
     : []
+  // 我的评分筛选（仅 all 合并视图有此参数；非法值按无筛选处理）
+  const rating =
+    category === ALL_MARKS_TAG
+      ? parseRatingParam(searchParams.get('rating'))
+      : undefined
 
   // 条目维度数据：三类别并行查询（轻量投影，聚合/长尾合并/条件计数
   // 全部由前端 facet-engine 本地算），与列表页共用同一缓存（key 带
@@ -65,6 +69,37 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     book: bookDims.data ?? undefined,
     music: musicDims.data ?? undefined,
   }
+
+  // 导航区节点：全部标记（书影音合并视图入口，图标对齐 biji-side-bar
+  // 全部笔记的 Grid2X2；类别导航由筛选树一级根兼任，不在此重复），其
+  // 下挂我的评分快捷筛选子节点（点击设 ?rating=，见 handleRatingSelect）。
+  // 行尾计数随 dims 数据挂：全部标记=三类别条目总数（dims 全量投影
+  // length 求和，与筛选树类别根/统计区同源——某类别未同步/拉取失败
+  // 数据为 null 计 0，合并视图本就只含已同步类别）；评分子节点=
+  // my_rating 命中数（my_rating 随 dims item 平铺下发）。三类别查询
+  // 全部 settle 才显示（失败也 settle 为 null 数据），避免加载中途先
+  // 亮部分和再跳变
+  const dimsQueries = { movie: movieDims, book: bookDims, music: musicDims }
+  const countsReady =
+    uid !== null && MARKS_CATEGORIES.every((c) => dimsQueries[c].isSuccess)
+  const navItems = MARKS_CATEGORIES.flatMap(
+    (c) => dimsData[c]?.items ?? [],
+  )
+  const ratingCount = (value: number) =>
+    navItems.filter((item) => item.my_rating === value).length
+  const navNodes: TagTreeNode[] = [
+    {
+      tag: ALL_MARKS_TAG,
+      label: '全部标记',
+      icon: <Grid2X2 aria-hidden="true" />,
+      itemCount: countsReady ? navItems.length : undefined,
+      children: NAV_RATING_STEPS.map(({ value, label }) => ({
+        tag: ratingNavTag(value),
+        label,
+        itemCount: countsReady ? ratingCount(value) : undefined,
+      })),
+    },
+  ]
 
   // 展开态：类别切换时重置为「当前类别根展开」；用户手动展开的
   // 其他类别在同一类别会话内保留。选中叶子到维度的链路不必记录
@@ -107,6 +142,19 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
+  /** 「全部标记」评分子节点：目标必为 all——已在 all 视图改 ?rating=
+   *  即生效（再点同评分取消，父行点击经 handlePathSelect 空路径全清），
+   *  在其他类别则跳路由携带 */
+  function handleRatingSelect(value: number) {
+    if (category === ALL_MARKS_TAG) {
+      setSearchParams(rating === value ? {} : { rating: String(value) })
+    } else {
+      navigate(`/${ALL_MARKS_TAG}?rating=${value}`)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    onClose()
+  }
+
   // 筛选树区：树顶「全部标记」导航节点常在（登录即渲染，聚合加载中
   // 也可导航），三类别根随聚合数据到位渐次出现——某类别失败/未同步
   // 该根不出现
@@ -134,9 +182,24 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
             aria-label="条目导航"
             nodes={navNodes}
             onSelect={(tag) => {
-              if (tag === ALL_MARKS_TAG) handlePathSelect(ALL_MARKS_TAG, [])
+              if (tag === ALL_MARKS_TAG) {
+                handlePathSelect(ALL_MARKS_TAG, [])
+                return
+              }
+              const hit = NAV_RATING_STEPS.find(
+                (step) => ratingNavTag(step.value) === tag,
+              )
+              if (hit) handleRatingSelect(hit.value)
             }}
-            selectedTag={category === ALL_MARKS_TAG ? ALL_MARKS_TAG : undefined}
+            // 选中指示两档：all 视图评分筛选中选中对应子节点（祖先
+            // 自动展开），否则当前导航目标顶上
+            selectedTag={
+              category === ALL_MARKS_TAG
+                ? rating
+                  ? ratingNavTag(rating)
+                  : ALL_MARKS_TAG
+                : undefined
+            }
             variant="no-action"
           />
         </nav>

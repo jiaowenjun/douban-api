@@ -626,6 +626,154 @@ async fn marks_pagination_and_not_cached() {
     assert_eq!(v["error"]["code"], "DIMENSION_NOT_CACHED");
 }
 
+/// 直插一条最小记录（评分筛选测试用）：comment_id 兼作主键去重键
+fn rated_record(subject_id: &str, comment_id: &str, rating: Option<u8>, date: &str) -> Record {
+    Record {
+        title: format!("T-{subject_id}"),
+        subject_id: subject_id.to_string(),
+        comment_id: comment_id.to_string(),
+        my_rating: rating,
+        date: date.to_string(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn all_marks_rating_filter_and_validation() {
+    let (_dir, state) = setup().await;
+    // 跨 movie/book 两类别各两条：五星×2（跨类别）、四星×1、未评×1——
+    // 验证合并视图按 my_rating 过滤时计数与条目同口径、跨类别按日期归并
+    seed_ok_dimension(
+        &state,
+        Category::Movie,
+        vec![
+            rated_record("m1", "c1", Some(5), "2026-01-03"),
+            rated_record("m2", "c2", Some(4), "2026-01-02"),
+        ],
+    )
+    .await;
+    seed_ok_dimension(
+        &state,
+        Category::Book,
+        vec![
+            rated_record("b1", "c3", Some(5), "2026-01-04"),
+            rated_record("b2", "c4", None, "2026-01-01"),
+        ],
+    )
+    .await;
+
+    let app = build_app(state.clone());
+    // 无筛选：4 条
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 4);
+
+    // rating=5：跨类别命中 2 条，日期倒序（book 更新在前），未评不入档
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect&rating=5",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 2);
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["subject_id"], "b1");
+    assert_eq!(items[1]["subject_id"], "m1");
+    assert_eq!(items[0]["my_rating"], 5);
+
+    // rating=4：单条
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect&rating=4",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 1);
+    assert_eq!(v["items"][0]["subject_id"], "m2");
+
+    // rating=1：无命中返回空页（total=0 而非 404）
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect&rating=1",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 0);
+    assert_eq!(v["items"].as_array().unwrap().len(), 0);
+
+    // 非法星级与单类别携带 rating 均 400
+    let (code, v) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect&rating=6",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST, "{v}");
+    assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=movie&status=collect&rating=5",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST, "{v}");
+    assert_eq!(v["error"]["code"], "INVALID_ARGUMENT");
+}
+
+#[tokio::test]
+async fn subject_dims_carries_my_rating_per_item() {
+    let (_dir, state) = setup().await;
+    // 标记级评分随维度投影平铺在 item 顶层（未评为 null）——前端
+    // 「全部标记」导航子节点按它跨类别计数
+    seed_ok_dimension(
+        &state,
+        Category::Movie,
+        vec![
+            rated_record("m1", "c1", Some(5), "2026-01-03"),
+            rated_record("m2", "c2", None, "2026-01-02"),
+        ],
+    )
+    .await;
+
+    let app = build_app(state);
+    let (code, v) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/subject-dims?category=movie&status=collect",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["total"], 2);
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items[0]["id"], "m1");
+    assert_eq!(items[0]["my_rating"], 5);
+    assert_eq!(items[1]["id"], "m2");
+    assert_eq!(items[1]["my_rating"], Value::Null);
+}
+
 // --------------------------------------------------------------------------- //
 // 封面代理（cache-then-serve）：URL 改写 + 白名单 + 磁盘命中 + 鉴权
 // --------------------------------------------------------------------------- //

@@ -69,6 +69,41 @@ export function isMarksCategory(value: string): value is MarksCategory {
   return value in CATEGORY_NOUNS
 }
 
+// --------------------------------------------------------------------------- //
+// 我的评分筛选（「全部标记」视图专用，URL ?rating=N）
+// --------------------------------------------------------------------------- //
+
+/** 星级 → 中文名词（meta 行/文案用）；键即后端 my_rating 取值 1-5 */
+export const RATING_NOUNS: Record<number, string> = {
+  1: '一星',
+  2: '二星',
+  3: '三星',
+  4: '四星',
+  5: '五星',
+}
+
+/** 「全部标记」导航子节点：我的评分快捷筛选入口（后端 marks 端点
+ *  rating 参数仅 all 合并视图支持——单类别筛选走前端 dims ids 模式，
+ *  评分不在其中，故入口只挂 all 下） */
+export const NAV_RATING_STEPS: readonly { value: number; label: string }[] = [
+  { value: 5, label: '我的五星标记' },
+  { value: 4, label: '我的四星标记' },
+]
+
+/** 导航树评分子节点 tag（「全部标记」树内层级路径，拼装风格与 facet
+ *  树的 类别/维度/值 一致） */
+export function ratingNavTag(rating: number): string {
+  return `${ALL_MARKS_TAG}/rating/${rating}`
+}
+
+/** URL ?rating= 参数 → 1-5 星（缺省/非法 undefined 按无筛选处理，
+ *  后端仍会兜底校验） */
+export function parseRatingParam(raw: string | null): number | undefined {
+  if (!raw) return undefined
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 1 && n <= 5 ? n : undefined
+}
+
 export type MarksView = {
   activeItemId: string
   category: NavTarget

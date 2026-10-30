@@ -26,7 +26,8 @@ export const MARKS_PAGE_SIZE = 20
 
 /** 层级 query key 工厂（对齐 biji workspaceQueryKeys 模式）：uid 作用域
  *  → 数据域 → 参数。marks 的 ids 为筛选命中 id 切片 join（subject_id
- *  纯数字不含逗号），null = 无筛选 */
+ *  纯数字不含逗号），null = 无筛选；rating 为「全部标记」视图的我的
+ *  评分筛选（1-5 星，null = 无筛选） */
 export const doubanQueryKeys = {
   all: ['douban'] as const,
   uid: (uid: string) => ['douban', uid] as const,
@@ -39,12 +40,18 @@ export const doubanQueryKeys = {
     category: string,
     page: number,
     ids: readonly string[] | null | undefined,
+    rating?: number | null,
   ) =>
     [
       ...doubanQueryKeys.uid(uid),
       'marks',
       category,
-      { page, pageSize: MARKS_PAGE_SIZE, ids: ids?.join(',') ?? null },
+      {
+        page,
+        pageSize: MARKS_PAGE_SIZE,
+        ids: ids?.join(',') ?? null,
+        rating: rating ?? null,
+      },
     ] as const,
 }
 
@@ -92,21 +99,36 @@ export function useDoubanDimsQuery(
 }
 
 /** 标记页查询（列表首页用）。ids 为筛选命中的当页 id 切片（顺序权威
- *  在前端），无筛选为 undefined；是否发请求由调用方经 enabled 门控
- *  （如筛选态须等 dims 就绪才算出 ids） */
+ *  在前端），无筛选为 undefined；rating 为「全部标记」视图的评分筛选；
+ *  是否发请求由调用方经 enabled 门控（如筛选态须等 dims 就绪才算出
+ *  ids） */
 export function useDoubanMarksPageQuery(args: {
   uid: string | null
   category: string | null
   page: number
   ids?: readonly string[] | null
+  rating?: number | null
   enabled: boolean
 }) {
   const uid = args.uid ?? ''
   const category = args.category ?? ''
   return useQuery({
-    queryKey: doubanQueryKeys.marksPage(uid, category, args.page, args.ids),
+    queryKey: doubanQueryKeys.marksPage(
+      uid,
+      category,
+      args.page,
+      args.ids,
+      args.rating,
+    ),
     queryFn: () =>
-      fetchDoubanMarks(uid, category, args.page, MARKS_PAGE_SIZE, args.ids),
+      fetchDoubanMarks(
+        uid,
+        category,
+        args.page,
+        MARKS_PAGE_SIZE,
+        args.ids,
+        args.rating,
+      ),
     ...cacheOptions,
     enabled: args.enabled,
   })
@@ -119,6 +141,7 @@ export function fetchDoubanMarksPage(args: {
   category: string
   page: number
   ids?: readonly string[] | null
+  rating?: number | null
 }): Promise<MarksResult> {
   return queryClient.fetchQuery({
     queryKey: doubanQueryKeys.marksPage(
@@ -126,6 +149,7 @@ export function fetchDoubanMarksPage(args: {
       args.category,
       args.page,
       args.ids,
+      args.rating,
     ),
     queryFn: () =>
       fetchDoubanMarks(
@@ -134,6 +158,7 @@ export function fetchDoubanMarksPage(args: {
         args.page,
         MARKS_PAGE_SIZE,
         args.ids,
+        args.rating,
       ),
     ...cacheOptions,
   })
