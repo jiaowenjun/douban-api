@@ -11,6 +11,8 @@ import {
 import {
   CATEGORY_NOUNS,
   DEFAULT_MARKS_PATH,
+  DEFAULT_MOVIE_KIND,
+  moviePageTitle,
   resolveMarksView,
 } from './site/navigation'
 import {
@@ -29,11 +31,13 @@ function useMarksViewFromLocation() {
   return resolveMarksView(category)
 }
 
-/** 顶栏前置区：真实类别页常显标签面包屑——无筛选单段类别名（page 级
- *  不可点），筛选激活时「类别名/步骤值…」（影视叶为 影视/电影/科幻
- *  三段，值走 facetValueLabel）；点中间级=截断到该步，点首级类别名=
- *  清除筛选回全量。all/演示页返回 undefined，回落模板默认的 pageTitle
- *  标签（pageTitle 始终驱动 document.title） */
+/** 顶栏前置区：真实类别页常显标签面包屑。图书/音乐为「类别名/步骤
+ *  值…」（无筛选单段类别名，page 级不可点）；movie 无类别段——首步
+ *  形态值（电影/电视剧）即根段（真一级，无「影视」聚合名；裸 /movie
+ *  已被 MarksRoute 重定向补形态步，理论必有）。点中间级=截断到该步
+ *  （movie 根段点击=截到形态单步，图书/音乐根级点击=清空回全量）；
+ *  all/演示页返回 undefined，回落模板默认的 pageTitle 标签（pageTitle
+ *  始终驱动 document.title） */
 function useFacetBreadcrumb() {
   const { pathname } = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -41,36 +45,79 @@ function useFacetBreadcrumb() {
   if (!view || view.category === 'all') return undefined
   const category = view.category
   const path = parseFacetPath(category, searchParams.get('facet'))
-  const noun = CATEGORY_NOUNS[category]
+  const stepLabels = path.map((step) =>
+    facetValueLabel(category, step.dim, step.value),
+  )
+  const tag = (
+    category === 'movie'
+      ? stepLabels
+      : [CATEGORY_NOUNS[category], ...stepLabels]
+  ).join('/')
+  if (!tag) return undefined
 
   return (
     <TagBread
       onSelect={(sub) => {
-        // sub 为截至该级的路径（类别名 或 类别名/第一步值）：
-        // 首级=清空，其余=截断到该步（值可能含 / 的边缘场景按段数截断）
+        // sub 为截至该级的路径，kept=保留的步骤数：图书/音乐首级是
+        // 类别名 kept=0=清空；movie 首级即形态步 kept=1（值可能含 /
+        // 的边缘场景按段数截断）
         const kept = sub.split('/').length - 1
         setSearchParams(
           kept > 0 ? { facet: facetPathKey(path.slice(0, kept)) } : {},
         )
       }}
-      tag={[
-        noun,
-        ...path.map((step) => facetValueLabel(category, step.dim, step.value)),
-      ].join('/')}
+      tag={tag}
     />
   )
 }
 
+/** /:category 路由外壳：movie 的电影/电视剧是真一级——无形态步
+ *  （is_tv）的路径（裸 /movie 或手改 URL 缺步）重定向规范为补默认
+ *  形态前置步、保留其余步骤（replace 不留历史），「影视」聚合页随之
+ *  不复存在 */
+function MarksRoute() {
+  const { pathname } = useLocation()
+  const [searchParams] = useSearchParams()
+  if (pathname.split('/')[1] === 'movie') {
+    const path = parseFacetPath('movie', searchParams.get('facet'))
+    if (!path.some((step) => step.dim === 'is_tv')) {
+      const canonical = facetPathKey([
+        { dim: 'is_tv', value: DEFAULT_MOVIE_KIND },
+        ...path,
+      ])
+      return (
+        <Navigate
+          replace
+          to={`/movie?facet=${encodeURIComponent(canonical)}`}
+        />
+      )
+    }
+  }
+  return <MarksPage />
+}
+
 function SiteShell() {
   const { pathname } = useLocation()
+  const [searchParams] = useSearchParams()
   const view = useMarksViewFromLocation()
   // 演示页不在主导航，顶栏标题单独给
   const isDemo = pathname === DEMO_MARK_CARD_PATH
   const topBarLeading = useFacetBreadcrumb()
+  // movie 标题随形态（真一级，无「影视」聚合名；形态步由 MarksRoute
+  // 保证存在，find 不到仅重定向前一帧的兜底）；其余类别/全部标记原样
+  const pageTitle = isDemo
+    ? 'MarkCard 演示'
+    : view && view.category === 'movie'
+      ? moviePageTitle(
+          parseFacetPath('movie', searchParams.get('facet')).find(
+            (step) => step.dim === 'is_tv',
+          )?.value,
+        )
+      : view?.pageTitle
 
   return (
     <SiteTemplate
-      pageTitle={isDemo ? 'MarkCard 演示' : view?.pageTitle}
+      pageTitle={pageTitle}
       showSidebarCloseButton={false}
       // 顶栏右侧主题切换让位给搜索入口（主题仍随系统 defaultTheme 同步 html.dark）
       showThemeToggle={false}
@@ -82,7 +129,7 @@ function SiteShell() {
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
         <Route element={<MarkCardDemoPage />} path={DEMO_MARK_CARD_PATH} />
-        <Route element={<MarksPage />} path="/:category" />
+        <Route element={<MarksRoute />} path="/:category" />
         <Route
           element={<Navigate replace to={DEFAULT_MARKS_PATH} />}
           path="*"

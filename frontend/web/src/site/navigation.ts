@@ -21,13 +21,25 @@ export const MARKS_CATEGORIES: readonly MarksCategory[] = [
   'music',
 ]
 
-/** 类别中文名；movie 显示「影视」——该维度实际混合电影与电视剧
- *  （rexxar is_tv 区分，见《条目元信息富集方案》），豆瓣 movie 类目
- *  本身就包含剧集 */
+/** 类别中文名；movie 值「影视」仅作 isMarksCategory 的键与不可达
+ *  兜底——电影/电视剧是真一级（裸 /movie 由 App 的 MarksRoute 重定向
+ *  补形态步，展示名见 moviePageTitle），聚合名不再对外展示；book/
+ *  music 为类别根/标题/统计行用名 */
 export const CATEGORY_NOUNS: Record<MarksCategory, string> = {
   book: '图书',
   movie: '影视',
   music: '音乐',
+}
+
+/** movie 缺形态步（is_tv）时的规范默认形态——裸 /movie 由 App 的
+ *  MarksRoute 重定向补此步，标题/文案兜底同用（值硬编码中文与
+ *  marks-page/facet-tree 的形态值比对同款） */
+export const DEFAULT_MOVIE_KIND = '电影'
+
+/** movie 页展示标题（document.title/占位文案）：形态即一级（电影/
+ *  电视剧），无「影视」聚合名；kind 为 is_tv 步值，缺省兜底 */
+export function moviePageTitle(kind: string | undefined): string {
+  return `看过的${kind ?? DEFAULT_MOVIE_KIND}`
 }
 
 /** 页面标题动词：看过的影视 / 读过的图书 / 听过的音乐 */
@@ -44,9 +56,9 @@ export const CATEGORY_PAST_VERBS: Record<MarksCategory, string> = {
   music: '已听过',
 }
 
-/** 列表 meta 行量词名词，与 CATEGORY_PAST_VERBS 配对拼「已看过 183
- *  部影视」；影视筛了电影/电视剧形态时列表页把名词提升为该形态
- *  （…部电影/…部电视剧，见 marks-page meta 行） */
+/** 列表 meta 行量词名词，与 CATEGORY_PAST_VERBS 配对拼「已读过 55
+ *  本书」；电影/电视剧形态提升为名词（…部电影/…部电视剧，见
+ *  marks-page meta 行），movie 值仅未分类形态兜底（富集完成后归零） */
 export const CATEGORY_UNIT_NOUNS: Record<MarksCategory, string> = {
   book: '本书',
   movie: '部影视',
@@ -80,6 +92,11 @@ export function resolveMarksView(
   return {
     activeItemId: category,
     category,
-    pageTitle: `${CATEGORY_VERBS[category]}过的${CATEGORY_NOUNS[category]}`,
+    // movie 标题实际由 App 按形态覆盖（形态步经 MarksRoute 保证存在），
+    // 此处仅无 facet 一帧的兜底；book/music 为「动词过的类别名」
+    pageTitle:
+      category === 'movie'
+        ? moviePageTitle(undefined)
+        : `${CATEGORY_VERBS[category]}过的${CATEGORY_NOUNS[category]}`,
   }
 }

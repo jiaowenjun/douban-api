@@ -1,17 +1,22 @@
 import type { MarksCategory, NavTarget } from './navigation'
 
 /** 分面维度的展示顺序与文案（键集合由后端保证，顺序与命名归前端）。
- *  仅作 URL ?facet= 白名单校验与 meta 行文案——树上不展示全维度：
- *  影视走 is_tv→主维度 分层（见 PRIMARY_DIMENSION），图书/音乐为
- *  主维度单层值叶 */
+ *  作 URL ?facet= 白名单校验与 meta 行文案；树上按维度另配展示规则：
+ *  影视走 is_tv→（电影形态经 country 值叶）→主维度 分层（见
+ *  PRIMARY_DIMENSION），country 值叶封顶（条目 topK=5）、country 下
+ *  的 genre 三级封顶为条件规则——均见 facet-engine topKUnder；
+ *  图书/音乐为主维度单层值叶 */
 export const DIMENSIONS: Record<
   MarksCategory,
-  readonly { key: string; label: string }[]
+  readonly { key: string; label: string; topK?: number; otherLabel?: string }[]
 > = {
   movie: [
     { key: 'genre', label: '类型' },
     { key: 'is_tv', label: '形态' },
-    { key: 'country', label: '国家/地区' },
+    // topK：树上仅展示计数前五的值，其余收进其他桶（facet-engine 聚合
+    // 与 __other__ 匹配同源此值）；otherLabel：其他桶展示名（缺省
+    // 「其他+维度名」→ 此处按需作「其他地区」）
+    { key: 'country', label: '国家/地区', topK: 5, otherLabel: '其他地区' },
     { key: 'decade', label: '年代' },
     { key: 'director', label: '导演' },
   ],
@@ -47,28 +52,22 @@ export const PRIMARY_DIMENSION: Record<
 export const KIND_DIMENSION: { key: 'is_tv'; label: string } | null =
   { key: 'is_tv', label: '形态' }
 
-/** 维度键 → 展示名（查不到时回退键本身） */
-export function facetDimLabel(
-  category: MarksCategory,
-  dim: string,
-): string {
-  return DIMENSIONS[category].find((d) => d.key === dim)?.label ?? dim
-}
-
 /** 后端长尾合并的保留字面量（计数 1 的值聚合进它，仅影视类型与图书
- *  出版社开启），与后端 facets::OTHER_VALUE 对齐 */
+ *  出版社开启；topK 封顶的其余桶亦复用它——country 值叶与 country
+ *  下的 genre 三级，同一次聚合封顶与 singleton 二选一，见
+ *  facet-engine），与后端 facets::OTHER_VALUE 对齐 */
 export const OTHER_FACET_VALUE = '__other__'
 
-/** 值的展示名：保留字面量 → 「其他+维度名」（其他类型/其他出版社），
- *  其余原样 */
+/** 值的展示名：保留字面量 → 维度配置的 otherLabel（其他地区），缺省
+ *  「其他+维度名」（其他类型/其他出版社），其余原样 */
 export function facetValueLabel(
   category: MarksCategory,
   dim: string,
   value: string,
 ): string {
-  return value === OTHER_FACET_VALUE
-    ? `其他${facetDimLabel(category, dim)}`
-    : value
+  if (value !== OTHER_FACET_VALUE) return value
+  const entry = DIMENSIONS[category].find((d) => d.key === dim)
+  return entry?.otherLabel ?? `其他${entry?.label ?? dim}`
 }
 
 /** 一步筛选（dim/value 均为后端原始值，不转义） */

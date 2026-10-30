@@ -50,11 +50,38 @@ type TreeIndex = {
   byTag: Map<string, TagAction>
 }
 
-/** 影视形态一级节点（两层）：各形态（is_tv 派生：电影/电视剧/未分类，
- *  计数取全局聚合）直接作一级节点——无「影视」类别根（原挂其下，
- *  提升后少一层钻取），图标对齐类别根观感——其下挂主维度值叶
- *  （条件聚合，__other__ 显示「其他类型」）。形态行点击=单步筛选，
- *  值叶点击=形态+主维度双条件 */
+/** 主维度（类型）值叶构建（条件聚合按 filters 前缀，叶路径=
+ *  filters+叶步）：影视分支复用——非电影形态直挂形态节点下（两层），
+ *  电影形态挂国家/地区值叶下（三层） */
+function buildPrimaryLeaves(
+  items: DoubanDims['items'],
+  filters: readonly FacetStep[],
+  parentTag: string,
+  byTag: Map<string, TagAction>,
+): TagTreeNode[] {
+  const { key: leafDim } = PRIMARY_DIMENSION.movie
+  const scoped = aggregateDims('movie', items, filters)
+  return (scoped[leafDim] ?? []).map(({ value, count }) => {
+    const tag = `${parentTag}/${leafDim}/${escapeFacetValue(value)}`
+    byTag.set(tag, {
+      category: 'movie',
+      path: [...filters, { dim: leafDim, value }],
+    })
+    return {
+      tag,
+      label: facetValueLabel('movie', leafDim, value),
+      itemCount: count,
+    }
+  })
+}
+
+/** 影视形态一级节点：各形态（is_tv 派生：电影/电视剧/未分类，计数取
+ *  全局聚合）直接作一级节点——无「影视」类别根（原挂其下，提升后少
+ *  一层钻取），图标对齐类别根观感。电影形态为三层：国家/地区值叶
+ *  直接作二级（无分组行——计数前五 + 其他地区，topK 折叠规则见
+ *  facet-engine/DIMENSIONS），类型值叶挂其下；电视剧/未分类为两层：
+ *  类型值叶直挂（无国家数据时电影亦兜底回两层）。形态行点击=单步
+ *  筛选，值叶点击=形态+维度多条件 */
 function buildMovieNodes(
   items: DoubanDims['items'],
   byTag: Map<string, TagAction>,
@@ -65,26 +92,34 @@ function buildMovieNodes(
   return (rootCounts[kindKey] ?? []).map(({ value, count }) => {
     const kindTag = `movie/${kindKey}/${escapeFacetValue(value)}`
     byTag.set(kindTag, { category: 'movie', path: [{ dim: kindKey, value }] })
-    // 形态分支内的类型分布：条件聚合（本地纯函数）
-    const scoped = aggregateDims('movie', items, [{ dim: kindKey, value }])
-    const { key: leafDim } = PRIMARY_DIMENSION.movie
-    const children = (scoped[leafDim] ?? []).map(
-      ({ value: leafValue, count: leafCount }) => {
-        const tag = `${kindTag}/${leafDim}/${escapeFacetValue(leafValue)}`
-        byTag.set(tag, {
-          category: 'movie',
-          path: [
-            { dim: kindKey, value },
-            { dim: leafDim, value: leafValue },
-          ],
-        })
+    const kindFilter: FacetStep[] = [{ dim: kindKey, value }]
+    let children: TagTreeNode[]
+    // 国家/地区值叶仅挂电影形态（应用户要求；值比对为硬编码中文值，
+    // 与 KIND_ICONS/marks-page 形态名词同款）
+    if (value === '电影') {
+      const countries =
+        aggregateDims('movie', items, kindFilter).country ?? []
+      children = countries.map(({ value: cValue, count: cCount }) => {
+        const tag = `${kindTag}/country/${escapeFacetValue(cValue)}`
+        const path: FacetStep[] = [
+          ...kindFilter,
+          { dim: 'country', value: cValue },
+        ]
+        byTag.set(tag, { category: 'movie', path })
         return {
           tag,
-          label: facetValueLabel('movie', leafDim, leafValue),
-          itemCount: leafCount,
+          label: facetValueLabel('movie', 'country', cValue),
+          itemCount: cCount,
+          children: buildPrimaryLeaves(items, path, tag, byTag),
         }
-      },
-    )
+      })
+      // 兜底：该形态全无国家数据（维度缺失/未富集）回类型直挂两层
+      if (children.length === 0) {
+        children = buildPrimaryLeaves(items, kindFilter, kindTag, byTag)
+      }
+    } else {
+      children = buildPrimaryLeaves(items, kindFilter, kindTag, byTag)
+    }
     return {
       tag: kindTag,
       label: value,

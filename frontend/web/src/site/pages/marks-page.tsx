@@ -19,6 +19,7 @@ import {
   CATEGORY_PAST_VERBS,
   CATEGORY_UNIT_NOUNS,
   DEFAULT_MARKS_PATH,
+  moviePageTitle,
   resolveMarksView,
 } from '../navigation'
 import './marks-page.css'
@@ -53,6 +54,12 @@ export function MarksPage() {
   const facetPath = realCategory
     ? parseFacetPath(realCategory, searchParams.get('facet'))
     : []
+  // 占位文案展示名：movie 随形态（真一级，无「影视」聚合名；形态步由
+  // App 的 MarksRoute 重定向保证，兜底电影），其余类别用页面标题
+  const displayTitle =
+    realCategory === 'movie'
+      ? moviePageTitle(facetPath.find((s) => s.dim === 'is_tv')?.value)
+      : (view?.pageTitle ?? '')
 
   // 维度投影与侧边栏共用缓存（同 key 去重）；筛选命中 id 集由前端
   // facet-engine 算——无筛选为 undefined，筛选中数据未就绪为 null
@@ -168,7 +175,7 @@ export function MarksPage() {
         <p>
           {view.category === 'all'
             ? '登录豆瓣账号后，这里会展示你的全部书影音标记。'
-            : `登录豆瓣账号后，这里会展示你${view.pageTitle}的记录。`}
+            : `登录豆瓣账号后，这里会展示你${displayTitle}的记录。`}
         </p>
         <TextButton onClick={openLogin} type="button">
           登录豆瓣账号
@@ -183,7 +190,7 @@ export function MarksPage() {
         <p>用户 {profile?.username || uid} 的数据还没有同步过。</p>
         <p className="marks-page__hint">
           本站只读缓存，请先在服务端发起一次同步，完成后刷新本页即可看到
-          {view.pageTitle}的记录。
+          {displayTitle}的记录。
         </p>
       </div>
     )
