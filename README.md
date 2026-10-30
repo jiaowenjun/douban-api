@@ -47,6 +47,8 @@ curl -H "Authorization: Bearer my-secret" \
 
 内置防护：按 `(uid, category, status)` 维度缓存（TTL 24h，`refresh:true` 强制刷新）、同维度 single-flight、单 worker 串行 + 每次抓取 ≥2s 间隔（全局令牌桶）、403/超时指数退避重试、连续 5 次失败熔断 10 分钟、per-IP 限流。
 
+缓存恢复、内容版本、HTTP 条件请求及全量同步快照策略见 [缓存与同步策略.md](缓存与同步策略.md)。
+
 ## 管理后台（frontend/admin/）
 
 服务器自带一个 Ant Design Pro 风格的管理页面（Vite + React + pnpm），提供概览监控、抓取任务的创建/进度、库内数据浏览：

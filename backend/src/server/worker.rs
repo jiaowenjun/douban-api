@@ -8,7 +8,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::crawler::{
-    self, Category, Record, Status, collection_url, parse_items, parse_total, referer_for,
+    self, collection_url, parse_items, parse_total, referer_for, Category, Record, Status,
 };
 
 use super::config::ServerConfig;
@@ -26,6 +26,7 @@ pub(super) struct DueDimension {
     dim_status: String,
     next_start: i64,
     attempts: i64,
+    staging: bool,
 }
 
 pub async fn run_worker<F: DoubanFetcher>(state: AppState, fetcher: F) {
@@ -84,7 +85,7 @@ pub async fn process_next_due<F: DoubanFetcher>(state: &AppState, fetcher: &F) -
 
 async fn pick_due_dimension(pool: &SqlitePool) -> Result<Option<DueDimension>> {
     let row = sqlx::query(
-        "SELECT uid, category, dim_status, next_start, attempts
+        "SELECT uid, category, dim_status, next_start, attempts, staging
          FROM dimensions
          WHERE state IN ('queued','running')
            AND (next_sync_ms IS NULL OR next_sync_ms <= ?)
@@ -102,6 +103,7 @@ async fn pick_due_dimension(pool: &SqlitePool) -> Result<Option<DueDimension>> {
         dim_status: r.get("dim_status"),
         next_start: r.get("next_start"),
         attempts: r.get("attempts"),
+        staging: r.get::<i64, _>("staging") != 0,
     }))
 }
 
@@ -198,17 +200,23 @@ async fn process_page(
     }
 
     // 本页写库；主键冲突即重复（翻页偏移/标记新增），交给 INSERT OR IGNORE
-    service::upsert_records(
+    let table = if dim.staging {
+        "record_staging"
+    } else {
+        "records"
+    };
+    service::write_records(
         &state.pool,
+        table,
         &dim.uid,
         &dim.category,
         &dim.dim_status,
         &items,
     )
     .await?;
-    let fetched_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM records WHERE uid = ? AND category = ? AND dim_status = ?",
-    )
+    let fetched_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {table} WHERE uid = ? AND category = ? AND dim_status = ?",
+    ))
     .bind(&dim.uid)
     .bind(&dim.category)
     .bind(&dim.dim_status)
@@ -225,8 +233,37 @@ async fn process_page(
     };
 
     if finished {
+        let mut tx = state.pool.begin().await?;
+        if dim.staging {
+            // Reconcile rather than delete/reinsert: unchanged rows retain their identity.
+            sqlx::query("DELETE FROM records WHERE uid=? AND category=? AND dim_status=?
+                AND subject_id NOT IN (SELECT subject_id FROM record_staging WHERE uid=? AND category=? AND dim_status=?)")
+                .bind(&dim.uid).bind(&dim.category).bind(&dim.dim_status)
+                .bind(&dim.uid).bind(&dim.category).bind(&dim.dim_status)
+                .execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO records SELECT * FROM record_staging WHERE uid=? AND category=? AND dim_status=?
+                ON CONFLICT(uid, category, dim_status, subject_id) DO UPDATE SET
+                title=excluded.title, alt_title=excluded.alt_title, my_rating=excluded.my_rating,
+                date=excluded.date, comment=excluded.comment, subject_url=excluded.subject_url,
+                cover=excluded.cover, comment_id=excluded.comment_id, intro=excluded.intro")
+                .bind(&dim.uid).bind(&dim.category).bind(&dim.dim_status).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM record_staging WHERE uid=? AND category=? AND dim_status=?")
+                .bind(&dim.uid)
+                .bind(&dim.category)
+                .bind(&dim.dim_status)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let fetched_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM records WHERE uid=? AND category=? AND dim_status=?",
+        )
+        .bind(&dim.uid)
+        .bind(&dim.category)
+        .bind(&dim.dim_status)
+        .fetch_one(&mut *tx)
+        .await?;
         sqlx::query(
-            "UPDATE dimensions SET state='ok', fetched_count=?, total=?,
+            "UPDATE dimensions SET state='ok', staging=0, fetched_count=?, total=?,
                     next_start=?, fetched_ms=?, attempts=0, next_sync_ms=NULL,
                     last_error=NULL, updated_ms=?
              WHERE uid=? AND category=? AND dim_status=?",
@@ -239,8 +276,9 @@ async fn process_page(
         .bind(&dim.uid)
         .bind(&dim.category)
         .bind(&dim.dim_status)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         info!(
             uid = %dim.uid,
             dimension = format!("{}/{}", dim.category, dim.dim_status),

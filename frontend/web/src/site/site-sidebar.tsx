@@ -83,7 +83,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   // （失败也 settle 为 null 数据），避免加载中途先亮部分和再跳变
   const dimsQueries = { movie: movieDims, book: bookDims, music: musicDims }
   const countsReady =
-    uid !== null && MARKS_CATEGORIES.every((c) => dimsQueries[c].isSuccess)
+    uid !== null && MARKS_CATEGORIES.every((c) => !dimsQueries[c].isPending)
   const navItems = MARKS_CATEGORIES.flatMap(
     (c) => dimsData[c]?.items ?? [],
   )

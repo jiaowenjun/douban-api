@@ -381,10 +381,10 @@ GET /healthz    → 200 {"status":"ok"}
 
 **模型**：未订阅用户维持现状——手动建任务触发重抓。订阅用户由后端两个周期自动同步：
 
-- **短周期（RSS 增量）**：轮询豆瓣官方动态 feed `www.douban.com/feed/people/{uid}/interests`（免登录、仅最新约 10 条、条目 guid 尾段与页面 `data-cid` 同一 ID 空间）。条目解析入库沿用 `INSERT OR IGNORE`：已存在（主键冲突）忽略，新标记插入。**只写本地已有维度**——订阅只维护既有维度，新维度由用户手动建任务引入。RSS 修改/删除不可感知，由长周期全量兜底收敛。
-- **长周期（定时全量）**：为该 uid 自动创建 `source='auto'` 的任务，对其全部 `ok/error` 维度执行 refresh 语义（DELETE + 全量重抓）。auto 任务不进默认任务列表（`?source=auto` 或按 task_id 可查），SSE/终态/保留期与手动任务一致。
+- **短周期（RSS 增量）**：轮询豆瓣官方动态 feed `www.douban.com/feed/people/{uid}/interests`（免登录、仅最新约 10 条、条目 guid 尾段与页面 `data-cid` 同一 ID 空间）。条目解析入库沿用 `INSERT OR IGNORE`：已存在（主键冲突）忽略，新标记插入。**只写本地已有完整快照的维度**——订阅只维护既有维度，新维度由用户手动建任务引入。RSS 修改/删除不可感知，由长周期全量兜底收敛。
+- **长周期（定时全量）**：为该 uid 自动创建 `source='auto'` 的任务，对其全部 `ok/error` 维度执行 refresh 语义（暂存全量结果，成功后事务发布）。auto 任务不进默认任务列表（`?source=auto` 或按 task_id 可查），SSE/终态/保留期与手动任务一致。
 
-**调度**：独立循环与 worker 同构（30s 空闲兜底扫描，每次处理一个到期订阅）；RSS 失败按 1/2/…分钟退避（封顶 15 分钟）不熔断主流程——RSS 是可失败的增强层，最坏退化为纯长周期。全量创建前做队列上限与 single-flight（该 uid 已有未终态 auto 任务则顺延 5 分钟）检查；`queued/running` 维度跳过本次（避免与进行中抓取竞态删数据）。
+**调度**：独立循环与 worker 同构（30s 空闲兜底扫描，每次处理一个到期订阅）；RSS 失败按 1/2/…分钟退避（封顶 15 分钟）不熔断主流程——RSS 是可失败的增强层，最坏退化为纯长周期。全量创建前做队列上限与 single-flight（该 uid 已有未终态 auto 任务则顺延 5 分钟）检查；`queued/running` 维度跳过本次（避免重置正在进行的抓取）。
 
 ```
 PUT /api/v1/subscriptions/{uid}
@@ -516,7 +516,7 @@ GET /api/v1/users/{uid}/profile
 
 ### Record（数据本体，`records` 表）
 
-12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时整维度删除重写。RSS 增量同步共用同一路径。
+12 字段：`category, status, title, alt_title, my_rating, date, comment, subject_url, subject_id, cover, comment_id, intro`——一条标记一行，主键 `(uid, category, dim_status, subject_id)`，抓取时 `INSERT OR IGNORE` 天然去重；按维度长期保留，`refresh` 时写暂存区并在成功后事务核对发布。RSS 增量同步共用同一路径。
 
 ### User（用户资料，`users` 表）
 
@@ -568,7 +568,7 @@ GET /api/v1/users/{uid}/profile
 | 项 | 默认值 | 说明 |
 |---|---|---|
 | 缓存 TTL | 24h | `fetched_at + TTL` 内 `fresh: true`，命中即不回源 |
-| 强制刷新 | `refresh: true` | 跳过 TTL 判定；先清空该维度旧数据再重抓（期间该维度数据不可读直至抓取完成） |
+| 强制刷新 | `refresh: true` | 跳过 TTL 判定；保留上一份完整数据，分页写暂存区，成功后事务发布；失败时仍可读旧快照 |
 | records 数据保留 | 永久 | 数据与任务生命周期解耦，仅 `refresh` 触发整维度重写；不随任务过期清理 |
 | 任务记录保留 | 30 天 | `expires_at` 过期后后台清理任务行（数据不动） |
 | 失败缓存 | 不缓存 | 维度失败只记 `last_error`，下次请求可重试 |
@@ -639,3 +639,6 @@ GET /api/v1/users/{uid}/profile
 ---
 
 *附：实现——axum + tokio 异步框架，sqlx/SQLite 存任务与数据，tower 中间件做限流；抓取解析逻辑在库模块 `crawler`，服务器为唯一二进制形态。*
+
+
+缓存版本接口、HTTP 缓存以及全量同步暂存发布的新行为见 [缓存与同步策略.md](缓存与同步策略.md)。

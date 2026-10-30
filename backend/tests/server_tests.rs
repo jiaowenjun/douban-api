@@ -1607,7 +1607,11 @@ async fn enrichment_blocked_defers_category_and_grows_pacing() {
 
     // AIMD：失败一次后 movie 间隔升档（配置下限 0.5s ×3）
     assert_eq!(state.subject_interval("movie"), 1.5);
-    assert_eq!(state.subject_interval("book"), 0.5, "未受影响的类别保持下限");
+    assert_eq!(
+        state.subject_interval("book"),
+        0.5,
+        "未受影响的类别保持下限"
+    );
 }
 
 /// 重试耗尽 → intro 兜底行落库（source='intro'，无豆瓣评分，形状与 rexxar
@@ -1642,7 +1646,11 @@ async fn enrichment_exhaustion_falls_back_to_intro() {
             .await
             .unwrap();
     }
-    assert_eq!(calls.load(Ordering::Relaxed), subject::MAX_ATTEMPTS as u32, "恰重试 5 次");
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        subject::MAX_ATTEMPTS as u32,
+        "恰重试 5 次"
+    );
     let (job_state, last_error): (String, String) = sqlx::query_as(
         "SELECT state, COALESCE(last_error,'') FROM subject_jobs WHERE subject_id='45001'",
     )
@@ -1652,13 +1660,12 @@ async fn enrichment_exhaustion_falls_back_to_intro() {
     assert_eq!(job_state, "ok", "兜底后 job 终结为 ok");
     assert!(last_error.contains("兜底"), "降级原因可见: {last_error}");
 
-    let (source, title, year, rating): (String, String, Option<i64>, Option<f64>) =
-        sqlx::query_as(
-            "SELECT source, title, year, rating_value FROM subjects WHERE subject_id='45001'",
-        )
-        .fetch_one(&state.pool)
-        .await
-        .unwrap();
+    let (source, title, year, rating): (String, String, Option<i64>, Option<f64>) = sqlx::query_as(
+        "SELECT source, title, year, rating_value FROM subjects WHERE subject_id='45001'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
     assert_eq!(source, "intro");
     assert_eq!(title, "t-45001", "标题来自 records 标记行");
     assert_eq!(year, Some(2019), "intro 解析出的年份");
@@ -1670,7 +1677,6 @@ async fn enrichment_exhaustion_falls_back_to_intro() {
             .unwrap();
     let meta: Value = serde_json::from_str(&meta_json).unwrap();
     assert_eq!(meta["directors"], serde_json::json!(["黄绮琳"]));
-
 }
 
 /// intro 兜底行的升级路径：显式强制重排（priority=0，绕过执行守卫）→
@@ -1691,18 +1697,22 @@ async fn intro_fallback_row_upgrades_on_force_refresh() {
         .unwrap();
     let ok_fetcher = FakeFetcher(|url: &str| {
         if url.contains("m.douban.com/rexxar") {
-            Ok(r#"{"title": "金都", "year": "2019", "rating": {"value": 6.5, "count": 100}}"#.to_string())
+            Ok(
+                r#"{"title": "金都", "year": "2019", "rating": {"value": 6.5, "count": 100}}"#
+                    .to_string(),
+            )
         } else {
             Err(FetchError::NotFound)
         }
     });
-    assert!(subject::process_next_job(&state, &ok_fetcher).await.unwrap());
-    let (source, title, rating): (String, String, Option<f64>) = sqlx::query_as(
-        "SELECT source, title, rating_value FROM subjects WHERE subject_id='45001'",
-    )
-    .fetch_one(&state.pool)
-    .await
-    .unwrap();
+    assert!(subject::process_next_job(&state, &ok_fetcher)
+        .await
+        .unwrap());
+    let (source, title, rating): (String, String, Option<f64>) =
+        sqlx::query_as("SELECT source, title, rating_value FROM subjects WHERE subject_id='45001'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
     assert_eq!(source, "rexxar", "强制重排成功后升级为权威数据");
     assert_eq!(title, "金都");
     assert_eq!(rating, Some(6.5));
@@ -2481,4 +2491,341 @@ async fn parse_sentinel_allows_genuinely_empty_dimension() {
     let view = get_task_view(&state, &task_id).await;
     assert_eq!(view["status"], "completed");
     assert_eq!(view["items_count"], 0);
+}
+
+#[tokio::test]
+async fn refresh_keeps_published_snapshot_until_success_and_after_failure() {
+    let (_dir, state) = setup().await;
+    seed_ok_dimension(
+        &state,
+        Category::Music,
+        vec![Record {
+            subject_id: "old".into(),
+            title: "旧快照".into(),
+            ..Default::default()
+        }],
+    )
+    .await;
+    let before = weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+        .await
+        .unwrap()
+        .music;
+    post_sync(
+        &state,
+        json!({"user":"wenjun30", "categories":["music"], "refresh":true}),
+    )
+    .await;
+    assert_eq!(
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 20)
+            .await
+            .unwrap()
+            .items[0]
+            .subject_id,
+        "old"
+    );
+    // A failed refresh leaves the old snapshot readable and keeps the same version.
+    drive(&state, &FakeFetcher(|_: &str| Err(FetchError::NotFound))).await;
+    assert_eq!(
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 20)
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+    assert_eq!(
+        before,
+        weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+            .await
+            .unwrap()
+            .music
+    );
+    post_sync(&state, json!({"user":"wenjun30", "categories":["music"]})).await;
+    assert!(worker::process_next_due(&state, &fixture_fetcher())
+        .await
+        .unwrap());
+    // One staged page does not leak into any published view.
+    assert_eq!(
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 20)
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+    let (_, stats) = request(
+        build_app(state.clone()),
+        Method::GET,
+        "/api/v1/users/wenjun30/stats",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(stats["totals"]["music"], 1);
+    // A repeated feed item for an old record must not resurrect it in staging.
+    service::upsert_records(
+        &state.pool,
+        "wenjun30",
+        "music",
+        "collect",
+        &[Record {
+            subject_id: "old".into(),
+            ..Default::default()
+        }],
+    )
+    .await
+    .unwrap();
+    // An RSS arrival during the crawl must survive publication.
+    service::upsert_records(
+        &state.pool,
+        "wenjun30",
+        "music",
+        "collect",
+        &[Record {
+            subject_id: "rss-new".into(),
+            title: "同步期间新增".into(),
+            ..Default::default()
+        }],
+    )
+    .await
+    .unwrap();
+    drive(&state, &fixture_fetcher()).await;
+    let result = service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 200)
+        .await
+        .unwrap();
+    assert_eq!(result.total, 29);
+    assert!(result.items.iter().any(|r| r.subject_id == "rss-new"));
+    assert!(!result.items.iter().any(|r| r.subject_id == "old"));
+    assert_ne!(
+        before,
+        weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+            .await
+            .unwrap()
+            .music
+    );
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM record_staging").await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn unchanged_sync_keeps_content_version_and_stable_order() {
+    let (_dir, state) = setup().await;
+    post_sync(&state, json!({"user":"wenjun30", "categories":["music"]})).await;
+    drive(&state, &fixture_fetcher()).await;
+    let before = weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+        .await
+        .unwrap()
+        .music;
+    let ids = service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 200)
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|r| r.subject_id)
+        .collect::<Vec<_>>();
+    post_sync(
+        &state,
+        json!({"user":"wenjun30", "categories":["music"], "refresh":true}),
+    )
+    .await;
+    drive(&state, &fixture_fetcher()).await;
+    assert_eq!(
+        before,
+        weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+            .await
+            .unwrap()
+            .music
+    );
+    assert_eq!(
+        ids,
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 200)
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|r| r.subject_id)
+            .collect::<Vec<_>>()
+    );
+}
+
+async fn conditional_get(
+    state: &AppState,
+    uri: &str,
+    tag: Option<&str>,
+    token: Option<&str>,
+) -> (StatusCode, header::HeaderMap, Value) {
+    let mut req = Request::builder().uri(uri);
+    if let Some(tag) = tag {
+        req = req.header(header::IF_NONE_MATCH, tag);
+    }
+    if let Some(token) = token {
+        req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    let response = build_app(state.clone())
+        .oneshot(req.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    (
+        status,
+        headers,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn versions_and_projection_etags_follow_rss_enrichment_and_profile_changes() {
+    let (_dir, state) = setup().await;
+    seed_ok_dimension(
+        &state,
+        Category::Movie,
+        vec![Record {
+            subject_id: "1292052".into(),
+            ..Default::default()
+        }],
+    )
+    .await;
+    let uri = "/api/v1/users/wenjun30/cache-version?status=collect";
+    assert_eq!(
+        conditional_get(
+            &state,
+            "/api/v1/users/wenjun30/cache-version?status=invalid",
+            None,
+            None
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let (status, headers, versions) = conditional_get(&state, uri, None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+    let tag = headers[header::ETAG].to_str().unwrap();
+    assert_eq!(
+        conditional_get(&state, uri, Some(tag), None).await.0,
+        StatusCode::NOT_MODIFIED
+    );
+    let dims_uri = "/api/v1/users/wenjun30/subject-dims?category=movie&status=collect";
+    let (_, headers, _) = conditional_get(&state, dims_uri, None, None).await;
+    let dims_tag = headers[header::ETAG].to_str().unwrap();
+    assert_eq!(
+        conditional_get(&state, dims_uri, Some(dims_tag), None)
+            .await
+            .0,
+        StatusCode::NOT_MODIFIED
+    );
+    subject::enqueue_missing_subjects(&state.pool, "wenjun30", "movie")
+        .await
+        .unwrap();
+    subject::process_next_job(&state, &fixture_fetcher())
+        .await
+        .unwrap();
+    let (_, _, enriched) = conditional_get(&state, uri, Some(tag), None).await;
+    assert_ne!(versions["movie"], enriched["movie"]);
+    assert_eq!(versions["stats"], enriched["stats"]);
+    assert_eq!(versions["book"], enriched["book"]);
+    assert_eq!(
+        conditional_get(&state, dims_uri, Some(dims_tag), None)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    service::upsert_subscription(&state, "wenjun30", Some(300), Some(7200))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE subscriptions SET next_rss_ms=0")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    service::subscription_tick(&state, &fixture_fetcher())
+        .await
+        .unwrap();
+    let (_, _, rss) = conditional_get(&state, uri, None, None).await;
+    assert_ne!(rss["stats"], enriched["stats"]);
+    assert!(
+        count(
+            &state,
+            "SELECT COUNT(*) FROM subject_jobs WHERE state='queued'"
+        )
+        .await
+            > 0,
+        "RSS 新增立即排入富集"
+    );
+    let profile = weimo_douban::crawler::UserProfile {
+        username: "新名字".into(),
+        avatar: String::new(),
+    };
+    service::upsert_user_profile(&state.pool, "wenjun30", &profile)
+        .await
+        .unwrap();
+    let (_, _, changed) = conditional_get(&state, uri, None, None).await;
+    assert_ne!(rss["profile"], changed["profile"]);
+    service::upsert_user_profile(&state.pool, "wenjun30", &profile)
+        .await
+        .unwrap();
+    assert_eq!(
+        conditional_get(&state, uri, None, None).await.2["profile"],
+        changed["profile"]
+    );
+    // Old-page requests cannot be combined with a newer collection snapshot.
+    let obsolete = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("category", "movie")
+        .append_pair("status", "collect")
+        .append_pair("cache_version", versions["movie"].as_str().unwrap())
+        .finish();
+    assert_eq!(
+        conditional_get(
+            &state,
+            &format!("/api/v1/users/wenjun30/marks?{obsolete}"),
+            None,
+            None
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+}
+
+#[tokio::test]
+async fn conditional_cache_does_not_bypass_auth_or_cache_missing_dimensions() {
+    let (_dir, state) = setup_with_token("secret").await;
+    let uri = "/api/v1/users/wenjun30/cache-version";
+    let (_, headers, _) = conditional_get(&state, uri, None, Some("secret")).await;
+    assert_eq!(
+        conditional_get(
+            &state,
+            uri,
+            Some(headers[header::ETAG].to_str().unwrap()),
+            None
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let missing = "/api/v1/users/wenjun30/subject-dims?category=book&status=collect";
+    assert_eq!(
+        conditional_get(&state, missing, Some("*"), Some("secret"))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    seed_ok_dimension(&state, Category::Book, vec![]).await;
+    assert_eq!(
+        conditional_get(&state, missing, None, Some("secret"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    // Reopening a database preserves versions (and initializes schema idempotently).
+    let before = conditional_get(&state, uri, None, Some("secret")).await.2;
+    let pool = db::connect(&state.config.db_path()).await.unwrap();
+    let reopened = AppState::new(state.config.clone(), pool);
+    assert_eq!(
+        before,
+        conditional_get(&reopened, uri, None, Some("secret"))
+            .await
+            .2
+    );
 }

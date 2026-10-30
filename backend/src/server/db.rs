@@ -1,7 +1,7 @@
 //! SQLite 连接与建表（weimo-ocr 风格：内嵌 bootstrap SQL，不用 sqlx migrate）。
 
 use anyhow::{Context, Result};
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 
 const BOOTSTRAP_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS tasks (
@@ -168,6 +168,14 @@ pub async fn connect(db_path: &std::path::Path) -> Result<SqlitePool> {
         "TEXT NOT NULL DEFAULT 'rexxar'",
     )
     .await?;
+    ensure_column(&pool, "dimensions", "staging", "INTEGER NOT NULL DEFAULT 0").await?;
+    // A separate durable staging table keeps the last published snapshot readable.
+    sqlx::query("CREATE TABLE IF NOT EXISTS record_staging AS SELECT * FROM records WHERE 0")
+        .execute(&pool)
+        .await?;
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_record_staging_key ON record_staging(uid, category, dim_status, subject_id)")
+        .execute(&pool).await?;
+    init_cache_versions(&pool).await?;
     Ok(pool)
 }
 
@@ -184,6 +192,89 @@ async fn ensure_column(pool: &SqlitePool, table: &str, column: &str, ddl: &str) 
             .execute(pool)
             .await
             .with_context(|| format!("加列失败: {alter}"))?;
+    }
+    Ok(())
+}
+
+/// Versions are updated in the same SQLite transaction as the owning data, including
+/// RSS writes. The database identity also invalidates browser caches after replacement.
+async fn init_cache_versions(pool: &SqlitePool) -> Result<()> {
+    sqlx::query("CREATE TABLE IF NOT EXISTS cache_versions (scope TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0)")
+        .execute(pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS cache_identity (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)")
+        .execute(pool).await?;
+    sqlx::query("INSERT OR IGNORE INTO cache_identity VALUES (1, lower(hex(randomblob(16))))")
+        .execute(pool)
+        .await?;
+    // Content equality matters: re-observing the same profile or record is not a change.
+    for (table, scope, fields) in [
+        (
+            "records",
+            "{row}.uid || ':' || {row}.category || ':' || {row}.dim_status",
+            vec![
+                "title",
+                "alt_title",
+                "my_rating",
+                "date",
+                "comment",
+                "subject_url",
+                "cover",
+                "comment_id",
+                "intro",
+            ],
+        ),
+        (
+            "users",
+            "'profile:' || {row}.uid",
+            vec!["username", "avatar"],
+        ),
+        (
+            "subjects",
+            "'subjects:' || {row}.category",
+            vec![
+                "title",
+                "original_title",
+                "year",
+                "aka_json",
+                "url",
+                "cover_url",
+                "rating_value",
+                "rating_count",
+                "meta_json",
+                "source",
+                "status",
+            ],
+        ),
+        // Publish/availability changes matter even for an empty collection. A refresh
+        // keeps fetched_ms until publication; queued/running transitions do not invalidate.
+        (
+            "dimensions",
+            "{row}.uid || ':' || {row}.category || ':' || {row}.dim_status",
+            vec!["fetched_ms"],
+        ),
+    ] {
+        for event in ["INSERT", "UPDATE", "DELETE"] {
+            let row = if event == "DELETE" { "OLD" } else { "NEW" };
+            let scope = scope.replace("{row}", row);
+            let condition = if event == "UPDATE" && table == "dimensions" {
+                "WHEN (OLD.fetched_ms IS NULL) != (NEW.fetched_ms IS NULL)".to_string()
+            } else if event == "UPDATE" {
+                format!(
+                    "WHEN {}",
+                    fields
+                        .iter()
+                        .map(|f| format!("OLD.{f} IS NOT NEW.{f}"))
+                        .collect::<Vec<_>>()
+                        .join(" OR ")
+                )
+            } else {
+                String::new()
+            };
+            let sql = format!("CREATE TRIGGER IF NOT EXISTS cache_{table}_{event} AFTER {event} ON {table} {condition}
+                BEGIN INSERT INTO cache_versions(scope, revision) VALUES ({scope}, 1)
+                ON CONFLICT(scope) DO UPDATE SET revision=revision+1; END");
+            sqlx::query(&sql).execute(pool).await?;
+        }
     }
     Ok(())
 }

@@ -18,7 +18,7 @@ export function SidebarStats() {
 
   if (!uid) return null
   // 请求失败（null）与未登录同策略：整区隐藏不打扰
-  if (statsQuery.isSuccess && !statsQuery.data) return null
+  if ((statsQuery.isSuccess || statsQuery.isError) && !statsQuery.data) return null
 
   const stats = statsQuery.data ?? null
   const statItems: StatGroupItem[] = MARKS_CATEGORIES.map((category) => ({

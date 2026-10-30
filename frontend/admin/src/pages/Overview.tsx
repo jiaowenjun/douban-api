@@ -74,8 +74,15 @@ export default function Overview() {
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    const timer = setInterval(refreshVisible, 30_000);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
   }, []);
 
   const addSubscription = async () => {

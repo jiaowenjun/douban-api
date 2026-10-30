@@ -2,6 +2,18 @@
  *  开发期经 Vite proxy（/api → 127.0.0.1:8080），部署时同源反向代理即可。 */
 
 import { MARKS_STATUS } from './navigation'
+import type { CacheVersions } from './cache-version'
+import { queryClient } from '../query-client'
+
+export async function fetchCacheVersions(uid: string): Promise<CacheVersions> {
+  const response = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/cache-version?status=${MARKS_STATUS}`)
+  if (!response.ok) throw new Error(`版本检查失败（HTTP ${response.status}）`)
+  const data = await response.json()
+  if (!data || !['profile', 'stats', 'movie', 'book', 'music', 'all'].every((key) => typeof data[key] === 'string')) {
+    throw new Error('版本数据格式不正确')
+  }
+  return data as CacheVersions
+}
 
 export type DoubanProfile = {
   uid: string
@@ -10,15 +22,22 @@ export type DoubanProfile = {
   avatar: string
 }
 
-/** 拉取豆瓣用户资料；后端不可达或该 uid 尚未同步过（404）时返回 null，不抛错 */
-export async function fetchDoubanProfile(uid: string): Promise<DoubanProfile | null> {
+/** Request a published revision; failures stay outside the persistent query cache. */
+async function fetchVersionedJson<T>(uid: string, endpoint: string, params: URLSearchParams, version?: string): Promise<T | null> {
+  if (version && version !== 'unversioned' && version !== 'pending') params.set('cache_version', version)
   try {
-    const res = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/profile`)
-    if (!res.ok) return null
-    return (await res.json()) as DoubanProfile
-  } catch {
-    return null
-  }
+    const response = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/${endpoint}?${params}`)
+    if (!response.ok) {
+      if (response.status === 409) void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
+      return null
+    }
+    return await response.json() as T
+  } catch { return null }
+}
+
+/** 用户资料；失败返回 null，由查询层保留旧数据并提供重试。 */
+export function fetchDoubanProfile(uid: string, version?: string): Promise<DoubanProfile | null> {
+  return fetchVersionedJson(uid, 'profile', new URLSearchParams(), version)
 }
 
 // --------------------------------------------------------------------------- //
@@ -129,6 +148,7 @@ export async function fetchDoubanMarks(
   pageSize = 20,
   ids?: readonly string[] | null,
   rating?: string | null,
+  version?: string,
 ): Promise<MarksResult> {
   const params = new URLSearchParams({
     category,
@@ -137,6 +157,7 @@ export async function fetchDoubanMarks(
     page_size: String(ids?.length ? ids.length : pageSize),
     expand: 'subject',
   })
+  if (version && version !== 'unversioned' && version !== 'pending') params.set('cache_version', version)
   if (ids?.length) {
     params.set('ids', ids.join(','))
   }
@@ -155,6 +176,9 @@ export async function fetchDoubanMarks(
     try {
       const body = await res.json()
       if (body?.error?.code === 'DIMENSION_NOT_CACHED') kind = 'not-cached'
+      if (body?.error?.code === 'CACHE_VERSION_CHANGED') {
+        void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
+      }
       if (body?.error?.message) message = body.error.message
     } catch {
       // 非 JSON 错误体，保留默认 message
@@ -202,20 +226,8 @@ export type DoubanDims = {
 
 /** 拉取某维度的全部条目维度数据（轻量：每条 ~200B，聚合/筛选全在前
  *  端）；维度未同步或请求失败返回 null——树该分支静默隐藏 */
-export async function fetchDoubanSubjectDims(
-  uid: string,
-  category: string,
-): Promise<DoubanDims | null> {
-  try {
-    const params = new URLSearchParams({ category, status: MARKS_STATUS })
-    const res = await fetch(
-      `/api/v1/users/${encodeURIComponent(uid)}/subject-dims?${params}`,
-    )
-    if (!res.ok) return null
-    return (await res.json()) as DoubanDims
-  } catch {
-    return null
-  }
+export function fetchDoubanSubjectDims(uid: string, category: string, version?: string): Promise<DoubanDims | null> {
+  return fetchVersionedJson(uid, 'subject-dims', new URLSearchParams({ category, status: MARKS_STATUS }), version)
 }
 
 // --------------------------------------------------------------------------- //
@@ -238,15 +250,6 @@ export type DoubanStats = {
 
 /** 拉取标记统计（按类别计数 + 按日计数，只读缓存）；请求失败返回
  *  null——侧边栏统计区静默隐藏，不打断站点主流程 */
-export async function fetchDoubanStats(uid: string): Promise<DoubanStats | null> {
-  try {
-    const params = new URLSearchParams({ status: MARKS_STATUS })
-    const res = await fetch(
-      `/api/v1/users/${encodeURIComponent(uid)}/stats?${params}`,
-    )
-    if (!res.ok) return null
-    return (await res.json()) as DoubanStats
-  } catch {
-    return null
-  }
+export function fetchDoubanStats(uid: string, version?: string): Promise<DoubanStats | null> {
+  return fetchVersionedJson(uid, 'stats', new URLSearchParams({ status: MARKS_STATUS }), version)
 }

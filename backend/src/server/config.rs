@@ -73,7 +73,7 @@ pub struct ServerConfig {
     #[arg(long, env = "SYNC_SUBJECT_ENRICH", default_value_t = true)]
     pub subject_enrich: bool,
 
-    /// 条目元信息新鲜期（秒），过期后随用户同步刷新
+    /// 条目过期提示阈值（秒）；仅供人工 stale 重排筛选，不自动重抓
     #[arg(long, env = "SYNC_SUBJECT_TTL_SECS", default_value_t = 2_592_000)]
     pub subject_ttl_secs: i64,
 

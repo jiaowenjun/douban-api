@@ -1,11 +1,9 @@
-/** 服务端状态查询层：TanStack Query 封装 api.ts 的四个只读端点，
- *  技术栈对齐 weimo-biji（react-query v5 纯内存缓存，无 persister /
- *  devtools）。关键决策——queryFn 返回 api 层信封（MarksResult、
- *  DoubanProfile | null 等）而不抛错：not-cached 与 error 的区分、
- *  「失败即 null 静默降级」语义原样进缓存；retry 永不触发，429 不会
- *  被自动重试放大后端的每 IP 限流。key 全部带 uid 作用域，登出/切号
- *  由 provider 调 removeQueries(doubanQueryKeys.all) 整体清空 */
+/** Long-lived successful queries are versioned and persisted. Failures throw so a
+ * failed refresh cannot overwrite the last successful data. */
+import { useContext } from 'react'
+import { CacheVersionContext } from './cache-version'
 import { useQuery } from '@tanstack/react-query'
+import type { UseQueryResult } from '@tanstack/react-query'
 
 import {
   DOUBAN_CACHE_GC_TIME_MS,
@@ -13,6 +11,7 @@ import {
   queryClient,
 } from '../query-client'
 import {
+  fetchCacheVersions,
   fetchDoubanMarks,
   fetchDoubanProfile,
   fetchDoubanStats,
@@ -55,47 +54,109 @@ export const doubanQueryKeys = {
     ] as const,
 }
 
-/** 逐 query 显式缓存参数（对齐 biji：全局 defaultOptions 只关窗口聚焦
- *  重拉与 retry 次数，新鲜期/保留期在查询层声明） */
 const cacheOptions = {
   staleTime: DOUBAN_CACHE_STALE_TIME_MS,
   gcTime: DOUBAN_CACHE_GC_TIME_MS,
 } as const
 
-/** 用户资料（头像/用户名）；失败缓存为 null——界面回退 uid 展示 */
-export function useDoubanProfileQuery(uid: string | null) {
+export function useCacheVersionsQuery(uid: string | null) {
   return useQuery({
-    queryKey: doubanQueryKeys.profile(uid ?? ''),
-    queryFn: () => fetchDoubanProfile(uid ?? ''),
-    ...cacheOptions,
+    queryKey: [...doubanQueryKeys.uid(uid ?? ''), 'versions'],
+    queryFn: () => fetchCacheVersions(uid ?? ''),
     enabled: uid !== null,
+    staleTime: 0,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   })
 }
 
-/** 标记统计（按类别计数 + 按日计数）；失败缓存为 null——侧边栏统计
+async function requireData<T>(promise: Promise<T | null>): Promise<T> {
+  const data = await promise
+  if (data === null) throw new Error('数据暂不可用，请稍后重试')
+  return data
+}
+
+export class MarksQueryError extends Error {
+  kind: 'not-cached' | 'error'
+  constructor(result: Extract<MarksResult, { ok: false }>) {
+    super(result.message)
+    this.kind = result.kind
+  }
+}
+
+async function requireMarks(promise: Promise<MarksResult>) {
+  const result = await promise
+  if (!result.ok) throw new MarksQueryError(result)
+  return result
+}
+
+function useVersion(category: string): string {
+  const versions = useContext(CacheVersionContext)
+  if (versions === undefined) return 'pending'
+  return versions?.[category as keyof NonNullable<typeof versions>] ?? 'unversioned'
+}
+
+/** Keep a previous successful revision visible when fetching a new one fails.
+ * This is display-only: never write an old payload under a new version key. */
+function withCachedFallback<T>(query: UseQueryResult<T, Error>, prefix: readonly unknown[]) {
+  const previous = query.data === undefined
+    ? queryClient.getQueryCache().findAll({ queryKey: prefix })
+      .filter((candidate) => candidate.state.data !== undefined)
+      .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0]?.state.data as T | undefined
+    : undefined
+  return {
+    ...query,
+    data: query.data ?? previous,
+    isPlaceholderData: query.isPlaceholderData || previous !== undefined,
+  }
+}
+
+/** 用户资料（头像/用户名）；失败保留旧数据——界面回退 uid 展示 */
+export function useDoubanProfileQuery(uid: string | null, version = 'unversioned') {
+  const query = useQuery({
+    queryKey: [...doubanQueryKeys.profile(uid ?? ''), version],
+    queryFn: () => requireData(fetchDoubanProfile(uid ?? '', version)),
+    placeholderData: (previous, query) => query?.queryKey[1] === uid ? previous : undefined,
+    ...cacheOptions,
+    staleTime: version === 'unversioned' ? 60_000 : DOUBAN_CACHE_STALE_TIME_MS,
+    enabled: uid !== null && version !== 'pending',
+  })
+  return withCachedFallback(query, doubanQueryKeys.profile(uid ?? ''))
+}
+
+/** 标记统计（按类别计数 + 按日计数）；失败保留旧数据——侧边栏统计
  *  区静默隐藏 */
 export function useDoubanStatsQuery(uid: string | null) {
-  return useQuery({
-    queryKey: doubanQueryKeys.stats(uid ?? ''),
-    queryFn: () => fetchDoubanStats(uid ?? ''),
+  const version = useVersion('stats')
+  const query = useQuery({
+    queryKey: [...doubanQueryKeys.stats(uid ?? ''), version],
+    queryFn: () => requireData(fetchDoubanStats(uid ?? '', version)),
+    placeholderData: (previous, query) => query?.queryKey[1] === uid ? previous : undefined,
     ...cacheOptions,
-    enabled: uid !== null,
+    staleTime: version === 'unversioned' ? 60_000 : DOUBAN_CACHE_STALE_TIME_MS,
+    enabled: uid !== null && version !== 'pending',
   })
+  return withCachedFallback(query, doubanQueryKeys.stats(uid ?? ''))
 }
 
-/** 条目维度投影（筛选树数据源）；失败/未同步缓存为 null——树该类别
+/** 条目维度投影（筛选树数据源）；失败/未同步不持久化——树该类别
  *  分支隐藏。侧边栏（三类别并行）与列表页（当前类别）共用同一 key，
  *  是消除重复请求的核心 */
 export function useDoubanDimsQuery(
   uid: string | null,
   category: MarksCategory | null,
 ) {
-  return useQuery({
-    queryKey: doubanQueryKeys.dims(uid ?? '', category ?? ''),
-    queryFn: () => fetchDoubanSubjectDims(uid ?? '', category ?? ''),
+  const version = useVersion(category ?? '')
+  const query = useQuery({
+    queryKey: [...doubanQueryKeys.dims(uid ?? '', category ?? ''), version],
+    queryFn: () => requireData(fetchDoubanSubjectDims(uid ?? '', category ?? '', version)),
+    placeholderData: (previous, query) => query?.queryKey[1] === uid && query.queryKey[3] === category ? previous : undefined,
     ...cacheOptions,
-    enabled: uid !== null && category !== null,
+    staleTime: version === 'unversioned' ? 60_000 : DOUBAN_CACHE_STALE_TIME_MS,
+    enabled: uid !== null && category !== null && version !== 'pending',
   })
+  return withCachedFallback(query, doubanQueryKeys.dims(uid ?? '', category ?? ''))
 }
 
 /** 标记页查询（列表首页用）。ids 为筛选命中的当页 id 切片（顺序权威
@@ -112,54 +173,71 @@ export function useDoubanMarksPageQuery(args: {
 }) {
   const uid = args.uid ?? ''
   const category = args.category ?? ''
-  return useQuery({
-    queryKey: doubanQueryKeys.marksPage(
+  const version = useVersion(category)
+  const query = useQuery({
+    queryKey: [...doubanQueryKeys.marksPage(
       uid,
       category,
       args.page,
       args.ids,
       args.rating,
-    ),
+    ), version],
     queryFn: () =>
-      fetchDoubanMarks(
+      requireMarks(fetchDoubanMarks(
         uid,
         category,
         args.page,
         MARKS_PAGE_SIZE,
         args.ids,
         args.rating,
-      ),
+        version,
+      )),
+    placeholderData: (previous, previousQuery) => {
+      const key = previousQuery?.queryKey
+      const current = doubanQueryKeys.marksPage(uid, category, args.page, args.ids, args.rating)
+      return key && JSON.stringify(key.slice(0, -1)) === JSON.stringify(current) ? previous : undefined
+    },
     ...cacheOptions,
-    enabled: args.enabled,
+    staleTime: version === 'unversioned' ? 60_000 : DOUBAN_CACHE_STALE_TIME_MS,
+    enabled: args.enabled && version !== 'pending',
   })
+  return { ...withCachedFallback(query, doubanQueryKeys.marksPage(uid, category, args.page, args.ids, args.rating)), version }
 }
 
 /** 「加载更多」的命令式取页：fetchQuery 命中新鲜缓存直接返回（翻回
  *  已看页、筛选切回来零请求），否则请求并写入同一缓存 */
-export function fetchDoubanMarksPage(args: {
+export async function fetchDoubanMarksPage(args: {
   uid: string
   category: string
   page: number
   ids?: readonly string[] | null
   rating?: string | null
+  version: string
 }): Promise<MarksResult> {
-  return queryClient.fetchQuery({
-    queryKey: doubanQueryKeys.marksPage(
-      args.uid,
-      args.category,
-      args.page,
-      args.ids,
-      args.rating,
-    ),
-    queryFn: () =>
-      fetchDoubanMarks(
+  const version = args.version
+  try {
+    return await queryClient.fetchQuery({
+      queryKey: [...doubanQueryKeys.marksPage(
         args.uid,
         args.category,
         args.page,
-        MARKS_PAGE_SIZE,
         args.ids,
         args.rating,
-      ),
-    ...cacheOptions,
-  })
+      ), version],
+      queryFn: () =>
+        requireMarks(fetchDoubanMarks(
+          args.uid,
+          args.category,
+          args.page,
+          MARKS_PAGE_SIZE,
+          args.ids,
+          args.rating,
+          version,
+        )),
+      ...cacheOptions,
+      staleTime: version === 'unversioned' ? 60_000 : DOUBAN_CACHE_STALE_TIME_MS,
+    })
+  } catch (error) {
+    return { ok: false, kind: error instanceof MarksQueryError ? error.kind : 'error', message: error instanceof Error ? error.message : '请求失败' }
+  }
 }

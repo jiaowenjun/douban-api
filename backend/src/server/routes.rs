@@ -20,8 +20,8 @@ use std::net::SocketAddr;
 
 use crate::crawler::{Category, Record, Status};
 
-use super::error::{AppError, AppResult};
 use super::dims;
+use super::error::{AppError, AppResult};
 use super::service::{self, CreateTaskInput, TaskView, TERMINAL_STATUSES};
 use super::state::AppState;
 use super::stats;
@@ -61,6 +61,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}", get(get_sync).delete(delete_sync))
         .route("/syncs/{task_id}/result", get(get_result))
         .route("/syncs/{task_id}/events", get(get_sync_events))
+        .route("/users/{uid}/cache-version", get(get_cache_version))
         .route("/users/{uid}/marks", get(get_marks))
         .route("/users/{uid}/subject-dims", get(get_subject_dims))
         .route("/users/{uid}/stats", get(get_stats))
@@ -87,6 +88,10 @@ pub fn build_app(state: AppState) -> Router {
                 .delete(delete_subscription),
         )
         .route("/server/info", get(server_info))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            super::cache::middleware,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -141,7 +146,7 @@ async fn auth_middleware(
 }
 
 /// 极简百分号解码（token 一般为 URL 安全字符，覆盖 %+XX 即可）
-fn urldecode(s: &str) -> String {
+pub(super) fn urldecode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -455,11 +460,8 @@ struct MarksQuery {
 /// ——「三分及以下」类区间入口；SQL 的 my_rating <= N 天然排除未评 NULL）
 fn parse_rating(raw: &str) -> AppResult<service::RatingFilter> {
     use super::error::AppError;
-    let invalid = || {
-        AppError::InvalidArgument(
-            "rating 须为 1-5 星级或 lteN（N 星及以下）".to_string(),
-        )
-    };
+    let invalid =
+        || AppError::InvalidArgument("rating 须为 1-5 星级或 lteN（N 星及以下）".to_string());
     let (prefix, num) = match raw.strip_prefix("lte") {
         Some(n) => ("lte", n),
         None => ("", raw),
@@ -518,8 +520,7 @@ async fn get_marks(
                 "category=all 不支持 ids 过滤".to_string(),
             ));
         }
-        let marks =
-            service::read_all_marks(&state, &uid, status, rating, page, page_size).await?;
+        let marks = service::read_all_marks(&state, &uid, status, rating, page, page_size).await?;
         let items: Value = if expand_subject {
             // subjects 表按类别键控：混合列表按 item 自身类别分组批查
             // 视图（与单类别同管线），再按列表原序回填
@@ -578,7 +579,13 @@ async fn get_marks(
     let id_list: Vec<String> = q
         .ids
         .as_deref()
-        .map(|s| s.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect())
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     let marks = if q.ids.is_some() {
         if id_list.is_empty() || id_list.len() > 200 {
@@ -656,7 +663,9 @@ async fn get_subject_dims(
         .as_deref()
         .and_then(Status::from_key)
         .ok_or_else(|| AppError::InvalidArgument("缺少或非法 status 参数".to_string()))?;
-    Ok(Json(dims::subject_dims(&state, &uid, category, status).await?))
+    Ok(Json(
+        dims::subject_dims(&state, &uid, category, status).await?,
+    ))
 }
 
 // --------------------------------------------------------------------------- //
@@ -667,6 +676,17 @@ async fn get_subject_dims(
 struct StatsQuery {
     /// 缺省 collect（站点只展示看过）
     status: Option<String>,
+}
+
+async fn get_cache_version(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+    Query(q): Query<StatsQuery>,
+) -> AppResult<Json<super::cache::Versions>> {
+    let status = q.status.as_deref().unwrap_or("collect");
+    Status::from_key(status)
+        .ok_or_else(|| AppError::InvalidArgument("非法 status 参数".to_string()))?;
+    Ok(Json(super::cache::versions(&state, &uid, status).await?))
 }
 
 /// 侧边栏统计聚合，只读缓存不触发抓取；未同步的类别计 0，

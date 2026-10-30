@@ -10,7 +10,7 @@ import {
   OTHER_FACET_VALUE,
   PRIMARY_DIMENSION,
   type FacetStep,
-} from './facet-model'
+} from './facet-model.ts'
 import type { MarksCategory } from './navigation'
 
 /** 维度键 → dims 投影的数组字段名（派生维度 decade/is_tv 走特判） */
@@ -203,9 +203,7 @@ export function aggregateDims(
   items: readonly DoubanDimsItem[],
   filters: readonly FacetStep[] = [],
 ): Record<string, DimCounts> {
-  const scoped = filters.length
-    ? items.filter((it) => itemMatches(category, it, filters, items))
-    : items
+  const scoped = filterItems(category, items, filters)
   const out: Record<string, DimCounts> = {}
   for (const { key: dim } of DIMENSIONS[category]) {
     const list: DimCounts = [...valueCounts(category, dim, scoped)].map(
@@ -260,8 +258,29 @@ export function filterIds(
   items: readonly DoubanDimsItem[],
   path: readonly FacetStep[],
 ): string[] {
-  if (path.length === 0) return items.map((it) => it.id)
-  return items
-    .filter((it) => itemMatches(category, it, path, items))
-    .map((it) => it.id)
+  return filterItems(category, items, path).map((item) => item.id)
+}
+
+/** Each prefix and its "other" bucket are computed once for the whole collection. */
+function filterItems(
+  category: MarksCategory,
+  items: readonly DoubanDimsItem[],
+  path: readonly FacetStep[],
+): readonly DoubanDimsItem[] {
+  let scope = items
+  for (let i = 0; i < path.length; i++) {
+    const step = path[i]
+    if (step.value !== OTHER_FACET_VALUE) {
+      scope = scope.filter((item) => itemValues(category, step.dim, item).includes(step.value))
+      continue
+    }
+    const counts = valueCounts(category, step.dim, scope)
+    const topK = topKUnder(category, step.dim, path.slice(0, i))
+    const bucket = topK === undefined
+      ? new Set([...counts].filter(([, count]) => count === 1).map(([value]) => value))
+      : new Set([...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+        .slice(topK).map(([value]) => value))
+    scope = scope.filter((item) => itemValues(category, step.dim, item).some((value) => bucket.has(value)))
+  }
+  return scope
 }

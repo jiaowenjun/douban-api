@@ -15,6 +15,7 @@ pub struct AppState {
     pub config: ServerConfig,
     pub pool: SqlitePool,
     pub covers: CoverService,
+    pub projections: Arc<tokio::sync::Mutex<super::cache::ProjectionCache>>,
     worker_wakeup_tx: watch::Sender<u64>,
     /// 维度进度变更通知（载荷为 task_id），SSE 订阅端按 task_id 过滤
     progress_tx: broadcast::Sender<String>,
@@ -36,6 +37,7 @@ impl AppState {
         Self {
             config: config.clone(),
             pool,
+            projections: Arc::new(tokio::sync::Mutex::new(Default::default())),
             covers: CoverService::new(&config.data_dir, config.cover_concurrency),
             worker_wakeup_tx,
             progress_tx,

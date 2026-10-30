@@ -3,7 +3,7 @@
 //! 不做任何聚合/过滤/排序计数/长尾合并等展示决策（那些归前端
 //! facet-engine）。数据合成口径与列表页一致：subjects 已富集用
 //! rexxar meta，未富集回退 intro 启发式（load_views 共用管线）。
-//! items 按 date DESC, rowid 稳定序输出——前端保序筛出当页 id 集，
+//! items 按 date DESC, category, subject_id 稳定序输出——前端保序筛出当页 id 集，
 //! marks 端点按 ids 顺序返回当页数据，两侧顺序权威在前端。
 
 use anyhow::Result;
@@ -17,7 +17,7 @@ use super::error::AppResult;
 use super::state::AppState;
 use super::subject;
 
-/// 读该维度全部标记行，与 read_marks 同序（date DESC, rowid）——
+/// 读该维度全部标记行，与 read_marks 同序（date DESC, category, subject_id）——
 /// 顺序是 dims 端点与前端分页切片的排序契约
 async fn load_all_records(
     state: &AppState,
@@ -30,7 +30,7 @@ async fn load_all_records(
                 subject_url, cover, comment_id, intro
          FROM records
          WHERE uid = ? AND category = ? AND dim_status = ?
-         ORDER BY date DESC, rowid",
+         ORDER BY date DESC, category, subject_id",
     )
     .bind(uid)
     .bind(category.key())
@@ -77,7 +77,15 @@ async fn load_views(
 fn project_dims(category: Category, view: &Value) -> Value {
     let node = view.get(category.key()).cloned().unwrap_or(json!({}));
     let mut dims = Map::new();
-    for key in ["genres", "countries", "directors", "press", "authors", "translators", "singers"] {
+    for key in [
+        "genres",
+        "countries",
+        "directors",
+        "press",
+        "authors",
+        "translators",
+        "singers",
+    ] {
         if let Some(arr) = node.get(key).and_then(Value::as_array) {
             dims.insert(key.to_string(), Value::Array(arr.clone()));
         }
@@ -139,16 +147,14 @@ pub async fn read_marks_by_ids(
     ids: &[String],
 ) -> AppResult<(Vec<Record>, usize)> {
     use super::error::AppError;
+    super::service::ensure_dimension_cached(state, uid, category, status).await?;
     let fetched = service_read_by_ids(state, uid, category, status, ids).await?;
     // 按传入顺序重排（IN 查询不保序）
     let by_id: std::collections::HashMap<String, Record> = fetched
         .into_iter()
         .map(|r| (r.subject_id.clone(), r))
         .collect();
-    let items: Vec<Record> = ids
-        .iter()
-        .filter_map(|id| by_id.get(id).cloned())
-        .collect();
+    let items: Vec<Record> = ids.iter().filter_map(|id| by_id.get(id).cloned()).collect();
     if items.len() != ids.len() {
         return Err(AppError::InvalidArgument(
             "ids 中存在不属于该维度的条目".to_string(),

@@ -93,7 +93,7 @@ function buildGroupedChildren(
     return buildPrimaryLeaves(category, items, parentFilter, parentTag, byTag)
   }
   const groups = aggregateDims(category, items, parentFilter)[group.key] ?? []
-  let children = groups.map(({ value, count }) => {
+  let children: TagTreeNode[] = groups.map(({ value, count }) => {
     const tag = `${parentTag}/${group.key}/${escapeFacetValue(value)}`
     const path: FacetStep[] = [...parentFilter, { dim: group.key, value }]
     byTag.set(tag, { category, path })

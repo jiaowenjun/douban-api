@@ -1,13 +1,15 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { queryClient } from '../query-client'
+import { clearPersistedQueryCache } from '../query-persistence'
+import { CacheVersionContext } from './cache-version'
 import {
   DOUBAN_UID_STORAGE_KEY,
   DoubanUserContext,
   readStoredDoubanUid,
 } from './douban-user'
-import { doubanQueryKeys, useDoubanProfileQuery } from './douban-queries'
+import { doubanQueryKeys, useCacheVersionsQuery, useDoubanProfileQuery } from './douban-queries'
 import { LoginDialog } from './login-dialog'
 
 function persistDoubanUid(uid: string | null) {
@@ -30,17 +32,31 @@ export function DoubanUserProvider({ children }: { children: ReactNode }) {
   const [uid, setUid] = useState<string | null>(readStoredDoubanUid)
   const [loginOpen, setLoginOpen] = useState(false)
 
-  // 后端未同步过该用户或不可达时缓存为 null，界面回退 uid 展示，
+  // 后端未同步过该用户或不可达时保留已有资料，无资料则回退 uid 展示，
   // 不阻塞登录态
-  const profileQuery = useDoubanProfileQuery(uid)
+  const versionsQuery = useCacheVersionsQuery(uid)
+  const versions = versionsQuery.data ?? (versionsQuery.isPending ? undefined : null)
+  const profileQuery = useDoubanProfileQuery(uid, versions === undefined ? 'pending' : versions?.profile)
   const profile = profileQuery.data ?? null
+
+  // A transient read error should recover even when content itself has not changed.
+  useEffect(() => {
+    if (!uid || !versionsQuery.dataUpdatedAt || versionsQuery.isError) return
+    void queryClient.refetchQueries({
+      queryKey: doubanQueryKeys.uid(uid),
+      type: 'active',
+      predicate: (query) => query.queryKey[2] !== 'versions' && query.state.status === 'error',
+    })
+  }, [uid, versionsQuery.dataUpdatedAt, versionsQuery.isError])
 
   const signIn = useCallback(
     (nextUid: string) => {
       const normalized = nextUid.trim()
       if (!normalized) return
       if (normalized !== uid) {
+        void queryClient.cancelQueries({ queryKey: doubanQueryKeys.all })
         queryClient.removeQueries({ queryKey: doubanQueryKeys.all })
+        clearPersistedQueryCache()
       }
       setUid(normalized)
       persistDoubanUid(normalized)
@@ -49,7 +65,9 @@ export function DoubanUserProvider({ children }: { children: ReactNode }) {
   )
 
   const signOut = useCallback(() => {
+    void queryClient.cancelQueries({ queryKey: doubanQueryKeys.all })
     queryClient.removeQueries({ queryKey: doubanQueryKeys.all })
+    clearPersistedQueryCache()
     setUid(null)
     persistDoubanUid(null)
   }, [])
@@ -63,7 +81,7 @@ export function DoubanUserProvider({ children }: { children: ReactNode }) {
 
   return (
     <DoubanUserContext.Provider value={value}>
-      {children}
+      <CacheVersionContext.Provider value={versions}>{children}</CacheVersionContext.Provider>
       <LoginDialog onOpenChange={setLoginOpen} open={loginOpen} />
     </DoubanUserContext.Provider>
   )

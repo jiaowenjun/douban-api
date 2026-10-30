@@ -8,6 +8,7 @@ import type { DoubanMark } from '../api'
 import { useDoubanUser } from '../douban-user'
 import {
   fetchDoubanMarksPage,
+  MarksQueryError,
   MARKS_PAGE_SIZE,
   useDoubanDimsQuery,
   useDoubanMarksPageQuery,
@@ -35,7 +36,7 @@ function formatDate(iso: string): string {
 
 /** 标记列表页：读登录用户的缓存标记（GET /users/{uid}/marks），只读不触发抓取。
  *  数据经 react-query 缓存（同 biji 模式）：首页查询与加载更多的每页
- *  各占独立 key，类别/筛选切回来命中缓存零请求；错误信封也进缓存，
+ *  各占独立 key，类别/筛选切回来命中缓存零请求；失败保留已有成功数据，
  *  「重试」走 refetch 强制重发。分面筛选状态在 URL ?facet=dim=value
  *  ——侧边栏筛选树写入、本页读取驱动请求；类别路由切换不带参数，
  *  天然清除筛选 */
@@ -87,14 +88,15 @@ export function MarksPage() {
     page: 1,
     ids: matchedIds?.slice(0, PAGE_SIZE),
     rating,
-    enabled: uid !== null && marksCategory !== undefined && matchedIds !== null,
+    enabled: uid !== null && marksCategory !== undefined && matchedIds !== null &&
+      matchedIds?.length !== 0 && !dimsQuery.isPlaceholderData,
   })
 
   // 加载更多累积页（page ≥ 2 的追加数据）：列表身份变化（uid/类别/
-  // 筛选/评分）时按 key 比对清空（render 期调整，模式同旧 snapshot）
+  // 筛选/评分/版本）时按 key 比对清空（render 期调整，模式同旧 snapshot）
   const listKey =
     uid && marksCategory
-      ? `${uid}|${marksCategory}|${facetKey}|${rating ?? ''}`
+      ? `${uid}|${marksCategory}|${facetKey}|${rating ?? ''}|${marksQuery.version}`
       : null
   const [moreSnapshot, setMoreSnapshot] = useState<{
     key: string | null
@@ -112,7 +114,9 @@ export function MarksPage() {
   }
 
   // 列表态由「首页查询结果 + 追加页」派生，不再持有独立状态机
-  const first = marksQuery.data
+  const first = matchedIds?.length === 0
+    ? { ok: true as const, data: { items: [], total: 0, cached_at: '' } }
+    : marksQuery.data
   const state:
     | { phase: 'loading' }
     | { phase: 'not-cached' }
@@ -124,12 +128,14 @@ export function MarksPage() {
         loadedPages: number
         cachedAt: string
       } = !first
-    ? { phase: 'loading' }
-    : !first.ok
-      ? first.kind === 'not-cached'
+    ? marksQuery.error
+      ? marksQuery.error instanceof MarksQueryError && marksQuery.error.kind === 'not-cached'
         ? { phase: 'not-cached' }
-        : { phase: 'error', message: first.message }
-      : {
+        : { phase: 'error', message: marksQuery.error.message }
+      : dimsQuery.isError && matchedIds === null
+        ? { phase: 'error', message: dimsQuery.error.message }
+        : { phase: 'loading' }
+    : {
           phase: 'list',
           items: [...first.data.items, ...moreSnapshot.pages.flat()],
           // ids 模式后端 total 是当页片数，命中总数以前端筛选结果为准
@@ -143,7 +149,8 @@ export function MarksPage() {
       !uid ||
       !marksCategory ||
       state.phase !== 'list' ||
-      moreSnapshot.loadingMore
+      moreSnapshot.loadingMore ||
+      marksQuery.isPlaceholderData
     ) {
       return
     }
@@ -158,6 +165,7 @@ export function MarksPage() {
       page: nextPage,
       ids: matchedIds?.slice((nextPage - 1) * PAGE_SIZE, nextPage * PAGE_SIZE),
       rating,
+      version: marksQuery.version,
     })
     setMoreSnapshot((s) => {
       // 期间类别/筛选已切换：丢弃迟到页（对齐旧 seqRef 竞态防护）
@@ -210,7 +218,8 @@ export function MarksPage() {
         <p>加载失败：{state.message}</p>
         <TextButton
           onClick={() => {
-            void marksQuery.refetch()
+            if (matchedIds === null || dimsQuery.isPlaceholderData) void dimsQuery.refetch()
+            else void marksQuery.refetch()
           }}
           type="button"
           variant="ghost"
@@ -265,7 +274,7 @@ export function MarksPage() {
               </span>
             ) : null}
             <TextButton
-              disabled={moreSnapshot.loadingMore}
+              disabled={moreSnapshot.loadingMore || marksQuery.isPlaceholderData}
               onClick={loadMore}
               type="button"
             >

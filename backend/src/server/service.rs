@@ -2,10 +2,10 @@
 
 use rand::Rng;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sqlx::{Row, SqlitePool};
 
-use crate::crawler::{Category, Record, Status, parse_uid};
+use crate::crawler::{parse_uid, Category, Record, Status};
 
 use super::config::ServerConfig;
 use super::covers::cover_proxy_url;
@@ -28,14 +28,36 @@ pub async fn upsert_records(
     dim_status: &str,
     items: &[Record],
 ) -> anyhow::Result<()> {
+    write_records(pool, "records", uid, category, dim_status, items).await
+}
+
+pub(super) async fn write_records(
+    pool: &SqlitePool,
+    table: &str,
+    uid: &str,
+    category: &str,
+    dim_status: &str,
+    items: &[Record],
+) -> anyhow::Result<()> {
+    assert!(table == "records" || table == "record_staging");
     let mut tx = pool.begin().await?;
+    let mut inserted = Vec::new();
+    let conflict = if table == "record_staging" {
+        "ON CONFLICT(uid, category, dim_status, subject_id) DO UPDATE SET
+         title=excluded.title, alt_title=excluded.alt_title, my_rating=excluded.my_rating,
+         date=excluded.date, comment=excluded.comment, subject_url=excluded.subject_url,
+         cover=excluded.cover, comment_id=excluded.comment_id, intro=excluded.intro
+         WHERE record_staging.intro='' AND excluded.intro!=''"
+    } else {
+        "ON CONFLICT DO NOTHING"
+    };
     for r in items {
-        sqlx::query(
-            "INSERT OR IGNORE INTO records
+        let result = sqlx::query(&format!(
+            "INSERT INTO {table}
                     (uid, category, dim_status, subject_id, title, alt_title, my_rating,
                      date, comment, subject_url, cover, comment_id, intro)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) {conflict}",
+        ))
         .bind(uid)
         .bind(category)
         .bind(dim_status)
@@ -51,12 +73,25 @@ pub async fn upsert_records(
         .bind(&r.intro)
         .execute(&mut *tx)
         .await?;
+        if result.rows_affected() > 0 {
+            inserted.push(&r.subject_id);
+        }
+    }
+    if table == "records" {
+        // Copy only newly inserted feed records; existing items must not resurrect deletions.
+        for subject_id in inserted {
+            sqlx::query("INSERT OR IGNORE INTO record_staging SELECT r.* FROM records r
+                JOIN dimensions d ON d.uid=r.uid AND d.category=r.category AND d.dim_status=r.dim_status
+                WHERE r.uid=? AND r.category=? AND r.dim_status=? AND r.subject_id=? AND d.staging=1")
+                .bind(uid).bind(category).bind(dim_status).bind(subject_id)
+                .execute(&mut *tx).await?;
+        }
     }
     tx.commit().await?;
     Ok(())
 }
 
-/// refresh 语义：清空该维度旧数据并重置为待全量重抓。
+/// 全量刷新写入暂存区；上一份完整快照一直可读，成功后才原子发布。
 /// 手动 refresh 任务与订阅全量同步共用（调用前提：维度行已存在且非 queued/running，
 /// 避免与进行中的分页抓取竞态删数据）。
 async fn refresh_dimension(
@@ -66,15 +101,16 @@ async fn refresh_dimension(
     dim_status: &str,
     now: i64,
 ) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM records WHERE uid=? AND category=? AND dim_status=?")
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM record_staging WHERE uid=? AND category=? AND dim_status=?")
         .bind(uid)
         .bind(category)
         .bind(dim_status)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     sqlx::query(
         "UPDATE dimensions SET state='queued', fetched_count=0,
-                total=NULL, next_start=0, fetched_ms=NULL, attempts=0,
+                total=NULL, next_start=0, staging=1, attempts=0,
                 next_sync_ms=NULL, last_error=NULL, updated_ms=?
          WHERE uid=? AND category=? AND dim_status=?",
     )
@@ -82,8 +118,9 @@ async fn refresh_dimension(
     .bind(uid)
     .bind(category)
     .bind(dim_status)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -379,13 +416,13 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
             dim_state => {
                 let is_fresh_ok = dim_state.as_ref().is_some_and(|(s, _, _)| s == "ok");
                 if is_fresh_ok {
-                    // refresh：清空旧数据重新全量抓
+                    // refresh：暂存新快照，保留已发布数据
                     refresh_dimension(&state.pool, &uid, cat.key(), st.key(), now).await?;
                 } else {
                     // idle/error：清错误与计数后入队，保留已有 records/next_start 续爬
                     sqlx::query(
-                        "INSERT INTO dimensions (uid, category, dim_status, state, updated_ms)
-                         VALUES (?, ?, ?, 'queued', ?)
+                        "INSERT INTO dimensions (uid, category, dim_status, state, updated_ms, staging)
+                         VALUES (?, ?, ?, 'queued', ?, 1)
                          ON CONFLICT(uid, category, dim_status) DO UPDATE SET
                             state='queued', attempts=0, next_sync_ms=NULL, last_error=NULL,
                             updated_ms=excluded.updated_ms",
@@ -720,7 +757,7 @@ pub struct MarksPage {
     pub items: Vec<Record>,
 }
 
-/// 维度缓存检查：行缺失或非 ok → DimensionNotCached；返回 fetched_ms
+/// 维度无已发布快照时返回 DimensionNotCached；刷新中/失败仍读取上次快照。
 pub(super) async fn ensure_dimension_cached(
     state: &AppState,
     uid: &str,
@@ -740,7 +777,7 @@ pub(super) async fn ensure_dimension_cached(
     let Some(row) = row else {
         return Err(AppError::DimensionNotCached);
     };
-    if row.get::<String, _>("state") != "ok" {
+    if row.get::<String, _>("state") != "ok" && row.get::<Option<i64>, _>("fetched_ms").is_none() {
         return Err(AppError::DimensionNotCached);
     }
     Ok(row.get("fetched_ms"))
@@ -771,7 +808,7 @@ pub async fn read_marks(
                 subject_url, cover, comment_id, intro
          FROM records
          WHERE uid = ? AND category = ? AND dim_status = ?
-         ORDER BY date DESC, rowid
+         ORDER BY date DESC, category, subject_id
          LIMIT ? OFFSET ?",
     )
     .bind(uid)
@@ -844,7 +881,7 @@ pub enum RatingFilter {
 /// 三类别合并分页读：维度门禁放行口径比单类别宽——任一类别已同步即
 /// 返回（已同步部分的记录），三类别全未同步才 DIMENSION_NOT_CACHED；
 /// cached_at/fresh 取三维度最近一次抓取。排序与单类别一致
-/// （date DESC, rowid），跨类别按日期自然归并；Record.category 用行
+/// （date DESC, category, subject_id），跨类别按日期自然归并；Record.category 用行
 /// 自身类别（expand=subject 时路由层按它分组查视图）。
 /// rating 为我的评分筛选（路由层已解析校验；None=不过滤），计数与
 /// 列表同口径加评分子句
@@ -885,7 +922,9 @@ pub async fn read_all_marks(
         Some(RatingFilter::AtMost(r)) => format!(" AND my_rating <= {r}"),
     };
     let total: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?{rating_clause}"
+        "SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?{rating_clause}
+         AND EXISTS (SELECT 1 FROM dimensions d WHERE d.uid=records.uid AND d.category=records.category
+                     AND d.dim_status=records.dim_status AND (d.state='ok' OR d.fetched_ms IS NOT NULL))"
     ))
     .bind(uid)
     .bind(status.key())
@@ -897,7 +936,9 @@ pub async fn read_all_marks(
                 subject_url, cover, comment_id, intro
          FROM records
          WHERE uid = ? AND dim_status = ?{rating_clause}
-         ORDER BY date DESC, rowid
+         AND EXISTS (SELECT 1 FROM dimensions d WHERE d.uid=records.uid AND d.category=records.category
+                     AND d.dim_status=records.dim_status AND (d.state='ok' OR d.fetched_ms IS NOT NULL))
+         ORDER BY date DESC, category, subject_id
          LIMIT ? OFFSET ?"
     ))
     .bind(uid)
@@ -1121,7 +1162,7 @@ async fn rss_sync<F: DoubanFetcher>(
         Ok(xml) => {
             let items = crate::crawler::parse_feed(&xml);
             let dims: Vec<(String, String)> =
-                sqlx::query_as("SELECT category, dim_status FROM dimensions WHERE uid = ?")
+                sqlx::query_as("SELECT category, dim_status FROM dimensions WHERE uid = ? AND (state='ok' OR fetched_ms IS NOT NULL)")
                     .bind(&sub.uid)
                     .fetch_all(&state.pool)
                     .await?;
@@ -1147,7 +1188,7 @@ async fn rss_sync<F: DoubanFetcher>(
                     "UPDATE dimensions SET fetched_count =
                             (SELECT COUNT(*) FROM records
                              WHERE uid=? AND category=? AND dim_status=?), updated_ms=?
-                     WHERE uid=? AND category=? AND dim_status=?",
+                     WHERE uid=? AND category=? AND dim_status=? AND staging=0",
                 )
                 .bind(&sub.uid)
                 .bind(cat)
@@ -1160,6 +1201,12 @@ async fn rss_sync<F: DoubanFetcher>(
                 .await?;
             }
 
+            if state.config.subject_enrich {
+                for (cat, _) in by_dim.keys() {
+                    super::subject::enqueue_missing_subjects(&state.pool, &sub.uid, cat).await?;
+                }
+                state.wake_worker();
+            }
             sqlx::query(
                 "UPDATE subscriptions SET last_rss_ms=?, next_rss_ms=?, last_guid=?,
                         rss_attempts=0, last_error=NULL, updated_ms=?
@@ -1207,7 +1254,7 @@ async fn rss_sync<F: DoubanFetcher>(
 }
 
 /// 长周期全量：为该 uid 创建 source='auto' 的任务并对其全部已有维度执行 refresh。
-/// 只刷 state 为 ok/error 的维度——正在抓取中的维度 DELETE records 会与其竞态，跳过
+/// 只刷 state 为 ok/error 的维度，跳过进行中的维度以免重置暂存进度。
 /// 后下次周期自然补上。
 async fn full_sync(state: &AppState, sub: &DueSubscription, now: i64) -> anyhow::Result<()> {
     let postpone = |secs: i64| {
@@ -1219,7 +1266,7 @@ async fn full_sync(state: &AppState, sub: &DueSubscription, now: i64) -> anyhow:
     };
 
     let dims: Vec<(String, String)> = sqlx::query_as(
-        "SELECT category, dim_status FROM dimensions WHERE uid = ? AND state IN ('ok','error')",
+        "SELECT category, dim_status FROM dimensions WHERE uid = ? AND (state='ok' OR fetched_ms IS NOT NULL) AND state IN ('ok','error')",
     )
     .bind(&sub.uid)
     .fetch_all(&state.pool)
