@@ -127,7 +127,7 @@ const MISSING_FIELD_MARKS = [
     title: '无又名',
     my_rating: 4,
     cover: COVER_A,
-    intro: '外文名缺失时直接进入简介行。',
+    intro: '外文名缺失时标题行不显示别名段。',
   }),
   mark({
     comment_id: 'demo-no-intro',

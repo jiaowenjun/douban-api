@@ -42,7 +42,7 @@
   font-size: var(--font-size-sm);
 }
 
-/* 条目身份区：封面（左，64px——v1 的 48px 过小难以承担条目识别）与
+/* 条目身份区：封面（左，64px，与 v1 同宽）与
    文字列（右，弹性）单行并列，顶对齐 */
 .mark-card-v2__subject {
   display: grid;

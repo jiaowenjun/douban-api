@@ -87,36 +87,38 @@ function subjectMetaLine(subject: DoubanSubject): string | null {
   return line || null
 }
 
-/** 标题 + 短评 → WDF 文档：标题固定 h1（weimo 卡片体系的标题级——
- *  居中 650 字重，样式随包内 --md-* token 明暗自适应），短评作为正文
- *  段落跟在其后，无短评时文档仅含标题 */
-function markDocument(mark: DoubanMark): WdfDocument {
-  const content: WdfDocument['root']['content'] = [
-    {
-      type: 'heading',
-      attrs: { level: 1 },
-      content: [{ type: 'text', text: mark.title }],
+/** 短评 → WDF 文档：仅正文段落，不再嵌 h1——元信息区标题行强化
+ *  （16px/650 primary）后，标题行与正文 h1 的双标题即为纯重复，标题
+ *  由标题行唯一承载；无短评返回 null（正文区整区不渲染）。与 v2 的
+ *  commentDocument 同源 */
+function commentDocument(mark: DoubanMark): WdfDocument | null {
+  if (!mark.comment) return null
+  return {
+    schema: 'weimo.document',
+    version: 1,
+    root: {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: mark.comment }],
+        },
+      ],
     },
-  ]
-  if (mark.comment) {
-    content.push({
-      type: 'paragraph',
-      content: [{ type: 'text', text: mark.comment }],
-    })
   }
-  return { schema: 'weimo.document', version: 1, root: { type: 'doc', content } }
 }
 
 /** 书影音标记卡片，三段式一级结构：顶部标记行（日期 · 看过/读过/听
     过 · 我的评分星级 + 右侧元信息折叠开关）/ 可折叠条目信息区（封面
-    左，文字列右——首行「标题 (年份) 别名」，第二行豆瓣评分「五星 +
-    数字」（rating/2 换算星宽，无标签、aria-label 保留来源），第三行
-    单行元信息摘要（「 / 」分隔元信息、空格分隔同域多值、无角色标
-    签），无结构化数据回退 intro 原文；默认收起）/ 评论正文区
-    （WdfRender 渲染标题 h1 + 短评段落），含 <li> 列表条目语义；材质
-    （背景/边框/圆角/阴影）复用 weimo-ui-core 的 card-surface，与
-    BaseCard 同源；折叠实现同源 BaseCard metaCollapsible；纯展示除折
-    叠开关外无交互 */
+    左，文字列右——首行「标题 (年份) 别名」（主标题 16px/650 primary
+    对齐 v2、标题唯一出现处，年份/别名弱灰 sm），第二行豆瓣评分「五
+    星 + 数字」（rating/2 换算星宽，无标签、aria-label 保留来源），第
+    三行单行元信息摘要（「 / 」分隔元信息、空格分隔同域多值、无角色
+    标签），无结构化数据回退 intro 原文；默认收起）/ 评论正文区
+    （WdfRender 渲染短评段落，无标题——标题由标题行承载；无短评整区
+    不渲染），含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）复用
+    weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现同源
+    BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   const [metaExpanded, setMetaExpanded] = useState(false)
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
@@ -124,9 +126,7 @@ export function MarkCard({ mark }: MarkCardProps) {
   const metaLine = mark.subject ? subjectMetaLine(mark.subject) : null
   const year = mark.subject?.year
   const doubanRating = mark.subject?.rating.value
-  // 标题行的可选段（年份/别名）全缺时整行不渲染——标题已由正文区 h1
-  // 承载，孤行纯重复
-  const hasOptionalTitleSegment = year != null || Boolean(mark.alt_title)
+  const commentDoc = commentDocument(mark)
 
   return (
     <li className={getCardSurfaceClassName('mark-card')}>
@@ -171,14 +171,12 @@ export function MarkCard({ mark }: MarkCardProps) {
             <div className="mark-card__cover mark-card__cover--empty" />
           )}
           <div className="mark-card__info">
-            {hasOptionalTitleSegment ? (
-              <div className="mark-card__title-row">
-                <bdi>{mark.title}</bdi>
-                {year != null ? <span>({year})</span> : null}
-                {/* bdi 隔离：阿文等 RTL 别名在行内自持方向、不扰动前后段 */}
-                {mark.alt_title ? <bdi>{mark.alt_title}</bdi> : null}
-              </div>
-            ) : null}
+            <div className="mark-card__title-row">
+              <bdi className="mark-card__title">{mark.title}</bdi>
+              {year != null ? <span>({year})</span> : null}
+              {/* bdi 隔离：阿文等 RTL 别名在行内自持方向、不扰动前后段 */}
+              {mark.alt_title ? <bdi>{mark.alt_title}</bdi> : null}
+            </div>
             {doubanRating != null ? (
               <div className="mark-card__douban-rating">
                 <StarRating
@@ -197,9 +195,11 @@ export function MarkCard({ mark }: MarkCardProps) {
           </div>
         </div>
       </div>
-      <div className="mark-card__comment">
-        <WdfRender content={markDocument(mark)} />
-      </div>
+      {commentDoc ? (
+        <div className="mark-card__comment">
+          <WdfRender content={commentDoc} />
+        </div>
+      ) : null}
     </li>
   )
 }

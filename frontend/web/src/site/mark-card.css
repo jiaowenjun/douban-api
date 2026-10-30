@@ -118,10 +118,9 @@
 }
 
 .mark-card__cover {
-  width: 48px;
+  width: 64px;
   height: auto;
   aspect-ratio: 2 / 3;
-  flex: none;
   border-radius: var(--radius-xs, 4px);
   object-fit: cover;
   background: var(--color-bg-raised);
@@ -138,23 +137,33 @@
   align-content: start;
 }
 
-/* 评论正文区（WdfRender 渲染标题 h1 + 短评段落）：标题用包内 --md-h1-*
-   token 默认（居中 650、随明暗翻转）；正文段落 scoped 覆写回站点
-   token，保持卡片原有的次级灰与基准字号 */
+/* 评论正文区（WdfRender 渲染短评段落，无标题——标题由元信息区标题行
+   唯一承载；无短评整区不渲染）：正文段落 scoped 覆写回站点 token，保
+   持卡片原有的次级灰与基准字号 */
 .mark-card__comment {
   --md-paragraph-color: var(--color-text-secondary);
   --md-font-size: var(--font-size-base);
 }
 
-/* 标题行（元信息区首行）：「标题 (年份) 别名」——可选段（年份/别名）
-   全缺时整行不渲染（标题由正文区 h1 承载，孤行纯重复）；弱化灰同元
-   信息行，flex 间距分段、bdi 隔离 RTL 别名，超长自然换行不省略 */
+/* 标题行（元信息区首行）：「标题 (年份) 别名」——主标题层级向 v2 对
+   齐（见 __title），年份/别名继承本行弱灰 sm、baseline 与 16px 主标
+   题共行协调；可选段（年份/别名）全缺时整行不渲染（标题由正文区 h1
+   承载，孤行纯重复）；bdi 隔离 RTL 别名，超长自然换行不省略 */
 .mark-card__title-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   column-gap: 6px;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
+}
+
+/* 主标题：字级字色向 MarkCardv2 的标题对齐（16px / 650 / primary） */
+.mark-card__title {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 /* 豆瓣评分行（元信息区第二行）：五星 + 数字，无「豆瓣」标签、与元信
