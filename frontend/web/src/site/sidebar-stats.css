@@ -14,10 +14,12 @@
   font-size: 13px;
 }
 
-/* 13 列格子撑满导航内容宽（space-between）；下缘间距交给紧随的
-   筛选区 section-hint 顶距（18px），不另加 padding-bottom */
+/* 格子列距由组件 --heatmap-gap 固定 4px，网格收缩为内容宽后在内容区
+   居中——与上方 StatGroup（243px margin auto 居中）左右对齐；不沿用
+   组件默认的左右 16px padding（窄侧边栏 256px 内容区放不下 13 列）。
+   下缘间距交给紧随的筛选区 section-hint 顶距（18px），不另加 padding-bottom */
 .sidebar-stats .heatmap {
-  justify-content: space-between;
+  justify-content: center;
   padding-block: 12px 0;
   padding-inline: 0;
 }
