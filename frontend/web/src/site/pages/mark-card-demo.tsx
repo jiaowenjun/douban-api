@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Link } from 'react-router'
 
 import type { DoubanMark } from '../api'
 import { MarkCard } from '../mark-card'
+import { MarkCardv2 } from '../mark-card-v2'
 import './mark-card-demo.css'
 
 /** 演示页路由（HashRouter 下即 #/demo/mark-card）；纯 mock 数据，不请求后端 */
@@ -51,7 +53,7 @@ const FULL_MARK = mark({
   intro:
     '2026-10-28(中国大陆) / 示例导演 / 示例演员 / 中国大陆 / 120分钟 / 剧情 / 喜剧 / 汉语普通话',
   comment:
-    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：顶部为标记日期，展开元信息首行为「标题 · 可选标题 · 豆瓣评分」，其后年份国家类型一行、导演与主演各一行，下方为完整展示的短评。',
+    '这是一条完整的短评，用于展示所有字段齐备时的卡片形态：标记行含日期、看过与我的评分，条目区为封面、标题、年份、可选标题、豆瓣评分与单行元信息。',
   subject: {
     category: 'movie',
     subject_id: 'demo-subject-full',
@@ -87,7 +89,7 @@ const RTL_MARK = mark({
   alt_title: 'هابي بيرث داي',
   my_rating: 4,
   cover: COVER_B,
-  intro: '阿文可选标题与豆瓣评分混排时，各段应保持顺序、评分不被拆散。',
+  intro: '阿文（RTL）可选标题与豆瓣评分同卡显示时，各段顺序与文字方向应正确。',
   subject: {
     category: 'movie',
     subject_id: 'demo-subject-rtl',
@@ -118,7 +120,7 @@ const MISSING_FIELD_MARKS = [
     comment_id: 'demo-no-rating',
     title: '无评分',
     cover: COVER_C,
-    intro: '未打分时标题行右侧不出现星级。',
+    intro: '未打分时不出现星级。',
   }),
   mark({
     comment_id: 'demo-no-alt',
@@ -202,11 +204,18 @@ const NARROW_MARKS = [
   }),
 ]
 
-function CardList({ items }: { items: DoubanMark[] }) {
+function CardList({
+  items,
+  variant,
+}: {
+  items: DoubanMark[]
+  variant: 'v1' | 'v2'
+}) {
+  const Card = variant === 'v2' ? MarkCardv2 : MarkCard
   return (
     <ul className="mark-card-demo__list">
       {items.map((item) => (
-        <MarkCard key={item.comment_id} mark={item} />
+        <Card key={item.comment_id} mark={item} />
       ))}
     </ul>
   )
@@ -233,43 +242,68 @@ function DemoSection({
 }
 
 /** MarkCard 组件演示页：静态 mock 数据覆盖各字段组合与极端情况，
- *  供调整卡片样式时对照；配合顶栏主题切换可核对明暗两套配色 */
+ *  供调整卡片样式时对照；配合顶栏主题切换可核对明暗两套配色；
+ *  v1/v2 切换用同一批 mock 对比两代卡片 */
 export function MarkCardDemoPage() {
+  const [variant, setVariant] = useState<'v1' | 'v2'>('v1')
   return (
     <section className="mark-card-demo">
       <h1 className="mark-card-demo__title">MarkCard 组件演示</h1>
       <p className="mark-card-demo__desc">
         纯静态 mock，不请求后端；真实数据列表见
         <Link to="/movie">看过的电影</Link>。卡片组件在
-        <code>site/mark-card.tsx</code>。
+        <code>site/mark-card.tsx</code> 与 <code>site/mark-card-v2.tsx</code>。
+      </p>
+      <div aria-label="卡片版本切换" className="mark-card-demo__switch" role="group">
+        <button
+          aria-pressed={variant === 'v1'}
+          data-active={variant === 'v1' ? 'true' : undefined}
+          onClick={() => setVariant('v1')}
+          type="button"
+        >
+          MarkCard（现行）
+        </button>
+        <button
+          aria-pressed={variant === 'v2'}
+          data-active={variant === 'v2' ? 'true' : undefined}
+          onClick={() => setVariant('v2')}
+          type="button"
+        >
+          MarkCardv2（新版）
+        </button>
+      </div>
+      <p className="mark-card-demo__switch-note">
+        v2 三区常驻无折叠：标记行「日期 · 看过 · 我的评分」（左对齐）/
+        身份区「封面 64px · 标题 · 年份」+「可选标题 · 豆瓣评分」+ 单行
+        元信息（国家类型·导演主演等，超长省略）；正文仅短评、不再重复标题。
       </p>
 
       <DemoSection
-        description="所有字段齐备的基准形态；附阿文（RTL）可选标题与评分混排的 bidi 隔离回归用例"
+        description="所有字段齐备的基准形态；附阿文（RTL）可选标题回归用例"
         title="完整字段"
       >
-        <CardList items={[FULL_MARK, RTL_MARK]} />
+        <CardList items={[FULL_MARK, RTL_MARK]} variant={variant} />
       </DemoSection>
 
       <DemoSection
-        description="金色覆盖层按 1/5 比例裁切，验证各档填充宽度"
+        description="单色覆盖层按 1/5 比例裁切，验证各档填充宽度"
         title="评分 1–5 星"
       >
-        <CardList items={RATING_MARKS} />
+        <CardList items={RATING_MARKS} variant={variant} />
       </DemoSection>
 
       <DemoSection
         description="可选字段逐一缺失，直到只剩标题与日期"
         title="字段缺省"
       >
-        <CardList items={MISSING_FIELD_MARKS} />
+        <CardList items={MISSING_FIELD_MARKS} variant={variant} />
       </DemoSection>
 
       <DemoSection
         description="标题/又名自动换行，简介与短评不限行数，卡片随正文撑开高度"
         title="长文本完整展示"
       >
-        <CardList items={LONG_TEXT_MARKS} />
+        <CardList items={LONG_TEXT_MARKS} variant={variant} />
       </DemoSection>
 
       <DemoSection
@@ -277,7 +311,7 @@ export function MarkCardDemoPage() {
         title="窄容器"
       >
         <div className="mark-card-demo__narrow">
-          <CardList items={NARROW_MARKS} />
+          <CardList items={NARROW_MARKS} variant={variant} />
         </div>
       </DemoSection>
     </section>

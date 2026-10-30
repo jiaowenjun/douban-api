@@ -45,6 +45,33 @@
   list-style: none;
 }
 
+/* v1/v2 版本切换：同一批 mock 对比两代卡片 */
+.mark-card-demo__switch {
+  display: flex;
+  gap: 8px;
+}
+
+.mark-card-demo__switch button {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-round);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.mark-card-demo__switch button[data-active='true'] {
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-primary);
+}
+
+.mark-card-demo__switch-note {
+  margin: 0;
+  color: var(--color-text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
 /* 模拟窄屏：限制列表宽度看截断/占位表现 */
 .mark-card-demo__narrow {
   max-width: 360px;
