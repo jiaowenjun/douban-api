@@ -213,9 +213,9 @@ ssh txy 'git clone /root/workspace/douban-bootstrap.bundle /root/workspace/weimo
 
 ```bash
 ssh txy
-cd /root/workspace/weimo-douban
+cd /root/workspace/weimo-douban/backend   # Rust 项目根在 backend/ 子目录，不在仓库根
 cargo build --locked --release -p weimo-douban
-# 产物 target/release/weimo-douban-server
+# 产物 backend/target/release/weimo-douban-server
 
 # 构建后自检（照 weimo verify 惯例）
 target/release/weimo-douban-server --help
@@ -289,7 +289,7 @@ Type=simple
 User=root
 WorkingDirectory=/srv/weimo-douban
 EnvironmentFile=/etc/weimo-douban/douban.env
-ExecStart=/root/workspace/weimo-douban/target/release/weimo-douban-server --bind 127.0.0.1:8020 --data-dir /srv/weimo-douban/data --cors-origins https://weimo.ink
+ExecStart=/root/workspace/weimo-douban/backend/target/release/weimo-douban-server --bind 127.0.0.1:8020 --data-dir /srv/weimo-douban/data --cors-origins https://weimo.ink
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
@@ -406,10 +406,10 @@ git merge --ff-only FETCH_HEAD
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 install -d /var/backups/weimo-douban
 tar -C /var/www -czf /var/backups/weimo-douban/web-$STAMP.tgz weimo-douban
-cp target/release/weimo-douban-server /var/backups/weimo-douban/server-$STAMP
+cp backend/target/release/weimo-douban-server /var/backups/weimo-douban/server-$STAMP
 
 # 按变更范围执行（构建命令同 §5.3/§5.4）
-cargo build --locked --release -p weimo-douban && systemctl restart weimo-douban
+cd /root/workspace/weimo-douban/backend && cargo build --locked --release -p weimo-douban && systemctl restart weimo-douban
 VITE_API_BASE_URL=/douban/api/v1 VITE_API_TOKEN="$(grep ^SYNC_SERVER_TOKEN= /etc/weimo-douban/douban.env | cut -d= -f2)" \
   pnpm --dir frontend/web build
 VITE_API_BASE_URL=/douban-admin/api/v1 pnpm --dir frontend/admin build
@@ -428,7 +428,7 @@ rm /root/workspace/douban-update.bundle                  # 本地同步删 /tmp/
 ## 8. 回滚
 
 - **前端**：`tar -C /var/www -xzf /var/backups/weimo-douban/web-<STAMP>.tgz` 覆盖后立即生效（无需重启任何服务）。
-- **后端**：`cp /var/backups/weimo-douban/server-<STAMP> /root/workspace/weimo-douban/target/release/weimo-douban-server && systemctl restart weimo-douban`。
+- **后端**：`cp /var/backups/weimo-douban/server-<STAMP> /root/workspace/weimo-douban/backend/target/release/weimo-douban-server && systemctl restart weimo-douban`。
 - **数据不回滚**：`/srv/weimo-douban/data` 与代码版本解耦；若新版本后端改了 schema 造成不可逆变更，属于 §2 前置失守，应先停服再从 §9 的备份恢复 db。
 - 回滚后必须重跑 §6 验证。
 
