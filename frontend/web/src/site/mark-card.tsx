@@ -108,17 +108,20 @@ function commentDocument(mark: DoubanMark): WdfDocument | null {
   }
 }
 
-/** 书影音标记卡片，三段式一级结构：顶部标记行（日期 · 看过/读过/听
-    过 · 我的评分星级 + 右侧元信息折叠开关）/ 可折叠条目信息区（封面
-    左，文字列右——首行「标题 (年份) 别名」（主标题 16px/650 primary
-    对齐 v2、标题唯一出现处，年份/别名弱灰 sm），第二行豆瓣评分「五
-    星 + 数字」（rating/2 换算星宽，无标签、aria-label 保留来源），第
-    三行单行元信息摘要（「 / 」分隔元信息、空格分隔同域多值、无角色
-    标签），无结构化数据回退 intro 原文；默认收起）/ 评论正文区
-    （WdfRender 渲染短评段落，无标题——标题由标题行承载；无短评整区
-    不渲染），含 <li> 列表条目语义；材质（背景/边框/圆角/阴影）复用
-    weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实现同源
-    BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
+/** 书影音标记卡片，四段式一级结构：顶部标记行（日期 · 看过/读过/听
+    过 · 我的评分星级 + 右侧元信息折叠开关）/ 标题行「标题 (年份) 别
+    名」（标题唯一出现处、主标题 16px/650 primary 对齐 v2，年份/别名
+    弱灰 sm；两处渲染——收起态独占一行常驻可见（外裹高度折叠容器，
+    展开时收 0 不占位），展开态居封面右侧信息列首行，布局与 v2 身份
+    区一致，由根 data-expanded 的 CSS 切换）/
+    可折叠条目信息区（封面左，文字列右——豆瓣评分「五星 + 数字」
+    （rating/2 换算星宽，无标签、aria-label 保留来源）+ 单行元信息摘
+    要（「 / 」分隔元信息、空格分隔同域多值、无角色标签），无结构化
+    数据回退 intro 原文；内容全空时整区与开关不渲染；默认收起）/
+    评论正文区（WdfRender 渲染短评段落，无标题——标题由标题行承载；
+    无短评整区不渲染），含 <li> 列表条目语义；材质（背景/边框/圆角/
+    阴影）复用 weimo-ui-core 的 card-surface，与 BaseCard 同源；折叠实
+    现同源 BaseCard metaCollapsible；纯展示除折叠开关外无交互 */
 export function MarkCard({ mark }: MarkCardProps) {
   const [metaExpanded, setMetaExpanded] = useState(false)
   // subject.cover 是 rexxar 中图（比收藏页小图清晰），两者同走本地 covers 代理
@@ -127,9 +130,33 @@ export function MarkCard({ mark }: MarkCardProps) {
   const year = mark.subject?.year
   const doubanRating = mark.subject?.rating.value
   const commentDoc = commentDocument(mark)
+  // 折叠区内容全空（无封面/评分/元信息/简介）时整区与开关不渲染——
+  // 展开无内容可看的死开关是噪音（对齐 v2 hasExtra 惯例）
+  const hasSubjectInfo =
+    Boolean(cover) || doubanRating != null || Boolean(metaLine) || Boolean(mark.intro)
+  // 标题行两处渲染：solo 副本（收起态独占一行，外裹 0fr/1fr 高度折叠
+  // 容器——展开时高度收 0 不占位，visibility 方案会留空行）与 inline
+  // 副本（展开态居封面右侧信息列首行，与 v2 身份区布局一致，收起时随
+  // 折叠区裁切隐藏），CSS 按根 data-expanded 切换
+  const titleRowContent = (
+    <>
+      <bdi className="mark-card__title">{mark.title}</bdi>
+      {year != null ? <span>({year})</span> : null}
+      {/* bdi 隔离：阿文等 RTL 别名在行内自持方向、不扰动前后段 */}
+      {mark.alt_title ? <bdi>{mark.alt_title}</bdi> : null}
+    </>
+  )
+  const renderTitleRow = (variant: 'solo' | 'inline') =>
+    variant === 'solo' ? (
+      <div className="mark-card__title-solo">
+        <div className="mark-card__title-row">{titleRowContent}</div>
+      </div>
+    ) : (
+      <div className="mark-card__title-row">{titleRowContent}</div>
+    )
 
   return (
-    <li className={getCardSurfaceClassName('mark-card')}>
+    <li className={getCardSurfaceClassName('mark-card')} data-expanded={metaExpanded ? 'true' : 'false'}>
       <div className="mark-card__header">
         {/* 日期·动词·星级必须同在一个 span 内：顶栏是 grid，散写的
             文本节点/元素会成为独立 grid 项被自动布局错位 */}
@@ -146,55 +173,58 @@ export function MarkCard({ mark }: MarkCardProps) {
             </>
           ) : null}
         </span>
-        <GhostIconButton
-          aria-expanded={metaExpanded}
-          aria-label={metaExpanded ? '收起元信息' : '展开元信息'}
-          className="mark-card__meta-toggle"
-          data-expanded={metaExpanded ? 'true' : undefined}
-          onClick={() => setMetaExpanded((current) => !current)}
-          size="sm"
-          type="button"
-        >
-          <ChevronRight aria-hidden="true" />
-        </GhostIconButton>
+        {hasSubjectInfo ? (
+          <GhostIconButton
+            aria-expanded={metaExpanded}
+            aria-label={metaExpanded ? '收起元信息' : '展开元信息'}
+            className="mark-card__meta-toggle"
+            data-expanded={metaExpanded ? 'true' : undefined}
+            onClick={() => setMetaExpanded((current) => !current)}
+            size="sm"
+            type="button"
+          >
+            <ChevronRight aria-hidden="true" />
+          </GhostIconButton>
+        ) : null}
       </div>
-      <div className="mark-card__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
-        <div className="mark-card__subject">
-          {cover ? (
-            <img
-              alt=""
-              className="mark-card__cover"
-              loading="lazy"
-              src={cover}
-            />
-          ) : (
-            <div className="mark-card__cover mark-card__cover--empty" />
-          )}
-          <div className="mark-card__info">
-            <div className="mark-card__title-row">
-              <bdi className="mark-card__title">{mark.title}</bdi>
-              {year != null ? <span>({year})</span> : null}
-              {/* bdi 隔离：阿文等 RTL 别名在行内自持方向、不扰动前后段 */}
-              {mark.alt_title ? <bdi>{mark.alt_title}</bdi> : null}
+      {/* 标题行两处渲染（收起独占一行 / 展开居封面右侧），CSS 按根
+          data-expanded 切换——同一元素无法既常驻折叠区外又在展开时
+          嵌进信息列 */}
+      {renderTitleRow('solo')}
+      {hasSubjectInfo ? (
+        <div className="mark-card__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
+          <div className="mark-card__subject">
+            {cover ? (
+              <img
+                alt=""
+                className="mark-card__cover"
+                loading="lazy"
+                src={cover}
+              />
+            ) : (
+              <div className="mark-card__cover mark-card__cover--empty" />
+            )}
+            <div className="mark-card__info">
+              {renderTitleRow('inline')}
+              {doubanRating != null ? (
+                <div className="mark-card__douban-rating">
+                  <StarRating
+                    className="mark-card-douban-stars"
+                    label={`豆瓣评分：${doubanRating.toFixed(1)} 分`}
+                    value={doubanRating / 2}
+                  />
+                  {doubanRating.toFixed(1)}
+                </div>
+              ) : null}
+              {metaLine ? (
+                <div className="mark-card__meta">{metaLine}</div>
+              ) : mark.intro ? (
+                <div className="mark-card__intro">{mark.intro}</div>
+              ) : null}
             </div>
-            {doubanRating != null ? (
-              <div className="mark-card__douban-rating">
-                <StarRating
-                  className="mark-card-douban-stars"
-                  label={`豆瓣评分：${doubanRating.toFixed(1)} 分`}
-                  value={doubanRating / 2}
-                />
-                {doubanRating.toFixed(1)}
-              </div>
-            ) : null}
-            {metaLine ? (
-              <div className="mark-card__meta">{metaLine}</div>
-            ) : mark.intro ? (
-              <div className="mark-card__intro">{mark.intro}</div>
-            ) : null}
           </div>
         </div>
-      </div>
+      ) : null}
       {commentDoc ? (
         <div className="mark-card__comment">
           <WdfRender content={commentDoc} />

@@ -1,6 +1,7 @@
-/* 书影音标记卡片，三段式一级结构：顶部标记行 / 可折叠条目信息区 /
-   评论正文区。材质（背景/边框/圆角/阴影，明暗双态）复用 weimo-ui-core
-   的 card-surface——由组件挂 card-surface 类提供，这里只留布局与内容排版 */
+/* 书影音标记卡片，四段式一级结构：顶部标记行 / 标题行（常驻）/
+   可折叠条目信息区 / 评论正文区。材质（背景/边框/圆角/阴影，明暗双态）
+   复用 weimo-ui-core 的 card-surface——由组件挂 card-surface 类提供，
+   这里只留布局与内容排版 */
 
 /* 侧边栏 DEBUG 开关（html.sidebar-debug）开启时描边卡片内部子容器，便于调布局。
    描边样式对齐侧边栏（1px solid --color-border + 2px 临时内边距）；圆角用
@@ -8,6 +9,7 @@
    整卡根容器不描边（card-surface 自带边框，外框再描一条是噪音）也不补
    padding——它有真实 padding（10px 12px），覆盖成 2px 会扰动被调试的布局 */
 .sidebar-debug .mark-card__header,
+.sidebar-debug .mark-card__title-solo,
 .sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
@@ -24,6 +26,7 @@
 }
 
 .sidebar-debug .mark-card__header,
+.sidebar-debug .mark-card__title-solo,
 .sidebar-debug .mark-card__meta-region,
 .sidebar-debug .mark-card__subject,
 .sidebar-debug .mark-card__cover,
@@ -87,8 +90,9 @@
   transform: rotate(90deg);
 }
 
-/* 元信息区折叠（对齐 BaseCard meta-region）：grid-rows 0fr/1fr 过渡，
-   收起时负 margin 吞掉根 1em 区域间距 */
+/* 条目信息区折叠（对齐 BaseCard meta-region，内容 = 封面 + 豆瓣评分 +
+   元信息行；标题行已上移常驻）：grid-rows 0fr/1fr 过渡，收起时负
+   margin 吞掉根 1em 区域间距 */
 .mark-card__meta-region {
   display: grid;
   grid-template-rows: 1fr;
@@ -106,13 +110,15 @@
   margin-top: calc(-1 * 1em);
 }
 
-/* 条目信息区（折叠内层）：封面（左）与文字元信息（右，弹性列）单行
-   并列；min-height/overflow 是 0fr 收起时裁切几何的前提（我的评分星
-   级已上移顶栏标记行，封面列不再需要包裹层） */
+/* 条目信息区（折叠内层，展开态布局与 v2 身份区一致）：封面（左）与
+   文字元信息（右，弹性列——标题行 --inline 副本 + 豆瓣评分 + 元信息
+   行）单行并列、顶对齐；min-height/overflow 是 0fr 收起时裁切几何的
+   前提（我的评分星级已上移顶栏标记行，封面列不再需要包裹层） */
 .mark-card__subject {
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 12px;
+  align-items: start;
   min-height: 0;
   overflow: hidden;
 }
@@ -145,10 +151,12 @@
   --md-font-size: var(--font-size-base);
 }
 
-/* 标题行（元信息区首行）：「标题 (年份) 别名」——主标题层级向 v2 对
-   齐（见 __title），年份/别名继承本行弱灰 sm、baseline 与 16px 主标
-   题共行协调；可选段（年份/别名）全缺时整行不渲染（标题由正文区 h1
-   承载，孤行纯重复）；bdi 隔离 RTL 别名，超长自然换行不省略 */
+/* 标题行「标题 (年份) 别名」：主标题层级向 v2 对齐（见 __title），年
+   份/别名继承本行弱灰 sm、baseline 与 16px 主标题共行协调；bdi 隔离
+   RTL 别名，超长自然换行不省略。两处渲染（tsx renderTitleRow）：solo
+   副本收起态独占一行（标记行下、常驻可见），inline 副本居封面右侧信
+   息列首行（与 v2 身份区布局一致，收起时随折叠区裁切隐藏），根
+   data-expanded 切换 */
 .mark-card__title-row {
   display: flex;
   flex-wrap: wrap;
@@ -156,6 +164,33 @@
   column-gap: 6px;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
+}
+
+/* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 200ms 同步）
+   ——展开时高度收 0 并以负 margin 吞掉自己的根 1em 行间距、不占位
+   （visibility 方案会保留行盒占位、展开后留空行）；opacity/visibility
+   与折叠区动画交叉淡换，两方向均无跳变 */
+.mark-card__title-solo {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 200ms ease,
+    margin-bottom 200ms ease,
+    visibility 200ms;
+}
+
+.mark-card[data-expanded='true'] .mark-card__title-solo {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  margin-bottom: calc(-1 * 1em);
+}
+
+/* 0fr 收起时裁切几何的前提（同折叠区内层） */
+.mark-card__title-solo .mark-card__title-row {
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 主标题：字级字色向 MarkCardv2 的标题对齐（16px / 650 / primary） */
