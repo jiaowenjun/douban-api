@@ -243,7 +243,7 @@ export async function fetchDoubanMarks(
 // --------------------------------------------------------------------------- //
 
 /** 单条目的维度投影（后端只投影原始字段：数组原文/布尔/年份；派生与
- *  聚合在前端 facet-engine 做——is_tv 布尔→电影/电视剧/未分类、
+ *  聚合在前端 facet-engine 做——is_tv 布尔→电影/电视剧/分类中、
  *  year→decade 均为前端语义）。字段随类别出现，缺省即无值 */
 export type DoubanDimsItem = {
   id: string

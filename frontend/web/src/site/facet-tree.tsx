@@ -32,7 +32,7 @@ const CATEGORY_ICONS: Record<MarksCategory, ReactNode> = {
   music: <Music aria-hidden="true" />,
 }
 
-/** 影视形态一级节点图标：电影/电视剧专属，其余形态值（如未分类）
+/** 影视形态一级节点图标：电影/电视剧专属，其余形态值（如分类中）
  *  回退 Clapperboard */
 const KIND_ICONS: Record<string, ReactNode> = {
   电影: <Film aria-hidden="true" />,
@@ -116,7 +116,7 @@ function buildGroupedChildren(
   return children
 }
 
-/** 影视形态一级节点：各形态（is_tv 派生：电影/电视剧/未分类，计数取
+/** 影视形态一级节点：各形态（is_tv 派生：电影/电视剧/分类中，计数取
  *  全局聚合）直接作一级节点——无「影视」类别根（原挂其下，提升后少
  *  一层钻取），图标对齐类别根观感；其下走 buildGroupedChildren 的
  *  国家/地区值叶→类型值叶三层（分组维度全无值兜底回两层）。形态行

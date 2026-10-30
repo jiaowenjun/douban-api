@@ -61,7 +61,7 @@ export const GROUP_DIMENSION: Record<
   music: { key: 'genre', label: '流派' },
 }
 
-/** 影视的形态层维度（is_tv 派生：电影/电视剧/未分类），树中提升为
+/** 影视的形态层维度（is_tv 派生：电影/电视剧/分类中），树中提升为
  *  一级节点（无「影视」类别根，与图书/音乐类别根并列），主维度值叶
  *  挂其下；其余类别无此层 */
 export const KIND_DIMENSION: { key: 'is_tv'; label: string } | null =

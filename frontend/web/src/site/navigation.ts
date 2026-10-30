@@ -58,7 +58,7 @@ export const CATEGORY_PAST_VERBS: Record<MarksCategory, string> = {
 
 /** 列表 meta 行量词名词，与 CATEGORY_PAST_VERBS 配对拼「已读过 55
  *  本书」；电影/电视剧形态提升为名词（…部电影/…部电视剧，见
- *  marks-page meta 行），movie 值仅未分类形态兜底（富集完成后归零） */
+ *  marks-page meta 行），movie 值仅「分类中」形态兜底（富集完成后归零） */
 export const CATEGORY_UNIT_NOUNS: Record<MarksCategory, string> = {
   book: '本书',
   movie: '部影视',

@@ -302,7 +302,7 @@ export function MarksPage() {
     const hasMore = state.items.length < state.total
     const syncedDate = formatDate(state.cachedAt)
     // meta 行名词：影视筛了电影/电视剧形态时提升为该形态（…部电影/
-    // …部电视剧），该步从后缀去除避免「部电影 · 电影」重复；未分类
+    // …部电视剧），该步从后缀去除避免「部电影 · 电影」重复；「分类中」
     // 形态与其他类别不提升。all 合并视图为「已标记 N 条书影音」，评分
     // 筛选时后缀追加「· 我的N星标记」
     const kindStep =

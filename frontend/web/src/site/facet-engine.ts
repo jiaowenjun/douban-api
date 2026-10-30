@@ -34,8 +34,9 @@ function mergeEnabled(category: MarksCategory, dim: string): boolean {
 }
 
 /** 条目在某维度的值集合（派生维度含中文语义：decade 由 year、is_tv
- *  由布尔映射电影/电视剧/未分类）；数组保序去重（intro 合成可能重复），
- *  无值返回空集合 */
+ *  由布尔映射电影/电视剧/分类中——未富集条目 is_tv 缺失归「分类中」，
+ *  富集完成后自动归位电影/电视剧，文案示意进行中而非终态）；数组保序
+ *  去重（intro 合成可能重复），无值返回空集合 */
 function itemValues(
   category: MarksCategory,
   dim: string,
@@ -48,7 +49,7 @@ function itemValues(
   if (dim === 'is_tv') {
     if (category !== 'movie') return []
     const v = item.dims.is_tv
-    if (v === undefined) return ['未分类']
+    if (v === undefined) return ['分类中']
     return v ? ['电视剧'] : ['电影']
   }
   const field = DIM_FIELDS[dim]
