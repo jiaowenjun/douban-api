@@ -289,9 +289,10 @@ export async function triggerDoubanFirstSync(
   uid: string,
 ): Promise<DoubanSyncTask | null> {
   try {
-    const res = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/syncs`, {
-      method: 'POST',
-    })
+    const res = await fetch(
+      `${API_BASE}/users/${encodeURIComponent(uid)}/syncs`,
+      { headers: authHeaders, method: 'POST' },
+    )
     if (!res.ok) return null
     return (await res.json()) as DoubanSyncTask
   } catch {
