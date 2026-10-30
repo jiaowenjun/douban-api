@@ -10,9 +10,10 @@ type MarkCardv2Props = {
 
 /** 五星评分：底色五星 + 按比例裁切的覆盖层（两段 ★★★★★ 叠加），
  *  value 为 0–5 的小数也精确支持（豆瓣 8.5 分 /2 = 4.25 星 → 85% 宽
- *  覆盖）。两种评分同一叠加裁切技术，配色统一收敛灰（黑白灰随明暗主
- *  题翻转），仅凭位置与语境区分。与 mark-card.tsx 的实现同源——v1
- *  冻结作对照、v2 自带一份，对比期结束后随胜出版本归并 */
+ *  覆盖）。两种评分同一叠加裁切技术，填充色在 CSS 侧区分：我的评分
+ *  = 黑白灰收敛 15% 配方（随明暗主题翻转）、豆瓣评分 = 元信息文字同
+ *  色，仅凭位置与语境区分。与 mark-card.tsx 的实现同源——v1 冻结作
+ *  对照、v2 自带一份，对比期结束后随胜出版本归并 */
 function StarRating({
   className,
   label,
@@ -105,13 +106,13 @@ function commentDocument(mark: DoubanMark): WdfDocument | null {
 /** 书影音标记卡片 v2（与 mark-card.tsx 的 v1 并存对比，生产列表页仍用
     v1）。三区结构对齐豆瓣「条目身份 → 豆瓣评价 → 用户标记」的信息架构，
     全部常驻展示、纯展示零交互（无折叠）：
-    - 标记行：日期 · 看过/读过/听过 · 我的评分星级——左对齐单行，未打分
-      止于动词；
     - 身份区：封面 64px + 标题行（标题唯一出现处 + 年份 + 别名，后两
       者降一级弱灰 sm）+ 豆瓣评分独占一行（五星 + 数字，rating/2 换算
       五星宽度（8.5 分 → 4.25 星），弱灰 sm 与元信息同级，aria-label
       保留评分来源）+ 单行元信息摘要（国家地区 / 类型 / 演职员等以斜
       杠分隔、无角色标签，超长省略；无结构化数据回退 intro 原文）；
+    - 标记行：日期 · 看过/读过/听过 · 我的评分星级——左对齐单行，未打
+      分止于动词；置于身份区之下、正文之上（「行为」晚于「条目」）；
     - 正文区：仅短评段落，无短评整区不渲染。
     材质复用 card-surface；含 <li> 列表条目语义 */
 export function MarkCardv2({ mark }: MarkCardv2Props) {
@@ -125,21 +126,6 @@ export function MarkCardv2({ mark }: MarkCardv2Props) {
 
   return (
     <li className={getCardSurfaceClassName('mark-card-v2')}>
-      <div className="mark-card-v2__header">
-        <span>
-          {mark.date} · {CATEGORY_VERBS[mark.category] ?? '标记'}
-        </span>
-        {mark.my_rating ? (
-          <>
-            {' · '}
-            <StarRating
-              className="mark-card-v2-rating"
-              label={`我的评分：${mark.my_rating} 星`}
-              value={mark.my_rating}
-            />
-          </>
-        ) : null}
-      </div>
       <div className="mark-card-v2__subject">
         {cover ? (
           <img
@@ -176,6 +162,21 @@ export function MarkCardv2({ mark }: MarkCardv2Props) {
             <div className="mark-card-v2__intro">{mark.intro}</div>
           ) : null}
         </div>
+      </div>
+      <div className="mark-card-v2__mark-row">
+        <span>
+          {mark.date} · {CATEGORY_VERBS[mark.category] ?? '标记'}
+        </span>
+        {mark.my_rating ? (
+          <>
+            {' · '}
+            <StarRating
+              className="mark-card-v2-rating"
+              label={`我的评分：${mark.my_rating} 星`}
+              value={mark.my_rating}
+            />
+          </>
+        ) : null}
       </div>
       {commentDoc ? (
         <div className="mark-card-v2__comment">
