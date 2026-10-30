@@ -21,10 +21,10 @@ export const MARKS_CATEGORIES: readonly MarksCategory[] = [
   'music',
 ]
 
-/** 类别中文名；movie 值「影视」仅作 isMarksCategory 的键与不可达
- *  兜底——电影/电视剧是真一级（裸 /movie 由 App 的 MarksRoute 重定向
- *  补形态步，展示名见 moviePageTitle），聚合名不再对外展示；book/
- *  music 为类别根/标题/统计行用名 */
+/** 类别中文名；movie 显示「影视」——豆瓣 movie 类目本身混合电影与
+ *  电视剧（rexxar is_tv 区分），树/面包屑/标题里电影/电视剧为真一级
+ *  （见 moviePageTitle），统计区合并计数用聚合名；亦作 isMarksCategory
+ *  的键 */
 export const CATEGORY_NOUNS: Record<MarksCategory, string> = {
   book: '图书',
   movie: '影视',

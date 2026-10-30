@@ -6,7 +6,6 @@ import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 import type { DoubanDims } from './api'
 import { useDoubanDimsQuery } from './douban-queries'
 import { useDoubanUser } from './douban-user'
-import { aggregateDims } from './facet-engine'
 import { FacetTree } from './facet-tree'
 import {
   facetPathKey,
@@ -66,13 +65,6 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     book: bookDims.data ?? undefined,
     music: musicDims.data ?? undefined,
   }
-
-  // 统计区 movie 拆形态行（电影/电视剧真一级，无「影视」聚合行）：
-  // 形态计数由 movieDims 本地聚合；未就绪/失败则统计区暂缺 movie 行
-  // （与树该分支不出现同策略）
-  const movieKindCounts = movieDims.data
-    ? (aggregateDims('movie', movieDims.data.items).is_tv ?? [])
-    : null
 
   // 展开态：类别切换时重置为「当前类别根展开」；用户手动展开的
   // 其他类别在同一类别会话内保留。选中叶子到维度的链路不必记录
@@ -136,7 +128,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     <div className="site-sidebar">
       <SidebarHeader />
       <div className="site-sidebar__body">
-        <SidebarStats movieKinds={movieKindCounts} />
+        <SidebarStats />
         <nav aria-label="条目导航" className="site-sidebar__nav">
           <TagTree
             aria-label="条目导航"
