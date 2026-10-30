@@ -1,4 +1,6 @@
-# pnpm 10+ 的设置新家：package.json 的 pnpm 字段已不再被读取（服务器 pnpm 11.9
-# 构建 vite 5 的 esbuild postinstall 被拒，详见 txy部署手册.md）。单包项目也用本文件。
-onlyBuiltDependencies:
-  - esbuild
+# pnpm 10+ 的设置新家：package.json 的 pnpm 字段已不再被读取（txy 服务器
+# pnpm 11.9 全新安装时 vite 5 的 esbuild postinstall 被拒，pnpm build 前置
+# deps-status-check 随之失败；web 不受影响因 rolldown-vite 不依赖 esbuild）。
+# 键名以 pnpm 11.9 实测生效的 allowBuilds 为准（本地 12.15 同验通过）。
+allowBuilds:
+  esbuild: true
