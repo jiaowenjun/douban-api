@@ -6,6 +6,7 @@ import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 import { WdfRender, type WdfDocument } from 'weimo-ui-editor/components/wdf-render'
 
 import type { DoubanMark, DoubanSubject } from './api'
+import { resolveApiUrl } from './api'
 import { formatMarkCardDateBarText } from './date-display'
 import './mark-card.css'
 
@@ -322,7 +323,7 @@ export function MarkCard({ mark }: MarkCardProps) {
                 alt=""
                 className="mark-card__cover"
                 loading="lazy"
-                src={cover}
+                src={resolveApiUrl(cover)}
               />
             ) : (
               <div className="mark-card__cover mark-card__cover--empty" />

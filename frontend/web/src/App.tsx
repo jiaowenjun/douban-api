@@ -15,10 +15,6 @@ import {
   moviePageTitle,
   resolveMarksView,
 } from './site/navigation'
-import {
-  DEMO_MARK_CARD_PATH,
-  MarkCardDemoPage,
-} from './site/pages/mark-card-demo'
 import { MarksPage } from './site/pages/marks-page'
 import { TopBarSearch } from './site/search-dialog'
 import { SiteSidebar } from './site/site-sidebar'
@@ -36,7 +32,7 @@ function useMarksViewFromLocation() {
  *  形态值（电影/电视剧）即根段（真一级，无「影视」聚合名；裸 /movie
  *  已被 MarksRoute 重定向补形态步，理论必有）。点中间级=截断到该步
  *  （movie 根段点击=截到形态单步，图书/音乐根级点击=清空回全量）；
- *  all/演示页返回 undefined，回落模板默认的 pageTitle 标签（pageTitle
+ *  all 返回 undefined，回落模板默认的 pageTitle 标签（pageTitle
  *  始终驱动 document.title） */
 function useFacetBreadcrumb() {
   const { pathname } = useLocation()
@@ -97,17 +93,13 @@ function MarksRoute() {
 }
 
 function SiteShell() {
-  const { pathname } = useLocation()
   const [searchParams] = useSearchParams()
   const view = useMarksViewFromLocation()
-  // 演示页不在主导航，顶栏标题单独给
-  const isDemo = pathname === DEMO_MARK_CARD_PATH
   const topBarLeading = useFacetBreadcrumb()
   // movie 标题随形态（真一级，无「影视」聚合名；形态步由 MarksRoute
   // 保证存在，find 不到仅重定向前一帧的兜底）；其余类别/全部标记原样
-  const pageTitle = isDemo
-    ? 'MarkCard 演示'
-    : view && view.category === 'movie'
+  const pageTitle =
+    view && view.category === 'movie'
       ? moviePageTitle(
           parseFacetPath('movie', searchParams.get('facet')).find(
             (step) => step.dim === 'is_tv',
@@ -128,7 +120,6 @@ function SiteShell() {
     >
       <Routes>
         <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
-        <Route element={<MarkCardDemoPage />} path={DEMO_MARK_CARD_PATH} />
         <Route element={<MarksRoute />} path="/:category" />
         <Route
           element={<Navigate replace to={DEFAULT_MARKS_PATH} />}

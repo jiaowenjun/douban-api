@@ -5,8 +5,30 @@ import { MARKS_STATUS } from './navigation'
 import type { CacheVersions } from './cache-version'
 import { queryClient } from '../query-client'
 
+/** 部署形态 API 基址：生产经 VITE_API_BASE_URL 注入（如 /douban/api/v1），
+ *  dev 回退 /api/v1 走 Vite proxy（同 weimo 前端的构建期约定） */
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+/** 可选 Bearer Token（开启服务端鉴权时经 VITE_API_TOKEN 注入；公开读站点
+ *  防匿名滥用写端点用，不承担保密语义） */
+const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
+
+const authHeaders: Record<string, string> = API_TOKEN
+  ? { Authorization: `Bearer ${API_TOKEN}` }
+  : {}
+
+/** 把后端返回的相对 API 路径（/api/v1/covers?u=...）重写为部署前缀下的
+ *  可请求地址；鉴权开启时 img 标签带不了 Header，追加 ?token= 兜底（服务端支持） */
+export function resolveApiUrl(path: string): string {
+  if (!path || !path.startsWith('/api/v1')) return path
+  let url = API_BASE + path.slice('/api/v1'.length)
+  if (API_TOKEN) {
+    url += (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(API_TOKEN)
+  }
+  return url
+}
+
 export async function fetchCacheVersions(uid: string): Promise<CacheVersions> {
-  const response = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/cache-version?status=${MARKS_STATUS}`)
+  const response = await fetch(`${API_BASE}/users/${encodeURIComponent(uid)}/cache-version?status=${MARKS_STATUS}`, { headers: authHeaders })
   if (!response.ok) throw new Error(`版本检查失败（HTTP ${response.status}）`)
   const data = await response.json()
   if (!data || !['profile', 'stats', 'movie', 'book', 'music', 'all'].every((key) => typeof data[key] === 'string')) {
@@ -26,7 +48,7 @@ export type DoubanProfile = {
 async function fetchVersionedJson<T>(uid: string, endpoint: string, params: URLSearchParams, version?: string): Promise<T | null> {
   if (version && version !== 'unversioned' && version !== 'pending') params.set('cache_version', version)
   try {
-    const response = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/${endpoint}?${params}`)
+    const response = await fetch(`${API_BASE}/users/${encodeURIComponent(uid)}/${endpoint}?${params}`, { headers: authHeaders })
     if (!response.ok) {
       if (response.status === 409) void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
       return null
@@ -166,7 +188,8 @@ export async function fetchDoubanMarks(
   }
   try {
     const res = await fetch(
-      `/api/v1/users/${encodeURIComponent(uid)}/marks?${params}`,
+      `${API_BASE}/users/${encodeURIComponent(uid)}/marks?${params}`,
+      { headers: authHeaders },
     )
     if (res.ok) {
       return { ok: true, data: (await res.json()) as DoubanMarksPage }

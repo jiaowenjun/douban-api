@@ -12,6 +12,7 @@ import {
 } from 'weimo-ui-core/components/coss/dialog'
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
+import { resolveApiUrl } from './api'
 import { useDoubanUser } from './douban-user'
 import './login-dialog.css'
 
@@ -77,7 +78,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
                     alt=""
                     aria-hidden="true"
                     className="login-dialog__account-avatar"
-                    src={profile.avatar}
+                    src={resolveApiUrl(profile.avatar)}
                   />
                 ) : (
                   <UserRound

@@ -2,6 +2,7 @@ import { LogIn, Settings, UserRound } from 'lucide-react'
 
 import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 
+import { resolveApiUrl } from './api'
 import { useDoubanUser } from './douban-user'
 import './sidebar-header.css'
 
@@ -19,7 +20,7 @@ export function SidebarHeader() {
               alt=""
               aria-hidden="true"
               className="sidebar-header__avatar"
-              src={profile.avatar}
+              src={resolveApiUrl(profile.avatar)}
             />
           ) : (
             <UserRound aria-hidden="true" />

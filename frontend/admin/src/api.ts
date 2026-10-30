@@ -20,7 +20,10 @@ const BASE_KEY = 'douban-admin:api-base';
 const TOKEN_KEY = 'douban-admin:token';
 const USER_KEY = 'douban-admin:user';
 
-export const getApiBase = () => localStorage.getItem(BASE_KEY) || '/api/v1';
+/* 默认基址经 VITE_API_BASE_URL 构建期注入（生产 /douban-admin/api/v1，dev 回退
+   /api/v1 走 Vite proxy）；localStorage 覆盖机制保留（连接弹框仍可改） */
+export const getApiBase = () =>
+  localStorage.getItem(BASE_KEY) || import.meta.env.VITE_API_BASE_URL || '/api/v1';
 export const setApiBase = (v: string) => localStorage.setItem(BASE_KEY, v);
 export const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
 export const setToken = (v: string) => localStorage.setItem(TOKEN_KEY, v);

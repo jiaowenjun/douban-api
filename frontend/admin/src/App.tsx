@@ -120,7 +120,8 @@ function Layout() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    /* basename 跟随 Vite base：生产为 /douban-admin/（子路径部署），dev 为 / 等价于无 basename */
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
