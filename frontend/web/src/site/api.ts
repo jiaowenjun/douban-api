@@ -45,10 +45,12 @@ export type DoubanProfile = {
 }
 
 /** 版本化数据查询失败：kind 区分「未同步」（端点 404，数据从未抓取——
- *  可触发首发同步）与一般失败（网络/限流/服务端错误） */
+ *  可触发首发同步）、「版本已变」（409，数据在取版本与取数据之间被
+ *  重新发布——瞬态，版本查询失效后按新版本 key 自动重拉，不应作为
+ *  失败展示）与一般失败（网络/限流/服务端错误） */
 export class DoubanDataQueryError extends Error {
-  kind: 'not-cached' | 'error'
-  constructor(kind: 'not-cached' | 'error', message: string) {
+  kind: 'not-cached' | 'version-stale' | 'error'
+  constructor(kind: 'not-cached' | 'version-stale' | 'error', message: string) {
     super(message)
     this.kind = kind
   }
@@ -59,9 +61,14 @@ export class DoubanDataQueryError extends Error {
 async function fetchVersionedJson<T>(uid: string, endpoint: string, params: URLSearchParams, version?: string): Promise<T | null> {
   if (version && version !== 'unversioned' && version !== 'pending') params.set('cache_version', version)
   try {
-    const response = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/${endpoint}?${params}`)
+    const response = await fetch(`${API_BASE}/users/${encodeURIComponent(uid)}/${endpoint}?${params}`, { headers: authHeaders })
     if (!response.ok) {
-      if (response.status === 409) void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
+      // 409 = 取版本与取数据之间数据被重新发布（富集写库会持续触发）：
+      // 失效版本查询后按新版本 key 自动重拉，属瞬态不作失败展示
+      if (response.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
+        throw new DoubanDataQueryError('version-stale', '数据已更新，正在重新加载')
+      }
       // 404 = 该维度从未同步过（合法空态，调用方区分处理）
       if (response.status === 404) return null
       throw new DoubanDataQueryError('error', `请求失败（HTTP ${response.status}）`)
@@ -167,7 +174,7 @@ export type DoubanMarksPage = {
 
 export type MarksResult =
   | { ok: true; data: DoubanMarksPage }
-  | { ok: false; kind: 'not-cached' | 'error'; message: string }
+  | { ok: false; kind: 'not-cached' | 'version-stale' | 'error'; message: string }
 
 /** 拉取某维度（category+status）的标记页；只读缓存，不触发抓取。
  *  category 另接受 'all'：书影音三类别按日期归并的合并视图
@@ -210,12 +217,15 @@ export async function fetchDoubanMarks(
     if (res.ok) {
       return { ok: true, data: (await res.json()) as DoubanMarksPage }
     }
-    let kind: 'not-cached' | 'error' = 'error'
+    let kind: 'not-cached' | 'version-stale' | 'error' = 'error'
     let message = `请求失败（HTTP ${res.status}）`
     try {
       const body = await res.json()
       if (body?.error?.code === 'DIMENSION_NOT_CACHED') kind = 'not-cached'
+      // 409：取版本与取数据之间被重新发布（瞬态），失效版本查询按新
+      // 版本 key 自动重拉，调用方不作失败展示
       if (body?.error?.code === 'CACHE_VERSION_CHANGED') {
+        kind = 'version-stale'
         void queryClient.invalidateQueries({ queryKey: ['douban', uid, 'versions'] })
       }
       if (body?.error?.message) message = body.error.message

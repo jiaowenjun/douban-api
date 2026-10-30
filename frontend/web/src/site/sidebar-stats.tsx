@@ -2,6 +2,7 @@ import { TextButton } from 'weimo-ui-core/components/text-button'
 import { Heatmap } from 'weimo-ui-stats/components/heatmap'
 import { StatGroup, type StatGroupItem } from 'weimo-ui-stats/components/stat-group'
 
+import { DoubanDataQueryError } from './api'
 import { useDoubanStatsQuery } from './douban-queries'
 import { useDoubanUser } from './douban-user'
 import { CATEGORY_NOUNS, MARKS_CATEGORIES } from './navigation'
@@ -24,6 +25,14 @@ export function SidebarStats() {
   if (statsQuery.isSuccess && !statsQuery.data) return null
 
   const stats = statsQuery.data ?? null
+  // 失败行仅真错误（网络/限流/服务端）：404 未同步与 409 版本已变都是
+  // 瞬态（版本查询失效后按新 key 自动重拉，富集写库期间常见），保持
+  // 加载占位不作失败展示
+  const statsFailed =
+    statsQuery.isError &&
+    !stats &&
+    (!(statsQuery.error instanceof DoubanDataQueryError) ||
+      statsQuery.error.kind === 'error')
   const statItems: StatGroupItem[] = MARKS_CATEGORIES.map((category) => ({
     key: category,
     value: String(stats?.totals[category] ?? 0),
@@ -32,7 +41,7 @@ export function SidebarStats() {
 
   return (
     <section aria-label="标记统计" className="sidebar-stats">
-      {statsQuery.isError && !stats ? (
+      {statsFailed ? (
         <div className="sidebar-stats__failed">
           <span>统计数据暂不可用</span>
           <TextButton

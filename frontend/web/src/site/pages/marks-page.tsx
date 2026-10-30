@@ -137,17 +137,28 @@ export function MarksPage() {
         cachedAt: string
       } = !first
     ? marksQuery.error
-      ? marksQuery.error instanceof MarksQueryError && marksQuery.error.kind === 'not-cached'
-        ? { phase: 'not-cached' }
+      ? marksQuery.error instanceof MarksQueryError
+        ? marksQuery.error.kind === 'not-cached'
+          ? { phase: 'not-cached' }
+          : // 409 版本已变是瞬态（富集写库持续触发）：失效版本查询后按新
+            // 版本 key 自动重拉，这里保持 loading 而非报错；withCachedFallback
+            // 有旧版本数据时 data 已被填充、不会走到该分支
+            marksQuery.error.kind === 'version-stale'
+          ? { phase: 'loading' }
+          : { phase: 'error', message: marksQuery.error.message }
         : { phase: 'error', message: marksQuery.error.message }
       : dimsQuery.isError && matchedIds === null
         ? // 筛选态下 dims 未就绪的门控错误：404 未同步归入 not-cached
           // （首登自动同步对其生效——默认落地 /movie 必带形态筛选步，
-          // 未同步用户先撞到的就是这条路），其余才算加载失败
+          // 未同步用户先撞到的就是这条路）；409 同为瞬态保持 loading，
+          // 其余才算加载失败
           dimsQuery.error instanceof DoubanDataQueryError &&
             dimsQuery.error.kind === 'not-cached'
           ? { phase: 'not-cached' }
-          : { phase: 'error', message: dimsQuery.error.message }
+          : dimsQuery.error instanceof DoubanDataQueryError &&
+              dimsQuery.error.kind === 'version-stale'
+            ? { phase: 'loading' }
+            : { phase: 'error', message: dimsQuery.error.message }
         : { phase: 'loading' }
     : {
           phase: 'list',

@@ -5,6 +5,7 @@ import { TextButton } from 'weimo-ui-core/components/text-button'
 import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
 
 import type { DoubanDims } from './api'
+import { DoubanDataQueryError } from './api'
 import { useDoubanDimsQuery } from './douban-queries'
 import { useDoubanUser } from './douban-user'
 import { FacetTree } from './facet-tree'
@@ -81,11 +82,23 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   )
 
   // 三类别查询的 settle 观测：全部 isPending（含版本清单未就绪的
-  // disabled 阶段）= 筛选区加载占位；任一 error = 轻量重试行（版本
-  // 轮询成功后 Provider 会自动 refetch error 态查询，重试只是立即出口）
+  // disabled 阶段）= 筛选区加载占位；重试行仅计真错误——404 未同步
+  // （等首发同步完成）与 409 版本已变（瞬态：富集写库会持续触发版本
+  // 抖动，版本查询失效后按新 key 自动重拉，一轮即追上）都不算失败
   const dimsQueries = { movie: movieDims, book: bookDims, music: musicDims }
   const dimsLoading = MARKS_CATEGORIES.every((c) => dimsQueries[c].isPending)
-  const dimsError = MARKS_CATEGORIES.some((c) => dimsQueries[c].isError)
+  const dimsRealError = (q: typeof movieDims) =>
+    q.isError &&
+    (!(q.error instanceof DoubanDataQueryError) || q.error.kind === 'error')
+  const dimsError = MARKS_CATEGORIES.some((c) => dimsRealError(dimsQueries[c]))
+  // 三类别全为 404 未同步（首发同步进行中/未发起）：给同步提示而非
+  // 渲染空树——「暂无分类数据」会被误读为永久空态
+  const dimsNotCached = MARKS_CATEGORIES.every(
+    (c) =>
+      dimsQueries[c].isError &&
+      dimsQueries[c].error instanceof DoubanDataQueryError &&
+      dimsQueries[c].error.kind === 'not-cached',
+  )
   const countsReady =
     uid !== null && MARKS_CATEGORIES.every((c) => !dimsQueries[c].isPending)
 
@@ -180,11 +193,12 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
-  /** 筛选区重试出口：只重发失败类别的 dims 查询（版本轮询 60s 内
-   *  也会自动 refetch error 态查询，这里是立即恢复的手动出口） */
+  /** 筛选区重试出口：只重发真错误类别（瞬态错误重试同 key 无意义——
+   *  409 要等版本重键、404 要等同步发布；版本轮询 60s 内也会自动
+   *  refetch error 态查询，重试只是立即恢复的手动出口） */
   function retryFailedDims() {
     for (const c of MARKS_CATEGORIES) {
-      if (dimsQueries[c].isError) void dimsQueries[c].refetch()
+      if (dimsRealError(dimsQueries[c])) void dimsQueries[c].refetch()
     }
   }
 
@@ -202,6 +216,10 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   ) : dimsLoading ? (
     <p className="site-sidebar__status" role="status">
       筛选加载中…
+    </p>
+  ) : dimsNotCached ? (
+    <p className="site-sidebar__status" role="status">
+      数据同步后将显示分类筛选
     </p>
   ) : (
     <>
