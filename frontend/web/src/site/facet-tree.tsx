@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { BookOpen, Clapperboard, Music } from 'lucide-react'
+import { BookOpen, Clapperboard, Film, Music, Tv } from 'lucide-react'
 
 import { TagTree } from 'weimo-ui-tagtree/components/tag-tree'
 import type { TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
@@ -12,6 +12,7 @@ import {
   PRIMARY_DIMENSION,
   escapeFacetValue,
   facetValueLabel,
+  pathTag,
 } from './facet-model'
 import type { FacetStep } from './facet-model'
 import {
@@ -22,11 +23,19 @@ import {
 } from './navigation'
 import type { MarksCategory } from './navigation'
 
-/** 一级类别根行图标（根兼任类别导航，观感对齐原导航树行） */
+/** 一级类别根行图标（根兼任类别导航，观感对齐原导航树行）；movie 项
+ *  兼作影视形态一级节点的兜底图标（无专属图标的形态值用） */
 const CATEGORY_ICONS: Record<MarksCategory, ReactNode> = {
   book: <BookOpen aria-hidden="true" />,
   movie: <Clapperboard aria-hidden="true" />,
   music: <Music aria-hidden="true" />,
+}
+
+/** 影视形态一级节点图标：电影/电视剧专属，其余形态值（如未分类）
+ *  回退 Clapperboard */
+const KIND_ICONS: Record<string, ReactNode> = {
+  电影: <Film aria-hidden="true" />,
+  电视剧: <Tv aria-hidden="true" />,
 }
 
 type TagAction = {
@@ -41,10 +50,12 @@ type TreeIndex = {
   byTag: Map<string, TagAction>
 }
 
-/** 影视分支（三层）：类别根 → 形态（is_tv 派生：电影/电视剧/未分类，
- *  计数取全局聚合）→ 主维度值叶（条件聚合，__other__ 显示「其他类型」）。
- *  形态行点击=单步筛选，值叶点击=形态+主维度双条件 */
-function buildMovieChildren(
+/** 影视形态一级节点（两层）：各形态（is_tv 派生：电影/电视剧/未分类，
+ *  计数取全局聚合）直接作一级节点——无「影视」类别根（原挂其下，
+ *  提升后少一层钻取），图标对齐类别根观感——其下挂主维度值叶
+ *  （条件聚合，__other__ 显示「其他类型」）。形态行点击=单步筛选，
+ *  值叶点击=形态+主维度双条件 */
+function buildMovieNodes(
   items: DoubanDims['items'],
   byTag: Map<string, TagAction>,
 ): TagTreeNode[] {
@@ -73,7 +84,12 @@ function buildMovieChildren(
         }
       },
     )
-    return { tag: kindTag, label: `${value} · ${count}`, children }
+    return {
+      tag: kindTag,
+      label: `${value} · ${count}`,
+      icon: KIND_ICONS[value] ?? CATEGORY_ICONS.movie,
+      children,
+    }
   })
 }
 
@@ -95,12 +111,14 @@ function buildSimpleChildren(
   })
 }
 
-/** 三类别常驻树：类别根（点行=跳该类别清筛选）→ 影视为 形态→类型
- *  三层、图书/音乐为主维度单层。叶/形态行 label 拼「值 · 计数」
- *  （tagtree 0.2.x 的 itemCount 类型存在但行组件不渲染）；计数已按
- *  降序返回直接保序；某类别缺失（未同步/拉取失败）或无值则不出根。
- *  叶 tag 保持「类别/维度(+/维度)/值」多段——中间维度不出现在行
- *  label 但保留在 tag 语义中（选中叶的祖先自动展开按树结构生效） */
+/** 三类别常驻树：影视无类别根——各形态节点（电影/电视剧/…，见
+ *  buildMovieNodes）直接一级、与图书/音乐的类别根并列；图书/音乐为
+ *  「类别根（点行=跳该类别清筛选）→ 主维度值叶」两层。叶/形态行
+ *  label 拼「值 · 计数」（tagtree 0.2.x 的 itemCount 类型存在但行组件
+ *  不渲染）；计数已按降序返回直接保序；某类别缺失（未同步/拉取失败）
+ *  或无值则不出根。叶 tag 保持「类别/维度(+/维度)/值」多段——中间
+ *  维度不出现在行 label 但保留在 tag 语义中（选中叶的祖先自动展开
+ *  按树结构生效） */
 function buildTree(
   dimsByCategory: Partial<Record<MarksCategory, DoubanDims>>,
 ): TreeIndex {
@@ -108,10 +126,11 @@ function buildTree(
   const nodes = MARKS_CATEGORIES.flatMap((category) => {
     const dims = dimsByCategory[category]
     if (!dims) return []
-    const children =
-      category === 'movie' && KIND_DIMENSION
-        ? buildMovieChildren(dims.items, byTag)
-        : buildSimpleChildren(category, dims.items, byTag)
+    // 影视：形态节点多个直接作一级；图书/音乐：单类别根包主维度叶
+    if (category === 'movie' && KIND_DIMENSION) {
+      return buildMovieNodes(dims.items, byTag)
+    }
+    const children = buildSimpleChildren(category, dims.items, byTag)
     if (children.length === 0) return []
     return [
       {
@@ -125,11 +144,11 @@ function buildTree(
   return { nodes, byTag }
 }
 
-/** 分面筛选树（纯展示 + 路径回调）：一级类别根点行=跳该类别清筛选
- *  （onPathSelect 上抛空路径，展开/收起仍走行内折叠开关）；影视的
- *  形态行与各值叶是筛选条件——点击设路径（已选同路径再点取消），
- *  跨类别值叶交上层跳路由。展开态受控由上层持有（选中叶的祖先链
- *  TagTree 会自动展开） */
+/** 分面筛选树（纯展示 + 路径回调）：图书/音乐的一级类别根点行=跳该
+ *  类别清筛选（onPathSelect 上抛空路径，展开/收起仍走行内折叠开关）；
+ *  影视形态节点（一级）与各值叶是筛选条件——点击设路径（已选同路径
+ *  再点取消），跨类别值叶交上层跳路由。展开态受控由上层持有（选中
+ *  叶的祖先链 TagTree 会自动展开） */
 export function FacetTree({
   activeCategory,
   dimsByCategory,
@@ -168,7 +187,7 @@ export function FacetTree({
       nodes={nodes}
       onExpandedTagsChange={onExpandedTagsChange}
       onSelect={(tag) => {
-        // 一级类别根（tag 无 /）：点行=跳该类别清筛选
+        // 一级类别根（图书/音乐，tag 无 /）：点行=跳该类别清筛选
         if (!tag.includes('/')) {
           if (isMarksCategory(tag)) onPathSelect(tag, [])
           return
@@ -188,14 +207,4 @@ export function FacetTree({
       variant="no-action"
     />
   )
-}
-
-/** 筛选路径 → 树节点 tag（与 buildTree 的拼装规则一致，选中指示用） */
-function pathTag(category: NavTarget, path: readonly FacetStep[]): string {
-  const [first, ...rest] = path
-  let tag = `${category}/${first.dim}/${escapeFacetValue(first.value)}`
-  for (const step of rest) {
-    tag += `/${step.dim}/${escapeFacetValue(step.value)}`
-  }
-  return tag
 }

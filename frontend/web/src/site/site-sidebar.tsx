@@ -10,6 +10,7 @@ import { FacetTree } from './facet-tree'
 import {
   facetPathKey,
   parseFacetPath,
+  pathTag,
   type FacetStep,
 } from './facet-model'
 import { SidebarDebugSwitch } from './sidebar-debug-switch'
@@ -31,9 +32,10 @@ const navNodes: TagTreeNode[] = [
 
 /** 站点侧边栏：整体接管模板 sidebar 插槽，布局对齐 weimo-biji 的
  *  biji-side-bar——身份栏固定在顶，滚动主体依次为标记统计区
- *  （StatGroup/Heatmap）→ 导航区（全部标记）→ 分面筛选树（影视为
- *  形态→类型三层、图书/音乐为主维度单层；一级类别根带图标，点行=
- *  跳该类别清筛选，兼任类别导航）。
+ *  （StatGroup/Heatmap）→ 导航区（全部标记）→ 分面筛选树（影视各
+ *  形态提升一级、下挂类型值叶，图书/音乐为主维度单层；类别根/形态
+ *  节点带图标，图书/音乐根点行=跳该类别清筛选兼任导航，影视形态
+ *  节点点行=设形态筛选）。
  *  筛选路径经 URL ?facet=dim=value;… 与列表页共享（侧边栏写、列表页
  *  读，影视叶为 is_tv+genre 双条件）；类别切换天然清除筛选。
  *  onClose 供窄屏抽屉在选中后收起 */
@@ -73,9 +75,18 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   >(null)
   if (category !== expandedCategory) {
     setExpandedCategory(category)
-    // 全部标记节点无子树，目标为 all 时无需展开任何根
+    // 类别切换重置展开态：图书/音乐展开类别根；影视无类别根（形态
+    // 节点一级），带形态筛选进入时展开首步形态节点——选中叶的祖先
+    // 自动展开覆盖不到形态根自身，无筛选则收起（形态行一级可见，
+    // 点击筛选时自行展开）；all 亦无根可展
     setExpandedTags(
-      category !== undefined && category !== ALL_MARKS_TAG ? [category] : [],
+      category === 'movie'
+        ? path.length > 0
+          ? [pathTag('movie', path.slice(0, 1))]
+          : []
+        : category !== undefined && category !== ALL_MARKS_TAG
+          ? [category]
+          : [],
     )
   }
 

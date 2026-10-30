@@ -1,4 +1,4 @@
-import type { MarksCategory } from './navigation'
+import type { MarksCategory, NavTarget } from './navigation'
 
 /** 分面维度的展示顺序与文案（键集合由后端保证，顺序与命名归前端）。
  *  仅作 URL ?facet= 白名单校验与 meta 行文案——树上不展示全维度：
@@ -41,8 +41,9 @@ export const PRIMARY_DIMENSION: Record<
   music: { key: 'genre', label: '流派' },
 }
 
-/** 影视的形态层维度（is_tv 派生：电影/电视剧/未分类），树中位于
- *  类别根与主维度之间；其余类别无此层 */
+/** 影视的形态层维度（is_tv 派生：电影/电视剧/未分类），树中提升为
+ *  一级节点（无「影视」类别根，与图书/音乐类别根并列），主维度值叶
+ *  挂其下；其余类别无此层 */
 export const KIND_DIMENSION: { key: 'is_tv'; label: string } | null =
   { key: 'is_tv', label: '形态' }
 
@@ -85,6 +86,17 @@ export function escapeFacetValue(value: string): string {
 /** 路径 → 请求/URL 用的 facet 参数串（dim=value;dim=value，顺序即步骤） */
 export function facetPathKey(path: readonly FacetStep[]): string {
   return path.map((step) => `${step.dim}=${step.value}`).join(';')
+}
+
+/** 筛选路径 → 树节点 tag（与 facet-tree buildTree 的拼装规则一致；
+ *  选中指示用，侧边栏的类别切换展开复位也取首步形态节点 tag） */
+export function pathTag(category: NavTarget, path: readonly FacetStep[]): string {
+  const [first, ...rest] = path
+  let tag = `${category}/${first.dim}/${escapeFacetValue(first.value)}`
+  for (const step of rest) {
+    tag += `/${step.dim}/${escapeFacetValue(step.value)}`
+  }
+  return tag
 }
 
 /** URL ?facet= 参数 → 筛选步骤（顺序保留）。按 ; 拆步逐步校验维度
