@@ -6,6 +6,7 @@ import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 import { WdfRender, type WdfDocument } from 'weimo-ui-editor/components/wdf-render'
 
 import type { DoubanMark, DoubanSubject } from './api'
+import { formatMarkCardDateBarText } from './date-display'
 import './mark-card.css'
 
 type MarkCardProps = {
@@ -286,7 +287,7 @@ export function MarkCard({ mark }: MarkCardProps) {
         {/* 日期·动词·星级必须同在一个 span 内：顶栏是 grid，散写的
             文本节点/元素会成为独立 grid 项被自动布局错位 */}
         <span>
-          {mark.date} {CATEGORY_VERBS[mark.category] ?? '标记'}
+          {formatMarkCardDateBarText(mark.date)} {CATEGORY_VERBS[mark.category] ?? '标记'}
           {mark.my_rating ? (
             <>
               {' '}
