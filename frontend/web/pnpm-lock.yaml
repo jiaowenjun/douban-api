@@ -33,8 +33,8 @@ importers:
         specifier: ~0.4.2
         version: 0.4.2(@floating-ui/dom@1.8.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.4(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(weimo-wdf@0.1.0)
       weimo-ui-stats:
-        specifier: ~0.1.1
-        version: 0.1.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.4(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
+        specifier: ~0.1.2
+        version: 0.1.2(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.4(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
       weimo-ui-tagtree:
         specifier: ~0.3.0
         version: 0.3.0(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.4(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
@@ -1074,8 +1074,8 @@ packages:
       weimo-ui-core: ~0.2.0
       weimo-wdf: ^0.1.0
 
-  weimo-ui-stats@0.1.1:
-    resolution: {integrity: sha512-mka1QAgwauPyQdehPeNg6zHPUUx7xEe+RJP/y7XXZtGdE6KY5J4asfqiXKp/17usBvfrSwia2u+Ouwz3mbBB9A==}
+  weimo-ui-stats@0.1.2:
+    resolution: {integrity: sha512-52OLoel7WcLzxfRqQImxNp0jO2CdyD1mDi4XrdHbnf9Z1kv3Dco6DkhktvZlRAl4T74MeGAxBpUotMPxfzgaFA==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -1978,7 +1978,7 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
 
-  weimo-ui-stats@0.1.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.4(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)):
+  weimo-ui-stats@0.1.2(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(weimo-ui-core@0.2.4(@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)):
     dependencies:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
