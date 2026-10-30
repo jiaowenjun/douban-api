@@ -80,13 +80,15 @@ function buildMovieNodes(
         })
         return {
           tag,
-          label: `${facetValueLabel('movie', leafDim, leafValue)} · ${leafCount}`,
+          label: facetValueLabel('movie', leafDim, leafValue),
+          itemCount: leafCount,
         }
       },
     )
     return {
       tag: kindTag,
-      label: `${value} · ${count}`,
+      label: value,
+      itemCount: count,
       icon: KIND_ICONS[value] ?? CATEGORY_ICONS.movie,
       children,
     }
@@ -106,16 +108,17 @@ function buildSimpleChildren(
     byTag.set(tag, { category, path: [{ dim: key, value }] })
     return {
       tag,
-      label: `${facetValueLabel(category, key, value)} · ${count}`,
+      label: facetValueLabel(category, key, value),
+      itemCount: count,
     }
   })
 }
 
 /** 三类别常驻树：影视无类别根——各形态节点（电影/电视剧/…，见
  *  buildMovieNodes）直接一级、与图书/音乐的类别根并列；图书/音乐为
- *  「类别根（点行=跳该类别清筛选）→ 主维度值叶」两层。叶/形态行
- *  label 拼「值 · 计数」（tagtree 0.2.x 的 itemCount 类型存在但行组件
- *  不渲染）；计数已按降序返回直接保序；某类别缺失（未同步/拉取失败）
+ *  「类别根（点行=跳该类别清筛选）→ 主维度值叶」两层。叶/形态行计数
+ *  走 itemCount（tagtree 0.3.0 起渲染在行尾折叠开关左侧，与开关同占位
+ *  色）；计数已按降序返回直接保序；某类别缺失（未同步/拉取失败）
  *  或无值则不出根。叶 tag 保持「类别/维度(+/维度)/值」多段——中间
  *  维度不出现在行 label 但保留在 tag 语义中（选中叶的祖先自动展开
  *  按树结构生效） */
