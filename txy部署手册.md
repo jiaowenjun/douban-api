@@ -3,7 +3,7 @@
 > 日期：2026-10-30
 > 目标：将 weimo-douban 前后端部署到 txy 服务器（腾讯云 Debian 12，`212.64.24.13`，即 `~/.ssh/config` 的 `txy`，公网域名 weimo.ink），URL 分配 `/douban/`（web 前端）与 `/douban-admin/`（admin 前端）
 > 参考：weimo 仓库 `docs/wiki/40-playbooks/manual-deployment-debian12.md`（手工部署模式）与 `ops/deploy/nginx/weimo-release-roots.conf`（路由与缓存契约）
-> 状态：**文档先行，尚未执行任何部署**。文中所有命令均为待执行清单。
+> 状态：**首次部署已于 2026-10-30 执行完成并通过 §6 全套验证**（线上 `https://weimo.ink/douban/` 与 `/douban-admin/`）。§7 起的更新/回滚/备份流程为日常运维手册。
 
 ---
 
@@ -46,6 +46,8 @@
 | douban 部署痕迹 | 无（`~/workspace` 无 weimo-douban） | 全新部署 |
 
 构建依赖说明：后端 sqlx 使用 bundled SQLite、reqwest 使用 rustls，不需要系统 libsqlite3/libssl；weimo 部署时已装 `build-essential pkg-config`。两个前端各自有独立 `pnpm-lock.yaml`（`frontend/web`、`frontend/admin`），**均无 GitHub tarball 依赖**，服务器只需可达 npm registry（weimo 的「GitHub 不可达离线 store」问题不存在）。
+
+> 首次部署实测补充（2026-10-30）：Rust 项目根在 `backend/` 子目录而非仓库根，所有 cargo/target 路径以本文修正后为准；admin 的 vite 5 依赖 esbuild postinstall，pnpm 10+ 已不读 `package.json#pnpm` 字段，配置须写在 `frontend/admin/pnpm-workspace.yaml` 且键名为 `allowBuilds`（`esbuild: true`；`onlyBuiltDependencies` 键在服务器 pnpm 11.9 下不生效），否则全新安装后 `pnpm build` 前置 deps-status-check 直接失败；web 不受影响（rolldown-vite 无 esbuild）。
 
 ---
 
