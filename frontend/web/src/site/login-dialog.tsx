@@ -157,12 +157,19 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   }
   const shownProfile = preview ?? lastProfile
 
+  // 已登记态：已登录且输入未改动——标题换「已登记豆瓣 ID」、输入框
+  // readOnly 只读展示（换号走 清除 ID→重新输入，不再编辑切换），主按钮
+  // 同态隐藏（见 footer）；清除 ID 后 uid 置空自然回到输入态
+  const manageMode = !!uid && normalized === uid
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogPopup className="login-dialog">
         <form className="login-dialog__form" onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>请输入你的豆瓣 ID</DialogTitle>
+            <DialogTitle>
+              {manageMode ? '已登记豆瓣 ID' : '请输入你的豆瓣 ID'}
+            </DialogTitle>
           </DialogHeader>
           <DialogPanel>
             <div
@@ -179,6 +186,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
                   onChange={(event) => handleDraftChange(event.target.value)}
                   onKeyDown={handleInputKeyDown}
                   placeholder="从「我的豆瓣」查找豆瓣 ID"
+                  readOnly={manageMode}
                   type="text"
                   value={draft}
                 />
