@@ -88,11 +88,11 @@ export function WelcomePage() {
   return (
     <MiniSiteTemplate
       contentClassName="welcome-page"
-      headline="豆瓣书影音，搬回自己手里"
+      headline="豆瓣书影音，一键备份"
       pageTitle="首页"
       siteName="微墨·豆瓣"
       showThemeToggle={false}
-      subheadline="免登录同步，自托管保存，亮暗主题自适应"
+      subheadline="免登录，自托管，亮暗主题自适应"
       topBarActions={
         <FrostedIconButton
           aria-label="GitHub 仓库"
