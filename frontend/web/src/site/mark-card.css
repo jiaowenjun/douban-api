@@ -216,16 +216,13 @@
   font-size: var(--font-size-sm);
 }
 
-/* 条目元信息（元信息区第三行）：单行摘要「国家地区 / 类型 / 导演 /
+/* 条目元信息（元信息区第三行）：摘要「国家地区 / 类型 / 导演 /
    主演」（图书出版社/作者/译者，音乐类型/歌手）——「 / 」分隔不同元
    信息、空格分隔同域多值、无角色标签，年份已上移标题行、物理规格不
-   展示；单行省略——卡片是列表条目不是详情页 */
+   展示；内容过长时自然换行不截断（「 / 」与 CJK 字符处可断行） */
 .mark-card__meta {
-  overflow: hidden;
   color: var(--color-text-placeholder);
   font-size: var(--font-size-sm);
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 /* 我的评分星级（顶栏标记行内）：底色五星 + 按比例裁切的单色覆盖层。
