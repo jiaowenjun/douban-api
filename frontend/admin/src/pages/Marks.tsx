@@ -20,7 +20,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { MarksResponse, RecordItem } from '../types';
-import { api, getUser, resolveApiUrl, type ApiError } from '../api';
+import { api, resolveApiUrl, type ApiError } from '../api';
 import { CATEGORY_OPTIONS, STATUS_OPTIONS, dimLabel } from '../labels';
 import { UserAvatar, useUserProfile } from '../user-profile';
 import { SubjectMetaDetail, SubjectNotEnriched } from '../subject-meta';
@@ -37,28 +37,54 @@ export default function Marks() {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const { token } = theme.useToken();
-  const [form] = Form.useForm<{ category: string; status: string }>();
+  const [form] = Form.useForm<{ uid: string; category: string; status: string }>();
   const [query, setQuery] = useState<Query | null>(null);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<MarksResponse | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
+  const [noUsers, setNoUsers] = useState(false);
+  const [userOptions, setUserOptions] = useState<{ value: string; label: string }[]>([]);
   const [searchParams] = useSearchParams();
   const headerProfile = useUserProfile(data?.user ?? null);
 
-  // 挂载或深链变化时确定目标用户：/marks?uid= 深链优先，否则用「连接」设置的单用户，
-  // 确定后立即自动查询（从任务详情「浏览数据」跳转也走这里）
+  // 挂载或深链变化时确定目标用户：/marks?uid= 深链优先；无深链时自动选中
+  // 第一个用户（后端按记录数降序）直接进入浏览；库内完全无用户时提示先建任务
   useEffect(() => {
-    const uid = searchParams.get('uid') || getUser();
-    if (!uid) return;
-    const q: Query = {
-      uid,
-      category: searchParams.get('category') ?? 'movie',
-      status: searchParams.get('status') ?? 'collect',
+    const uidParam = searchParams.get('uid');
+    const category = searchParams.get('category') ?? 'movie';
+    const status = searchParams.get('status') ?? 'collect';
+    if (uidParam) {
+      form.setFieldsValue({ uid: uidParam, category, status });
+      setPage(1);
+      setQuery({ uid: uidParam, category, status });
+    }
+    let alive = true;
+    api
+      .listUsers()
+      .then((res) => {
+        if (!alive) return;
+        const options = res.users.map((u) => ({
+          value: u.uid,
+          label: u.username ? `${u.username}（@${u.uid}）` : `@${u.uid}`,
+        }));
+        setUserOptions(options);
+        if (!uidParam) {
+          if (options.length > 0) {
+            form.setFieldsValue({ uid: options[0].value, category, status });
+            setPage(1);
+            setQuery({ uid: options[0].value, category, status });
+          } else {
+            setNoUsers(true);
+          }
+        }
+      })
+      .catch(() => {
+        if (alive && !uidParam) setNoUsers(true);
+      });
+    return () => {
+      alive = false;
     };
-    form.setFieldsValue({ category: q.category, status: q.status });
-    setPage(1);
-    setQuery(q);
   }, [searchParams, form]);
 
   const load = useCallback(async () => {
@@ -79,29 +105,37 @@ export default function Marks() {
     load();
   }, [load]);
 
-  const onSearch = (v: { category: string; status: string }) => {
-    const uid = query?.uid ?? getUser();
-    if (!uid) {
-      message.warning('请先点击右上角「连接」设置豆瓣用户 ID');
+  const onSearch = (v: { uid: string; category: string; status: string }) => {
+    if (!v.uid) {
+      message.warning('请先选择要浏览的用户');
       return;
     }
     setPage(1);
-    setQuery({ uid, category: v.category, status: v.status });
+    setQuery({ uid: v.uid, category: v.category, status: v.status });
   };
 
   return (
     <PageContainer title="数据浏览" subTitle="直接读取服务器缓存的书影音标记数据，不触发抓取">
-      {!getUser() && !searchParams.get('uid') && (
+      {noUsers && (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="尚未设置豆瓣用户"
-          description="点击右上角「连接」填写豆瓣用户 ID，保存后本页将自动加载该用户的标记数据。"
+          message="库内暂无用户数据"
+          description="先在「用户」页或「同步任务」页为某个豆瓣用户创建同步任务，完成后即可在此浏览。"
         />
       )}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Form form={form} layout="inline" onFinish={onSearch} initialValues={{ category: 'movie', status: 'collect' }}>
+          <Form.Item name="uid" rules={[{ required: true, message: '请选择用户' }]}>
+            <Select
+              showSearch
+              options={userOptions}
+              style={{ width: 220 }}
+              placeholder="选择用户"
+              optionFilterProp="label"
+            />
+          </Form.Item>
           <Form.Item name="category">
             <Select options={CATEGORY_OPTIONS} style={{ width: 100 }} />
           </Form.Item>

@@ -11,6 +11,7 @@ import type {
   SubscriptionListResponse,
   TaskListResponse,
   TaskView,
+  UserListResponse,
   UserProfile,
 } from './types';
 
@@ -18,7 +19,6 @@ import type {
 // 也可填完整地址（如 http://192.168.1.10:8080/api/v1，需服务器开 CORS）
 const BASE_KEY = 'douban-admin:api-base';
 const TOKEN_KEY = 'douban-admin:token';
-const USER_KEY = 'douban-admin:user';
 
 /* 默认基址经 VITE_API_BASE_URL 构建期注入（生产 /douban-admin/api/v1，dev 回退
    /api/v1 走 Vite proxy）；localStorage 覆盖机制保留（连接弹框仍可改） */
@@ -48,11 +48,8 @@ export function resolveApiUrl(path: string): string {
   return url.href;
 }
 
-/** 单用户站点的用户身份：在「连接」弹框设置一次，全站复用 */
-export const getUser = () => localStorage.getItem(USER_KEY) || '';
-export const setUser = (v: string) => localStorage.setItem(USER_KEY, v);
-
-/** 与服务端 backend/src/crawler.rs::parse_uid 一致：接受纯 ID 或个人主页链接，归一化为纯 uid */
+/** 与服务端 backend/src/crawler.rs::parse_uid 一致：接受纯 ID 或个人主页链接，归一化为纯 uid。
+ *  全后台管理形态下用于各处「可自由输入新 uid」的字段（新建任务 / 添加订阅）。 */
 export function parseUserInput(raw: string): string | null {
   const input = raw.trim();
   const isValidId = (s: string) => /^[A-Za-z0-9._-]+$/.test(s);
@@ -116,10 +113,18 @@ export const health = async () => {
 export const api = {
   serverInfo: () => request<ServerInfo>('/server/info'),
 
-  listTasks: (query: { user?: string; status?: string; limit?: number; cursor?: number }) => {
+  listTasks: (query: {
+    user?: string;
+    status?: string;
+    /** manual = 手动创建；auto = 订阅自动触发；all = 全部（默认 manual，需显式传 all 才含订阅任务） */
+    source?: 'manual' | 'auto' | 'all';
+    limit?: number;
+    cursor?: number;
+  }) => {
     const qs = new URLSearchParams();
     if (query.user) qs.set('user', query.user);
     if (query.status) qs.set('status', query.status);
+    if (query.source) qs.set('source', query.source);
     qs.set('limit', String(query.limit ?? 100));
     if (query.cursor != null) qs.set('cursor', String(query.cursor));
     return request<TaskListResponse>(`/syncs?${qs.toString()}`);
@@ -221,6 +226,9 @@ export const api = {
 
   getUserProfile: (uid: string) =>
     request<UserProfile>(`/users/${encodeURIComponent(uid)}/profile`),
+
+  /** 全用户列表（users ∪ records ∪ subscriptions ∪ tasks 四表并集，按记录数降序） */
+  listUsers: () => request<UserListResponse>('/users'),
 
   listSubscriptions: () =>
     request<SubscriptionListResponse>('/subscriptions'),

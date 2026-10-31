@@ -276,3 +276,23 @@ export interface UserProfile {
   /** 本地封面代理相对路径（/api/v1/covers?u=...），img 标签需经 resolveApiUrl 处理 */
   avatar: string;
 }
+
+/** GET /users 列表项（全用户管理：四表并集，按记录数降序） */
+export interface UserSummary {
+  uid: string;
+  /** users 表资料；未入库或抓到空值为 null（回退 @uid 与默认头像） */
+  username: string | null;
+  /** 本地封面代理相对路径，需经 resolveApiUrl 处理 */
+  avatar: string | null;
+  /** 已订阅（enabled） */
+  subscribed: boolean;
+  records: number;
+  dimensions: number;
+  last_task_at: string | null;
+  last_sync_at: string | null;
+  profile_updated_at: string | null;
+}
+
+export interface UserListResponse {
+  users: UserSummary[];
+}

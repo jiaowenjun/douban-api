@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Avatar } from 'antd';
+import { Avatar, Space } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { api, resolveApiUrl } from './api';
 import type { UserProfile } from './types';
 
@@ -58,5 +59,21 @@ export function UserAvatar({ uid, size = 24 }: { uid: string | null | undefined;
     >
       {profile?.username ? profile.username.slice(0, 1) : undefined}
     </Avatar>
+  );
+}
+
+/** 用户列通用渲染：头像 + 昵称（该 uid 尚未同步过时回退 uid）+ @uid，点击跳数据浏览。
+ *  用户页 / 任务表 / 概览订阅表与最近任务共用。 */
+export function UserCell({ uid, size = 20 }: { uid: string; size?: number }) {
+  const navigate = useNavigate();
+  const profile = useUserProfile(uid);
+  return (
+    <Space size={6}>
+      <UserAvatar uid={uid} size={size} />
+      <a onClick={() => navigate(`/marks?uid=${encodeURIComponent(uid)}`)}>
+        {profile?.username || uid}
+      </a>
+      {profile && <span style={{ fontSize: 12, opacity: 0.55 }}>@{uid}</span>}
+    </Space>
   );
 }

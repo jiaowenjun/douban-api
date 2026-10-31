@@ -20,8 +20,7 @@ use weimo_douban::server::{
     db,
     fetcher::{DoubanFetcher, FetchError},
     routes::build_app,
-    seed,
-    service,
+    seed, service,
     state::AppState,
     subject, worker,
 };
@@ -1279,6 +1278,76 @@ async fn subscription_crud_and_auth() {
     )
     .await;
     assert_eq!(code, StatusCode::NOT_FOUND);
+    drop(dir);
+}
+
+/// GET /users：四表并集（users ∪ records ∪ subscriptions ∪ tasks），
+/// 各来源的用户都要出现，聚合字段（订阅/计数/时间/资料）正确
+#[tokio::test]
+async fn users_endpoint_unifies_all_uid_sources() {
+    let (dir, state) = setup().await;
+    let app = build_app(state.clone());
+
+    // wenjun30：建任务（tasks 来源）+ 直插资料与一条记录
+    let (_, _) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    seed_record(&state, "wenjun30", "music", "1000001").await;
+    sqlx::query(
+        "INSERT INTO users (uid, username, avatar, updated_ms)
+         VALUES ('wenjun30', '文文', 'https://img.doubanio.com/icon/u1.jpg', 1700000000000)",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    // alice60：仅订阅（subscriptions 来源，无任何数据）
+    let (code, _) = request(
+        app.clone(),
+        Method::PUT,
+        "/api/v1/subscriptions/alice60",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED);
+
+    // bob80：仅有标记记录（records 来源，资料未入库）
+    seed_record(&state, "bob80", "book", "1000002").await;
+    seed_record(&state, "bob80", "book", "1000003").await;
+
+    let (code, body) = request(app.clone(), Method::GET, "/api/v1/users", None, None).await;
+    assert_eq!(code, StatusCode::OK, "body: {body}");
+    let users = body["users"].as_array().unwrap();
+    let by: std::collections::HashMap<&str, &Value> = users
+        .iter()
+        .map(|u| (u["uid"].as_str().unwrap(), u))
+        .collect();
+    assert_eq!(by.len(), 3, "三个来源各一个用户: {body}");
+
+    let wenjun = by["wenjun30"];
+    assert_eq!(wenjun["username"], "文文");
+    assert_eq!(wenjun["subscribed"], false);
+    assert_eq!(wenjun["records"], 1);
+    assert!(wenjun["last_task_at"].is_string(), "建过任务应有时间");
+    assert_eq!(
+        wenjun["avatar"],
+        "/api/v1/covers?u=https%3A%2F%2Fimg.doubanio.com%2Ficon%2Fu1.jpg"
+    );
+    assert!(wenjun["profile_updated_at"].is_string());
+
+    // 记录数降序：bob80(2) 在 wenjun30(1) 前，alice60(0) 最后
+    let uids: Vec<&str> = users.iter().map(|u| u["uid"].as_str().unwrap()).collect();
+    assert_eq!(uids, vec!["bob80", "wenjun30", "alice60"]);
+
+    let alice = by["alice60"];
+    assert_eq!(alice["subscribed"], true);
+    assert_eq!(alice["records"], 0);
+    assert!(alice["username"].is_null(), "资料未入库应为 null");
+    assert!(alice["avatar"].is_null());
+    assert!(alice["last_task_at"].is_null());
+
+    let bob = by["bob80"];
+    assert_eq!(bob["records"], 2);
+    assert_eq!(bob["subscribed"], false);
     drop(dir);
 }
 
@@ -2896,10 +2965,11 @@ async fn server_snapshot_streams_valid_sqlite_with_data() {
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = to_bytes(resp.into_body(), 32 * 1024 * 1024)
-        .await
-        .unwrap();
-    assert!(bytes.starts_with(b"SQLite format 3\0"), "快照应为 SQLite 文件");
+    let bytes = to_bytes(resp.into_body(), 32 * 1024 * 1024).await.unwrap();
+    assert!(
+        bytes.starts_with(b"SQLite format 3\0"),
+        "快照应为 SQLite 文件"
+    );
 
     // 落盘只读打开：业务表齐备 + 用户数据透传
     let path = std::env::temp_dir().join(format!("snapshot-test-{}.db", std::process::id()));
@@ -2948,11 +3018,12 @@ async fn seed_fetch_downloads_and_installs_snapshot() {
     let pool = db::connect(&dest.path().join("douban_export.db"))
         .await
         .unwrap();
-    let n: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'records'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'records'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(n, 1);
 
     // 404 → Ok(false)：远端未提供快照时静默回落常规冷启动

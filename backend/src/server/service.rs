@@ -176,6 +176,81 @@ pub async fn get_user_profile(state: &AppState, uid: &str) -> AppResult<UserProf
     })
 }
 
+/// 全用户列表（admin 管理台）：uid 取四表并集——users（已入库资料）∪
+/// records（已有数据）∪ subscriptions（已订阅）∪ tasks（建过任务），
+/// 只出现在其中一张表的用户（如建了任务但资料未抓到）也要列出。
+#[derive(Serialize)]
+pub struct UserSummaryView {
+    pub uid: String,
+    /// users 表的昵称/头像；未入库或抓到空值为 None（前端回退 @uid 与图标）
+    pub username: Option<String>,
+    pub avatar: Option<String>,
+    /// 已订阅（subscriptions 存在且 enabled=1）
+    pub subscribed: bool,
+    /// 已缓存记录数 / 维度数
+    pub records: i64,
+    pub dimensions: i64,
+    /// 最近一次任务创建时间 / 维度抓取完成时间
+    pub last_task_at: Option<String>,
+    pub last_sync_at: Option<String>,
+    /// users.updated_ms（资料块最近一次随抓取入库）
+    pub profile_updated_at: Option<String>,
+}
+
+pub async fn list_users(state: &AppState) -> AppResult<Vec<UserSummaryView>> {
+    let rows = sqlx::query(
+        "WITH uids(uid) AS (
+            SELECT uid FROM users
+            UNION
+            SELECT DISTINCT uid FROM records
+            UNION
+            SELECT uid FROM subscriptions
+            UNION
+            SELECT DISTINCT user FROM tasks
+        )
+        SELECT u.uid, us.username, us.avatar, us.updated_ms AS profile_ms,
+               (SELECT COUNT(*) FROM records r WHERE r.uid = u.uid) AS rec_count,
+               (SELECT COUNT(*) FROM dimensions d WHERE d.uid = u.uid) AS dim_count,
+               EXISTS(SELECT 1 FROM subscriptions s WHERE s.uid = u.uid AND s.enabled = 1) AS subscribed,
+               (SELECT MAX(created_ms) FROM tasks t WHERE t.user = u.uid) AS last_task_ms,
+               (SELECT MAX(fetched_ms) FROM dimensions d2 WHERE d2.uid = u.uid) AS last_sync_ms
+        FROM uids u
+        LEFT JOIN users us ON us.uid = u.uid
+        ORDER BY rec_count DESC, u.uid",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let username: String = r.get("username");
+            let avatar: String = r.get("avatar");
+            UserSummaryView {
+                uid: r.get("uid"),
+                username: if username.is_empty() {
+                    None
+                } else {
+                    Some(username)
+                },
+                avatar: if avatar.is_empty() {
+                    None
+                } else {
+                    Some(cover_proxy_url(&avatar))
+                },
+                subscribed: r.get::<i64, _>("subscribed") != 0,
+                records: r.get("rec_count"),
+                dimensions: r.get("dim_count"),
+                last_task_at: r.get::<Option<i64>, _>("last_task_ms").map(ms_to_rfc3339),
+                last_sync_at: r.get::<Option<i64>, _>("last_sync_ms").map(ms_to_rfc3339),
+                profile_updated_at: r
+                    .get::<Option<i64>, _>("profile_ms")
+                    .filter(|ms| *ms > 0)
+                    .map(ms_to_rfc3339),
+            }
+        })
+        .collect())
+}
+
 // --------------------------------------------------------------------------- //
 // 视图模型
 // --------------------------------------------------------------------------- //

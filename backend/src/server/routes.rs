@@ -61,6 +61,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/syncs/{task_id}", get(get_sync).delete(delete_sync))
         .route("/syncs/{task_id}/result", get(get_result))
         .route("/syncs/{task_id}/events", get(get_sync_events))
+        .route("/users", get(list_users))
         .route("/users/{uid}/syncs", post(create_user_sync))
         .route("/users/{uid}/cache-version", get(get_cache_version))
         .route("/users/{uid}/marks", get(get_marks))
@@ -213,12 +214,19 @@ async fn get_server_snapshot(State(state): State<AppState>) -> AppResult<Respons
     let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
-            if entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t < cutoff) {
+            if entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .is_ok_and(|t| t < cutoff)
+            {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
     }
-    let path = dir.join(format!("snapshot-{}.db", super::config::ServerConfig::now_ms()));
+    let path = dir.join(format!(
+        "snapshot-{}.db",
+        super::config::ServerConfig::now_ms()
+    ));
     let path_str = path.display().to_string();
     sqlx::query("VACUUM INTO ?")
         .bind(&path_str)
@@ -234,7 +242,10 @@ async fn get_server_snapshot(State(state): State<AppState>) -> AppResult<Respons
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "application/octet-stream"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"douban_export.db\""),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"douban_export.db\"",
+            ),
         ],
         bytes,
     )
@@ -357,7 +368,10 @@ fn task_response(view: &TaskView, cached: usize, created: usize) -> AppResult<Re
 /// done、queued/running 并入 single-flight、队列上限拒绝），不会重复抓
 /// 取；鉴权/限流随 /api/v1 全局中间件（未配置 token 的自部署站点即 web
 /// 部署现状可直接调用，配置 token 后与其余端点一致需携带）
-async fn create_user_sync(State(state): State<AppState>, Path(uid): Path<String>) -> AppResult<Response> {
+async fn create_user_sync(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+) -> AppResult<Response> {
     let outcome = service::create_task(
         &state,
         CreateTaskInput {
@@ -971,8 +985,14 @@ async fn requeue_subject_jobs(
 }
 
 // --------------------------------------------------------------------------- //
-// /users/{uid}/profile
+// /users、/users/{uid}/profile
 // --------------------------------------------------------------------------- //
+
+/// 全用户列表（admin 管理台）：users ∪ records ∪ subscriptions ∪ tasks 四表并集
+async fn list_users(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let users = service::list_users(&state).await?;
+    Ok(Json(json!({ "users": users })))
+}
 
 async fn get_user_profile(
     State(state): State<AppState>,

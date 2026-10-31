@@ -4,8 +4,9 @@ import { App as AntApp, Popconfirm, theme } from 'antd';
 import { ActionType, PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
 import dayjs from 'dayjs';
 import type { TaskSummary } from '../types';
-import { api, getUser } from '../api';
+import { api } from '../api';
 import { TASK_STATUS_META, TaskStatusTag } from '../labels';
+import { UserCell } from '../user-profile';
 import CreateTaskModal from '../components/CreateTaskModal';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 
@@ -18,8 +19,24 @@ export default function Tasks() {
   const [hasActive, setHasActive] = useState(false);
   const { message } = AntApp.useApp();
   const [searchParams] = useSearchParams();
+  // 用户筛选选项来自全用户列表（旧版后端无 /users 时回退空，仅剩自由输入）
+  const [userOptions, setUserOptions] = useState<{ value: string; label: string }[]>([]);
 
-  // 支持从概览跳转 /tasks?task=xxx 直达详情
+  useEffect(() => {
+    api
+      .listUsers()
+      .then((res) =>
+        setUserOptions(
+          res.users.map((u) => ({
+            value: u.uid,
+            label: u.username ? `${u.username}（@${u.uid}）` : `@${u.uid}`,
+          })),
+        ),
+      )
+      .catch(() => setUserOptions([]));
+  }, []);
+
+  // 支持从概览跳转 /tasks?task=xxx 直达详情、从用户页跳转 /tasks?user=xxx 预置筛选
   useEffect(() => {
     const task = searchParams.get('task');
     if (task) setOpenTaskId(task);
@@ -31,8 +48,16 @@ export default function Tasks() {
       dataIndex: 'task_id',
       copyable: true,
       ellipsis: true,
-      width: 230,
+      width: 210,
       search: false,
+    },
+    {
+      title: '用户',
+      dataIndex: 'user',
+      width: 170,
+      ellipsis: true,
+      render: (_, r) => <UserCell uid={r.user} />,
+      fieldProps: { showSearch: true, options: userOptions },
     },
     {
       title: '状态',
@@ -42,6 +67,18 @@ export default function Tasks() {
         Object.entries(TASK_STATUS_META).map(([k, v]) => [k, { text: v.label }]),
       ),
       render: (_, r) => <TaskStatusTag status={r.status} />,
+    },
+    {
+      title: '来源',
+      dataIndex: 'source',
+      width: 100,
+      initialValue: 'all',
+      valueEnum: {
+        all: { text: '全部' },
+        manual: { text: '手动' },
+        auto: { text: '订阅' },
+      },
+      render: (_, r) => (r.source === 'auto' ? '订阅' : '手动'),
     },
     { title: '条目', dataIndex: 'items_count', width: 90, search: false },
     {
@@ -89,6 +126,13 @@ export default function Tasks() {
         polling={hasActive ? 2000 : undefined}
         options={{ reload: true, density: false, setting: false }}
         locale={{ emptyText: '暂无任务，点击右上角「新建同步」创建' }}
+        form={{
+          // ?user= 深链预置用户筛选（用户页「任务」跳转落地）；来源默认全部（含订阅 auto 任务）
+          initialValues: {
+            user: searchParams.get('user') || undefined,
+            source: 'all',
+          },
+        }}
         request={async (params) => {
           const pageSize = params.pageSize ?? 20;
           const need = (params.current ?? 1) * pageSize;
@@ -98,9 +142,9 @@ export default function Tasks() {
           // 游标按创建时间倒序翻页：每次拉满 100 条，直到覆盖当前页所需
           while (tasks.length < need) {
             const res = await api.listTasks({
-              // 单用户站点：只看「连接」里设置的用户的任务（未设置时过渡展示全部）
-              user: getUser() || undefined,
+              user: params.user || undefined,
               status: params.status || undefined,
+              source: (params.source as 'manual' | 'auto' | 'all') || 'all',
               limit: 100,
               cursor,
             });

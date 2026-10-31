@@ -1,34 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Col, InputNumber, Popconfirm, Row, Space, Statistic, Table, Tooltip, message } from 'antd';
+import { Alert, AutoComplete, Badge, Button, Card, Col, InputNumber, Popconfirm, Row, Space, Statistic, Table, Tooltip, message } from 'antd';
 import { PageContainer, ProCard } from '@ant-design/pro-components';
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { ServerInfo, Subscription, TaskSummary } from '../types';
-import { api, getUser, health } from '../api';
+import { api, health, parseUserInput } from '../api';
 import { TaskStatusTag } from '../labels';
-import { UserAvatar, useUserProfile } from '../user-profile';
+import { UserCell } from '../user-profile';
 
 const fmtInterval = (secs: number) =>
   secs % 86400 === 0 ? `${secs / 86400} 天` : secs % 3600 === 0 ? `${secs / 3600} 小时` : `${Math.round(secs / 60)} 分钟`;
 
 const fmtTime = (v: string | null) =>
   v ? dayjs(v).format('MM-DD HH:mm') : '—';
-
-/** 订阅表用户列：头像 + 昵称（该 uid 尚未同步过时回退 uid），点击跳数据浏览 */
-function SubUserCell({ uid }: { uid: string }) {
-  const navigate = useNavigate();
-  const profile = useUserProfile(uid);
-  return (
-    <Space size={6}>
-      <UserAvatar uid={uid} size={20} />
-      <a onClick={() => navigate(`/marks?uid=${encodeURIComponent(uid)}`)}>
-        {profile?.username || uid}
-      </a>
-      {profile && <span style={{ fontSize: 12, opacity: 0.55 }}>@{uid}</span>}
-    </Space>
-  );
-}
 
 export default function Overview() {
   const navigate = useNavigate();
@@ -37,11 +22,12 @@ export default function Overview() {
   const [connError, setConnError] = useState<string | null>(null);
   const [recent, setRecent] = useState<TaskSummary[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const [subUid, setSubUid] = useState('');
   const [subRss, setSubRss] = useState<number | null>(null);
   const [subFull, setSubFull] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
+  const [userOptions, setUserOptions] = useState<{ value: string; label: string }[]>([]);
   const [messageApi, contextHolder] = message.useMessage();
-  const identity = useUserProfile(getUser() || null);
 
   const load = async () => {
     try {
@@ -59,7 +45,8 @@ export default function Overview() {
       /* healthz 通而 API 报错时在卡片里显示空值即可 */
     }
     try {
-      const res = await api.listTasks({ user: getUser() || undefined, limit: 5 });
+      // 全后端视角：最近任务跨所有用户、含订阅触发的 auto 任务
+      const res = await api.listTasks({ limit: 5, source: 'all' });
       setRecent(res.tasks);
     } catch {
       setRecent([]);
@@ -85,10 +72,25 @@ export default function Overview() {
     };
   }, []);
 
+  // 订阅对象自动补全：已知用户可选，也允许输入新 uid（旧版后端无 /users 时回退空）
+  useEffect(() => {
+    api
+      .listUsers()
+      .then((res) =>
+        setUserOptions(
+          res.users.map((u) => ({
+            value: u.uid,
+            label: u.username ? `${u.username}（@${u.uid}）` : `@${u.uid}`,
+          })),
+        ),
+      )
+      .catch(() => setUserOptions([]));
+  }, []);
+
   const addSubscription = async () => {
-    const uid = getUser();
+    const uid = parseUserInput(subUid);
     if (!uid) {
-      messageApi.warning('请先点击右上角「连接」设置豆瓣用户 ID');
+      messageApi.warning('请选择已知用户，或输入豆瓣用户 ID / 个人主页链接');
       return;
     }
     setAdding(true);
@@ -98,6 +100,7 @@ export default function Overview() {
         ...(subFull != null ? { full_interval_secs: subFull } : {}),
       });
       messageApi.success(`已订阅 ${uid}（增量 10 分钟内生效，全量按周期自动刷新）`);
+      setSubUid('');
       setSubRss(null);
       setSubFull(null);
       await load();
@@ -234,14 +237,17 @@ export default function Overview() {
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
-          <span>
-            订阅用户{' '}
-            {getUser()
-              ? identity?.username
-                ? `${identity.username}（@${getUser()}）`
-                : `@${getUser()}`
-              : '（未设置，点右上角「连接」填写）'}
-          </span>
+          <AutoComplete
+            value={subUid}
+            onChange={setSubUid}
+            options={userOptions}
+            style={{ width: 240 }}
+            filterOption={(input, option) =>
+              (option?.value ?? '').toLowerCase().includes(input.toLowerCase()) ||
+              (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+            }
+            placeholder="订阅用户：选择已知用户或输入 ID / 主页链接"
+          />
           <InputNumber
             placeholder="增量间隔（秒，默认 3600）"
             style={{ width: 180 }}
@@ -273,7 +279,7 @@ export default function Overview() {
               width: 180,
               render: (_, r) => (
                 <Space size={4}>
-                  <SubUserCell uid={r.uid} />
+                  <UserCell uid={r.uid} />
                   {!r.enabled && <Badge status="default" text="停用" />}
                 </Space>
               ),
@@ -340,13 +346,21 @@ export default function Overview() {
           onRow={(r) => ({ onClick: () => navigate(`/tasks?task=${r.task_id}`), style: { cursor: 'pointer' } })}
           columns={[
             { title: '任务 ID', dataIndex: 'task_id', ellipsis: true },
-            { title: '状态', dataIndex: 'status', width: 100, render: (_, r) => <TaskStatusTag status={r.status} /> },
-            { title: '条目', dataIndex: 'items_count', width: 80 },
+            {
+              title: '用户',
+              dataIndex: 'user',
+              width: 140,
+              ellipsis: true,
+              render: (_, r) => <UserCell uid={r.user} />,
+            },
+            { title: '状态', dataIndex: 'status', width: 90, render: (_, r) => <TaskStatusTag status={r.status} /> },
+            { title: '来源', dataIndex: 'source', width: 70, render: (_, r) => (r.source === 'auto' ? '订阅' : '手动') },
+            { title: '条目', dataIndex: 'items_count', width: 70 },
             {
               title: '创建时间',
               dataIndex: 'created_at',
-              width: 170,
-              render: (_, r) => dayjs(r.created_at).format('YYYY-MM-DD HH:mm:ss'),
+              width: 150,
+              render: (_, r) => dayjs(r.created_at).format('MM-DD HH:mm:ss'),
             },
           ]}
         />
