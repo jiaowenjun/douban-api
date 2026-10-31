@@ -48,6 +48,8 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   const [verify, setVerify] = useState<VerifyState>({ phase: 'unverified' })
+  // 预览收起动画的内容载体（用途详见下方 preview 计算处的注释）
+  const [lastProfile, setLastProfile] = useState<DoubanProfile | null>(null)
   // 竞态守卫：每次发起验证自增；编辑输入同样自增作废在途响应，
   // 迟到的结果（旧 ID 的）不覆盖当前状态
   const testSeqRef = useRef(0)
@@ -58,6 +60,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
     if (open) {
       setDraft(uid ?? '')
       setVerify({ phase: 'unverified' })
+      setLastProfile(null)
     }
   }
 
@@ -140,6 +143,13 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
       : uid && normalized === uid && profile
         ? profile
         : null
+  // 收起动画的内容载体（render 期调整，同 prevOpen 模式）：preview 变
+  // null 时若同步卸载内容，盒子会瞬间塌掉没有过渡——lastProfile 保留
+  // 上一次的资料，让盒子带着内容一起收
+  if (preview && preview !== lastProfile) {
+    setLastProfile(preview)
+  }
+  const shownProfile = preview ?? lastProfile
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -152,8 +162,8 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
             <div
               className={
                 preview
-                  ? 'login-dialog__row login-dialog__row--split'
-                  : 'login-dialog__row'
+                  ? 'login-dialog__row'
+                  : 'login-dialog__row login-dialog__row--solo'
               }
             >
               <label className="login-dialog__field">
@@ -167,26 +177,37 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
                   value={draft}
                 />
               </label>
-              {preview ? (
+              <div
+                aria-hidden={!preview}
+                className={
+                  preview
+                    ? 'login-dialog__preview'
+                    : 'login-dialog__preview login-dialog__preview--hidden'
+                }
+              >
                 <div className="login-dialog__account">
-                  {preview.avatar ? (
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="login-dialog__account-avatar"
-                      src={resolveApiUrl(preview.avatar)}
-                    />
-                  ) : (
-                    <UserRound
-                      aria-hidden="true"
-                      className="login-dialog__account-avatar"
-                    />
-                  )}
-                  <span className="login-dialog__account-name">
-                    {preview.username || preview.uid}
-                  </span>
+                  {shownProfile ? (
+                    <>
+                      {shownProfile.avatar ? (
+                        <img
+                          alt=""
+                          aria-hidden="true"
+                          className="login-dialog__account-avatar"
+                          src={resolveApiUrl(shownProfile.avatar)}
+                        />
+                      ) : (
+                        <UserRound
+                          aria-hidden="true"
+                          className="login-dialog__account-avatar"
+                        />
+                      )}
+                      <span className="login-dialog__account-name">
+                        {shownProfile.username || shownProfile.uid}
+                      </span>
+                    </>
+                  ) : null}
                 </div>
-              ) : null}
+              </div>
             </div>
             {verify.phase === 'error' ? (
               <p className="login-dialog__error" role="alert">

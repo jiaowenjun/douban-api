@@ -29,26 +29,53 @@
   margin-right: auto;
 }
 
-/* 输入区：无预览单列整行；有预览（--split）输入框 1fr 弹性占余、预览
-   auto 按内容收缩——轨道在外层分配，免受 account padding/边框的
-   box-sizing 干扰；stretch 等高 */
+/* 输入区：输入框左（flex:1 占余）、验证预览右（内容自撑、60% 封顶）；
+   预览出现/消失做宽度过渡——行 gap 与盒子 max-width/横向 padding/
+   边框色/opacity 同步过渡，row 高度全程恒定（纵向 padding 与内容高
+   不动），输入框随预览宽度变化逐帧重排平滑补位 */
 .login-dialog__row {
-  display: grid;
+  display: flex;
   gap: 10px;
   align-items: stretch;
+  transition: gap 220ms ease-out;
 }
 
-.login-dialog__row--split {
-  /* fit-content(60%)：预览按内容收缩、以行宽 60% 封顶（百分比对容器
-     解析）——防超长用户名把输入框挤到不可用。不能在 account 上用
-     max-width:%，百分比在内容尺寸轨道里循环解析、固有尺寸阶段按 0，
-     实测会把盒子压到只剩头像 */
-  grid-template-columns: 1fr fit-content(60%);
+/* 无预览：行尾 gap 随过渡归零，输入框占满整行 */
+.login-dialog__row--solo {
+  gap: 0;
 }
 
-/* 验证预览（行内右半）：头像 + 用户名，内容右对齐——贴着盒子右缘与
-   行尾呼应（ID 在输入框里已有，不再重复 @uid；后端未同步过该用户时
-   无头像/用户名，回退 uid 作用户名展示；封顶时名字段 ellipsis 接住） */
+/* 预览槽（宽度动画层）：常挂载，显隐只过渡 max-width——槽自身无
+   padding/边框，border-box 可真正归零（视觉盒移到内层，天然没有
+   「padding+边框撑住宽度」的地板残条，也不再需要动画 padding——
+   逻辑属性 padding-inline 的过渡在该 Chromium 实测不插值，第一帧
+   直接跳 0 造成闪烁）；overflow:hidden + 内盒贴右锚定 → 收起从左
+   裁切（头像先出画、用户名最后），与内容右对齐的收起方向一致 */
+.login-dialog__preview {
+  display: flex;
+  justify-content: flex-end;
+  flex: none;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  transition:
+    max-width 220ms ease-out,
+    opacity 180ms ease-out;
+}
+
+/* 隐藏态（无预览）：宽归零淡出；内容仍挂载（保留上一次资料随盒收
+   起）但不可交互、对读屏隐藏 */
+.login-dialog__preview--hidden {
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 验证预览（内层视觉盒）：头像 + 用户名，内容右对齐贴行尾；宽度由
+   内容自撑、以槽的 60% 封顶（flex 容器宽度确定，max-width 百分比有
+   定义——不能放进 grid 内容尺寸轨道，那里百分比按 0 解析）；ID 在
+   输入框里已有不重复 @uid；名字段 24ch 封顶接 ellipsis，正常用户名
+   到不了槽的硬裁切 */
 .login-dialog__account {
   display: flex;
   align-items: center;
@@ -71,6 +98,9 @@
 
 .login-dialog__account-name {
   min-width: 0;
+  /* 24ch 封顶接住 ellipsis：内层视觉盒只受槽 60% 硬裁切，超长名靠
+     自己收（正常用户名/uid 到不了两者任一上限） */
+  max-width: 24ch;
   overflow: hidden;
   color: var(--color-text-primary);
   font-size: var(--font-size-md);
@@ -80,9 +110,12 @@
 }
 
 /* 字段只剩单输入框（标题即提示，label 仅作点击聚焦的命中区包一层）；
-   须用 grid 让 input 拉满轨道宽——block 下 input 回退固有宽度约半宽 */
+   行内左件 flex:1 占余（预览收起时即整行）；内层仍须 grid 让 input
+   拉满——block 下 input 回退固有宽度约半宽 */
 .login-dialog__field {
   display: grid;
+  flex: 1;
+  min-width: 0;
 }
 
 .login-dialog__input {
