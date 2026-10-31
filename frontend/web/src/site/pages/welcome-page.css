@@ -14,7 +14,7 @@
   color: var(--color-text-primary);
 }
 
-/* hero 区 CTA 行：居中双按钮（主 = 进入应用，次 = ghost 全部标记） */
+/* hero 区 CTA 行：居中双实心按钮（进入应用 + dmg 下载真链接，同款样式） */
 .welcome-page__cta {
   display: flex;
   flex-wrap: wrap;
@@ -50,13 +50,6 @@
   height: 440px;
   object-fit: cover;
   object-position: top;
-}
-
-.welcome-page__shot figcaption {
-  padding: 8px 4px 2px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  text-align: center;
 }
 
 /* 主卖点小节：图文两列（图 7 文 5），相邻小节左右交替（奇偶反序） */
@@ -133,43 +126,6 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   line-height: 1.65;
-}
-
-/* 桌面 App 下载条：横向卡片（左文案右按钮），窄屏纵排 */
-.welcome-page__download {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  padding: calc(var(--space-card-pad, 13px) * 1.6);
-  gap: 16px;
-}
-
-.welcome-page__download-text {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.welcome-page__download-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-
-.welcome-page__download-desc {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.welcome-page__download-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 /* 页脚：居中弱化小字，链接继承文字色加下划线区分 */

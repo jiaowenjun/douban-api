@@ -97,12 +97,12 @@ const FEATURES = [
   },
 ] as const
 
-/** 桌面 App 版本与下载地址：版本号与 app/tauri.conf.json 的 version 保持
- *  同步；dmg 资产名是 release.sh 统一的 ASCII 前缀（gh 上传会剥掉 CJK
- *  文件名，此处的 latest/download 直链按产物名精确匹配） */
+/** 桌面 App 版本与 dmg 直链（hero CTA 次按钮）：版本号与
+ *  app/tauri.conf.json 的 version 保持同步；dmg 资产名是 release.sh
+ *  统一的 ASCII 前缀（gh 上传会剥掉 CJK 文件名，此处的 latest/download
+ *  直链按产物名精确匹配） */
 const APP_VERSION = '0.4.0'
 const APP_DMG_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_aarch64.dmg`
-const APP_RELEASES_URL = 'https://github.com/jiaowenjun/weimo-douban/releases'
 
 /** 当前实际生效主题是否为深色：模板主题（跟随系统或顶栏手动切换）最终
  *  都同步到 html.dark 类，观测根类名即唯一事实源——MutationObserver 监听
@@ -143,19 +143,19 @@ export function WelcomePage() {
     >
       <div className="welcome-page__cta">
         <TextButton
-          onClick={() => navigate('/movie')}
+          onClick={() => navigate('/all')}
           type="button"
         >
           {uid ? '进入我的标记' : '进入标记列表'}
           <ArrowRight aria-hidden size={16} />
         </TextButton>
-        <TextButton
-          onClick={() => navigate('/all')}
-          type="button"
-          variant="ghost"
-        >
-          查看全部标记
-        </TextButton>
+        {/* 借用 text-button 组件类渲染真链接：下载 CTA 需要真实
+         * href（右键另存/新标签直下），dmg 直链由浏览器下载不离开本页；
+         *  无 data-variant 即默认实心，与左侧进入按钮同款 */}
+        <a className="text-button" href={APP_DMG_URL}>
+          <Apple aria-hidden size={16} />
+          下载 dmg
+        </a>
       </div>
 
       <figure
@@ -167,9 +167,6 @@ export function WelcomePage() {
           alt="标记列表页全景：侧边栏统计与筛选树、顶栏面包屑、封面与双星评分的标记卡片"
           src={dark ? marksOverviewDark : marksOverviewLight}
         />
-        <figcaption>
-          标记列表：封面、双星评分、条目元信息与富文本短评，逐卡折叠展开
-        </figcaption>
       </figure>
 
       {FEATURES.map((feature) => (
@@ -206,36 +203,6 @@ export function WelcomePage() {
               <p className="welcome-page__card-desc">{description}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      <section className="welcome-page__section">
-        <div className={getCardSurfaceClassName('welcome-page__download')}>
-          <div className="welcome-page__download-text">
-            <div className="welcome-page__download-title">
-              <Apple aria-hidden size={20} />
-              macOS 客户端
-            </div>
-            <p className="welcome-page__download-desc">
-              Apple Silicon（aarch64）· v{APP_VERSION} · 首启自动拉取全库快照种子，已装旧版经 GitHub Releases 自动更新。
-            </p>
-          </div>
-          <div className="welcome-page__download-actions">
-            {/* 借用 text-button 组件类渲染真链接：下载类 CTA 需要真实
-             * href（右键另存/新标签直下），dmg 直链由浏览器下载不离开本页 */}
-            <a className="text-button" href={APP_DMG_URL}>
-              下载 dmg
-            </a>
-            <a
-              className="text-button"
-              data-variant="ghost"
-              href={APP_RELEASES_URL}
-              rel="noreferrer"
-              target="_blank"
-            >
-              全部版本
-            </a>
-          </div>
         </div>
       </section>
 
