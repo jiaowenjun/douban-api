@@ -31,9 +31,17 @@ function useAppliedDarkTheme(): boolean {
   )
   useEffect(() => {
     const root = document.documentElement
-    const observer = new MutationObserver(() => {
+    const sync = () => {
       setDark(root.classList.contains('dark'))
-    })
+    }
+    // 订阅时先补读一次当前值（订阅即同步初值的范式）：useState 初值在
+    // render 阶段读，早于模板把 html.dark 同步进 DOM 的 effect（子先于
+    // 父），系统暗色冷挂载会读到 false，且 observer 挂上时唯一一次类
+    // 变化已错过——亮色截图就此常驻暗色页面；本 effect 执行时模板
+    // effect 必已跑完，sync() 读到正确值，effect 顺序若反转则由
+    // observer 兜底，两个方向都闭合
+    sync()
+    const observer = new MutationObserver(sync)
     observer.observe(root, { attributes: true, attributeFilter: ['class'] })
     return () => observer.disconnect()
   }, [])
