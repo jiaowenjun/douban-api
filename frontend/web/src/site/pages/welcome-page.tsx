@@ -18,6 +18,13 @@ import './welcome-page.css'
  *  ASCII 前缀（gh 上传会剥掉 CJK 文件名，此处的 latest/download 直链按
  *  产物名精确匹配），APP_VERSION 仍是版本号唯一改点 */
 const APP_VERSION = '0.4.2'
+/** 上面的发布日期（页脚展示）：= GitHub Release v{APP_VERSION} 的发布日
+ *  （当天本地日期，YYYY-MM-DD），随版本 bump 同步改——部署规范要求
+ *  txy 网页端页脚与最新 App Release 的版本号+发布日期一致（见仓库根
+ *  《txy部署手册.md》完整部署一节：一次完整部署 = 网页端上 txy + 发新版
+ *  App，页脚是两端的对齐凭据）。计划日与实际发布日不符时以实际为准，
+ *  改此处后重走 web 构建 */
+const APP_RELEASE_DATE = '2026-10-31'
 const APP_DMG_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_aarch64.dmg`
 const APP_EXE_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_x64-setup.exe`
 const REPO_URL = 'https://github.com/jiaowenjun/weimo-douban'
@@ -246,6 +253,13 @@ export function WelcomePage() {
           src={dark ? marksOverviewDark : marksOverviewLight}
         />
       </figure>
+
+      {/* 页脚版本行：网页端 = 最新客户端 Release 的版本+发布日期（App 壳内
+       *  嵌的也是同版本前端，即本 App 版本），两端天然同源——一致性由
+       *  完整部署规范保证（APP_RELEASE_DATE 注释），不在运行时校验 */}
+      <footer className="welcome-page__footer">
+        v{APP_VERSION} · {APP_RELEASE_DATE}
+      </footer>
     </MiniSiteTemplate>
   )
 }

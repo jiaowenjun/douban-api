@@ -67,3 +67,13 @@
   height: auto;
   border-radius: calc(var(--radius, 10px) - 4px);
 }
+
+/* 页脚版本行：主截图下方收尾，小字占位色（比次要色更轻一档，页脚
+ * 纯凭据信息宜弱），内容为「v<版本> · <发布日期>」——版本与日期
+ * 来自 tsx 常量，与 GitHub 最新 Release 对齐（部署规范） */
+.welcome-page__footer {
+  margin-block-start: 16px;
+  font-size: 13px;
+  color: var(--color-text-placeholder);
+  text-align: center;
+}

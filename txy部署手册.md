@@ -3,7 +3,7 @@
 > 日期：2026-10-30
 > 目标：将 weimo-douban 前后端部署到 txy 服务器（腾讯云 Debian 12，`212.64.24.13`，即 `~/.ssh/config` 的 `txy`，公网域名 weimo.ink），URL 分配 `/douban/`（web 前端）与 `/douban-admin/`（admin 前端）
 > 参考：weimo 仓库 `docs/wiki/40-playbooks/manual-deployment-debian12.md`（手工部署模式）与 `ops/deploy/nginx/weimo-release-roots.conf`（路由与缓存契约）
-> 状态：**首次部署已于 2026-10-30 执行完成并通过 §6 全套验证**（线上 `https://weimo.ink/douban/` 与 `/douban-admin/`）。§7 起的更新/回滚/备份流程为日常运维手册。
+> 状态：**首次部署已于 2026-10-30 执行完成并通过 §6 全套验证**（线上 `https://weimo.ink/douban/` 与 `/douban-admin/`）。§7 起的更新/回滚/备份流程为日常运维手册；**发新版 App 必须走 §7.5 完整部署**（网页端与 App 版本联动，2026-10-31 起规范）。
 
 ---
 
@@ -427,6 +427,64 @@ rm /root/workspace/douban-update.bundle                  # 本地同步删 /tmp/
 
 ---
 
+## 7.5 完整部署（版本发布：网页端 txy + 桌面 App 联动）
+
+**「一次完整部署」的定义（2026-10-31 起的规范）**：网页端部署到 txy + 发布新版 App，两者作为同一次发布动作完成。一致性要求：`https://weimo.ink/douban/` 欢迎页**页脚**显示的版本号与发布日期（`v<版本> · <日期>`），必须与 GitHub 最新 Release（`releases/latest`）的版本号与发布日期一致——页脚是「网页端与客户端同步演进」的对齐凭据，两端不一致即为带病状态。
+
+与 §7 的分工：不涉及 App 版本的纯业务更新仍走 §7；只要发了新版 App（版本号变化），就是完整部署，必须走本节把网页端带到同版本。
+
+### 7.5.1 版本改点（四处，随版本 bump 提交一次改齐）
+
+| # | 位置 | 内容 |
+| --- | --- | --- |
+| 1 | `app/tauri.conf.json` | `version` |
+| 2 | `app/Cargo.toml` | `version`（`Cargo.lock` 的 `weimo-douban-app` 条目随下次 cargo 构建同步，勿手改 lock） |
+| 3 | `frontend/web/src/site/pages/welcome-page.tsx` | `APP_VERSION`（安装包直链 URL 与页脚共用） |
+| 4 | 同上文件 | `APP_RELEASE_DATE`（页脚日期）= **计划发布当天的本地日期**（`YYYY-MM-DD`）；若实际发布日与计划不符，以实际发布日为准改此处并重走 web 构建 |
+
+### 7.5.2 流程（按序执行）
+
+```bash
+# 0) 前提：本版全部业务提交已合入 main；版本 bump 做成独立提交
+#    （先例 a5f67f6），四处改点见 §7.5.1，提交推送
+
+# 1) Windows 产物：Actions 手动 dispatch app-windows（main 上跑，出 exe + sig + version.txt）
+gh workflow run app-windows.yml --repo jiaowenjun/weimo-douban --ref main
+gh run watch --repo jiaowenjun/weimo-douban   # 等成功
+
+# 2) 发布 GitHub Release（mac 构建+签名 → 并入 Windows 产物 → latest.json → gh release）
+cd app && TAURI_SIGNING_PRIVATE_KEY=~/.tauri-keys/weimo-douban-updater.key ./scripts/release.sh
+
+# 3) 网页端部署到 txy：走 §7 流程（bundle → 服务器构建 web → rsync）。
+#    本步构建的 web 即含新页脚；若本次还含后端变更按 §7 全量三端
+```
+
+**顺序铁律：先发 Release（步骤 2）再上 txy（步骤 3）。** 反序会让线上欢迎页宣称一个尚不存在的版本——页脚版本与安装包直链（URL 含版本号）双双落空，直链 404。App 壳内嵌前端与 App 同版本构建，天然一致，不受部署顺序影响。
+
+### 7.5.3 一致性验证（完整部署收尾断言）
+
+```bash
+VER=0.4.2 DATE=2026-10-31   # 换成本次值；两者必须同源于 §7.5.1 的改点
+
+# 1) GitHub 最新 Release 即本版、发布日即页脚日期
+gh release view --repo jiaowenjun/weimo-douban --json tagName,publishedAt
+#   期望 tagName=v$VER；publishedAt 的本地日期 == $DATE（跨 UTC 午夜发布时
+#   publishedAt 落前一天，属展示时区差异——以本地日期口径为准，必要时改
+#   APP_RELEASE_DATE 重走 web 构建对齐）
+
+# 2) txy 线上产物含页脚特征串（页脚文本编译进主 JS；grep -F 防版本号点号歧义）
+JS=$(curl -fsS https://weimo.ink/douban/ | grep -oE '/douban/assets/[^"]+\.js' | head -1)
+curl -fsS "https://weimo.ink$JS" | grep -F -c "$VER"    # ≥1
+curl -fsS "https://weimo.ink$JS" | grep -F -c "$DATE"   # ≥1
+
+# 3) 人工：浏览器开 https://weimo.ink/douban/ 页脚 == "v$VER · $DATE"，
+#    下载直链（CTA 按钮）可命中 v$VER 资产
+```
+
+任一断言不过即未完成完整部署：日期不符改 `APP_RELEASE_DATE` 重走 §7 web 构建与 rsync；版本不符说明 txy 产物落后或 Release 未发，回到 §7.5.2 对应步骤。
+
+---
+
 ## 8. 回滚
 
 - **前端**：`tar -C /var/www -xzf /var/backups/weimo-douban/web-<STAMP>.tgz` 覆盖后立即生效（无需重启任何服务）。
@@ -476,7 +534,7 @@ rm /root/workspace/douban-update.bundle                  # 本地同步删 /tmp/
 本手册的事实依据（改动相关文件时同步更新本文）：
 
 - `backend/Cargo.toml`、`backend/src/bin/server.rs`、`backend/src/server/config.rs`（CLI 参数/环境变量）、`backend/src/server/routes.rs`（`/api/v1` 嵌挂、`/healthz`、token 中间件与 `?token=` 兜底）
-- `frontend/web/vite.config.ts`、`frontend/web/src/site/api.ts`（硬编码 `/api/v1` 与封面相对路径）、`frontend/web/src/App.tsx`（HashRouter）
+- `frontend/web/vite.config.ts`、`frontend/web/src/site/api.ts`（硬编码 `/api/v1` 与封面相对路径）、`frontend/web/src/App.tsx`（HashRouter）、`frontend/web/src/site/pages/welcome-page.tsx`（§7.5 的 APP_VERSION/APP_RELEASE_DATE 版本改点与页脚渲染）、`app/scripts/release.sh` 与 `.github/workflows/app-windows.yml`（App 发布链路）
 - `frontend/admin/vite.config.ts`、`frontend/admin/src/api.ts`（getApiBase/resolveApiUrl/health 推导）、`frontend/admin/src/App.tsx`（BrowserRouter）
 - weimo 仓库：`docs/wiki/40-playbooks/manual-deployment-debian12.md`、`ops/deploy/nginx/weimo-release-roots.conf`、`ops/deploy/systemd/weimo-biji.service`、`ops/ci/adapters/txy-ci-demo.sh`（bundle/GitHub 不可达背景）
 - txy 实测（2026-10-30）：`nginx -T`、`ss -ltnp`、工具链版本、磁盘、目录现状；本地 `backend/data` 体量实测
