@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 
@@ -168,6 +168,16 @@ export function MarksPage() {
           loadedPages: 1 + moreSnapshot.pages.length,
           cachedAt: first.data.cached_at,
         }
+
+  // 未登录进入内容页：自动弹一次登录对话框。ref 守卫保证每个页面实例
+  // 只弹一次——关掉后仍可点占位区「登录豆瓣账号」手动打开，类别切换
+  // （同实例不重挂）、登出、StrictMode 双跑都不重弹，避免反复打扰
+  const autoLoginPromptedRef = useRef(false)
+  useEffect(() => {
+    if (autoLoginPromptedRef.current) return
+    autoLoginPromptedRef.current = true
+    if (!uid) openLogin()
+  }, [uid, openLogin])
 
   // 首发同步：数据未同步（not-cached）时自动触发一次自助全量同步，
   // 成功后展示同步中引导；同步发布时 revision bump → 版本查询感知 →

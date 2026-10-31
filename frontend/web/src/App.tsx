@@ -150,14 +150,16 @@ function SiteShell() {
 }
 
 function App() {
+  // HashRouter 置于最外层：DoubanUserProvider 挂载的登录对话框需要
+  // useNavigate（「返回」按钮回欢迎页），必须在 Router 上下文内渲染
   return (
-    <DoubanUserProvider>
-      <SiteSettingsProvider>
-        <HashRouter>
+    <HashRouter>
+      <DoubanUserProvider>
+        <SiteSettingsProvider>
           <SiteShell />
-        </HashRouter>
-      </SiteSettingsProvider>
-    </DoubanUserProvider>
+        </SiteSettingsProvider>
+      </DoubanUserProvider>
+    </HashRouter>
   )
 }
 

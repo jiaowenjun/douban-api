@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { UserRound } from 'lucide-react'
 
 import {
@@ -21,9 +22,11 @@ type LoginDialogProps = {
   open: boolean
 }
 
-/** 登录对话框：输入豆瓣用户 ID 作为站点身份，已登录时可切换或退出 */
+/** 登录对话框：输入豆瓣用户 ID 作为站点身份，已登录时可切换或退出；
+ *  底部「返回」关框并退回欢迎页（未登录误入内容页的退路） */
 export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   const { uid, profile, signIn, signOut } = useDoubanUser()
+  const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   // 每次打开时把草稿重置为当前 uid（render 期调整，避免 effect 级联渲染）
   const [prevOpen, setPrevOpen] = useState(open)
@@ -57,6 +60,11 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   function handleSignOut() {
     signOut()
     onOpenChange(false)
+  }
+
+  function handleBack() {
+    onOpenChange(false)
+    navigate('/')
   }
 
   return (
@@ -106,6 +114,9 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
             </label>
           </DialogPanel>
           <DialogFooter>
+            <TextButton onClick={handleBack} type="button" variant="ghost">
+              返回
+            </TextButton>
             {uid ? (
               <TextButton onClick={handleSignOut} type="button" variant="ghost">
                 退出登录
