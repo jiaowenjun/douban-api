@@ -30,7 +30,7 @@ const VERIFY_ERROR_COPY: Record<DoubanVerifyErrorKind, string> = {
   error: '服务暂不可用，请稍后再试',
 }
 
-/** 验证状态机：unverified（按钮=测试）→ testing → verified（按钮=保存）
+/** 验证状态机：unverified（按钮=测试）→ testing → verified（按钮=开始备份）
  *  / error（行内提示，按钮回测试）。修改输入即过期退回 unverified，
  *  新值需重新测试（曾验证过的 ID 走后端本地捷径毫秒过） */
 type VerifyState =
@@ -40,8 +40,8 @@ type VerifyState =
   | { phase: 'error'; message: string }
 
 /** 豆瓣 ID 对话框：输入豆瓣用户 ID 作为站点身份（全程免账号密码，与
- *  欢迎页「免登录」口径一致），测试通过展示头像/用户名预览、保存后
- *  侧边栏身份栏立即有资料；已填时可切换或清除；底部「返回」关框
+ *  欢迎页「免登录」口径一致），测试通过展示头像/用户名预览、开始
+ *  备份后侧边栏身份栏立即有资料；已填时可切换或清除；底部「返回」关框
  *  并退回欢迎页（未填误入内容页的退路） */
 export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   const { uid, profile, signIn, signOut } = useDoubanUser()
@@ -111,7 +111,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   }
 
   // input 的 Enter 不走隐式提交（部分 webview 不触发），显式处理；
-  // 语义跟随主按钮：已验证=保存，否则=测试
+  // 语义跟随主按钮：已验证=开始备份，否则=测试
   function handleInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== 'Enter') return
     event.preventDefault()
@@ -132,7 +132,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
     navigate('/')
   }
 
-  // 预览行：测试通过的身份优先（将要保存的是谁）；未改动草稿且已登录时
+  // 预览行：测试通过的身份优先（将要备份的是谁）；未改动草稿且已登录时
   // 展示当前账号；改动了新 ID 尚未测试则空白（待验证，不给错误暗示）
   const preview: DoubanProfile | null =
     verify.phase === 'verified'
@@ -202,7 +202,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
               </TextButton>
             ) : null}
             {verify.phase === 'verified' ? (
-              <TextButton type="submit">保存</TextButton>
+              <TextButton type="submit">开始备份</TextButton>
             ) : (
               <TextButton
                 disabled={!normalized || verify.phase === 'testing'}
