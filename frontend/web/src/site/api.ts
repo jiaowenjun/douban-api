@@ -311,6 +311,47 @@ export async function triggerDoubanFirstSync(
 }
 
 // --------------------------------------------------------------------------- //
+// /users/{uid}/verify（登录框「测试」按钮）
+// --------------------------------------------------------------------------- //
+
+/** verify 失败语义：not-found=ID 不对、unavailable=豆瓣侧故障、
+ *  rate-limited=同 uid 冷却、error=网络/服务端一般失败 */
+export type DoubanVerifyErrorKind = 'not-found' | 'unavailable' | 'rate-limited' | 'error'
+
+export type DoubanVerifyResult =
+  | { ok: true; data: DoubanProfile }
+  | { ok: false; kind: DoubanVerifyErrorKind; message: string }
+
+/** 测试豆瓣 ID（POST /users/{uid}/verify）：后端本地已入库直接返回
+ *  （零豆瓣请求，曾同步/曾验证过的 uid 毫秒级命中），否则抓一页收藏页
+ *  验证、资料入库后返回。错误按 code 分类供文案分派，不抛错 */
+export async function verifyDoubanUser(uid: string): Promise<DoubanVerifyResult> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/users/${encodeURIComponent(uid)}/verify`,
+      { headers: authHeaders, method: 'POST' },
+    )
+    if (res.ok) {
+      return { ok: true, data: (await res.json()) as DoubanProfile }
+    }
+    let kind: DoubanVerifyErrorKind = 'error'
+    let message = `请求失败（HTTP ${res.status}）`
+    try {
+      const body = await res.json()
+      if (body?.error?.code === 'PAGE_NOT_FOUND') kind = 'not-found'
+      if (body?.error?.code === 'DOUBAN_UNAVAILABLE') kind = 'unavailable'
+      if (body?.error?.code === 'TOO_MANY_REQUESTS') kind = 'rate-limited'
+      if (body?.error?.message) message = body.error.message
+    } catch {
+      // 非 JSON 错误体，保留默认 message
+    }
+    return { ok: false, kind, message }
+  } catch {
+    return { ok: false, kind: 'error', message: '网络错误，请稍后重试' }
+  }
+}
+
+// --------------------------------------------------------------------------- //
 // /users/{uid}/stats
 // --------------------------------------------------------------------------- //
 

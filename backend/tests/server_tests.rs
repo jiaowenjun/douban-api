@@ -420,6 +420,65 @@ async fn worker_upserts_user_profile_and_endpoint_serves_it() {
 }
 
 #[tokio::test]
+async fn verify_user_fetches_page_upserts_profile_then_short_circuits() {
+    let (_dir, state) = setup().await;
+    // 抓取路径：本地未入库 → 抓 movie/collect 第 1 页，解析资料块入库
+    let fetcher = FakeFetcher(|url: &str| {
+        assert!(url.contains("/people/zhuma/collect?start=0"), "{url}");
+        Ok(fixture("music_collect_p1.html"))
+    });
+    let view = service::verify_user(&state, &fetcher, "zhuma").await.unwrap();
+    assert_eq!(view.uid, "zhuma");
+    assert_eq!(view.username, "芝麻");
+    assert_eq!(
+        view.avatar,
+        "/api/v1/covers?u=https%3A%2F%2Fimg2.doubanio.com%2Ficon%2Fu189180823-11.jpg"
+    );
+
+    // 本地捷径：再测同 uid 零外呼（计数 fetcher 证明未被打到）直接返回
+    let calls = Arc::new(AtomicU32::new(0));
+    let counting = {
+        let calls = calls.clone();
+        FakeFetcher(move |_url: &str| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(fixture("music_collect_p1.html"))
+        })
+    };
+    let again = service::verify_user(&state, &counting, "zhuma").await.unwrap();
+    assert_eq!(again.username, "芝麻");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn verify_user_maps_not_found_and_enforces_cooldown() {
+    let (_dir, state) = setup().await;
+    // 豆瓣 404 → PAGE_NOT_FOUND（区别于本地未同步的 USER_NOT_FOUND）
+    let missing = FakeFetcher(|_url: &str| Err(FetchError::NotFound));
+    let err = service::verify_user(&state, &missing, "nobody").await.unwrap_err();
+    assert_eq!(err.code(), "PAGE_NOT_FOUND");
+
+    // 失败也记冷却：换成功 fetcher 立即重测仍被拒（本地无行、冷却未过）
+    assert!(state.verify_cooldown_remaining_ms("nobody") > 0);
+    let ok = FakeFetcher(|_url: &str| Ok(fixture("music_collect_p1.html")));
+    let err = service::verify_user(&state, &ok, "nobody").await.unwrap_err();
+    assert_eq!(err.code(), "TOO_MANY_REQUESTS");
+}
+
+#[tokio::test]
+async fn verify_user_blocked_or_profileless_maps_upstream() {
+    let (_dir, state) = setup().await;
+    // 限流/超时类瞬态失败 → DOUBAN_UNAVAILABLE
+    let blocked = FakeFetcher(|_url: &str| Err(FetchError::Blocked(403)));
+    let err = service::verify_user(&state, &blocked, "limited").await.unwrap_err();
+    assert_eq!(err.code(), "DOUBAN_UNAVAILABLE");
+
+    // 页面抓到但无资料块（改版/登录墙）：同为上游故障，不误报 ID 错误
+    let blank = FakeFetcher(|_url: &str| Ok("<html><body>empty</body></html>".into()));
+    let err = service::verify_user(&state, &blank, "blankpage").await.unwrap_err();
+    assert_eq!(err.code(), "DOUBAN_UNAVAILABLE");
+}
+
+#[tokio::test]
 async fn worker_crawls_music_with_dedup_and_percent_progress() {
     let (_dir, state) = setup().await;
     let (_, v) = post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;

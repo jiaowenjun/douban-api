@@ -26,6 +26,9 @@ pub struct AppState {
     /// rexxar 各端点（category 维度）的自适应请求间隔秒数（AIMD，见下）。
     /// 实例级（非进程级 static）：并行测试的 AppState 互不污染
     subject_pacing: Arc<Mutex<HashMap<String, f64>>>,
+    /// verify 端点按 uid 的上次尝试时间（epoch ms）——只约束豆瓣抓取
+    /// 路径（本地捷径命中不受限），失败也记录，堵无效 ID 反复重试
+    verify_attempts: Arc<Mutex<HashMap<String, i64>>>,
     rate_table: &'static Mutex<HashMap<IpAddr, (u64, u32)>>,
 }
 
@@ -44,6 +47,7 @@ impl AppState {
             consecutive_failures: Arc::new(AtomicU32::new(0)),
             blocked_until_ms: Arc::new(AtomicI64::new(0)),
             subject_pacing: Arc::new(Mutex::new(HashMap::new())),
+            verify_attempts: Arc::new(Mutex::new(HashMap::new())),
             rate_table: RATE_TABLE.get_or_init(|| Mutex::new(HashMap::new())),
         }
     }
@@ -132,6 +136,25 @@ impl AppState {
             .get(category)
             .copied()
             .unwrap_or(floor)
+    }
+
+    // ---- verify 端点冷却（防豆瓣侧滥用） ----
+
+    /// 同 uid 两次 verify 尝试（豆瓣抓取路径）的最小间隔
+    pub const VERIFY_COOLDOWN_MS: i64 = 10_000;
+
+    /// 该 uid verify 冷却剩余毫秒（0 = 可尝试）。本地捷径命中时不查此项
+    pub fn verify_cooldown_remaining_ms(&self, uid: &str) -> i64 {
+        let last = *self.verify_attempts.lock().unwrap().get(uid).unwrap_or(&0);
+        (last + Self::VERIFY_COOLDOWN_MS - ServerConfig::now_ms()).max(0)
+    }
+
+    /// 记录一次 verify 尝试（无论成败）
+    pub fn record_verify_attempt(&self, uid: &str) {
+        self.verify_attempts
+            .lock()
+            .unwrap()
+            .insert(uid.to_string(), ServerConfig::now_ms());
     }
 
     // ---- 客户端限流（固定窗口） ----

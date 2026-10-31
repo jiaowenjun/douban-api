@@ -94,3 +94,11 @@
 .login-dialog__input:focus-visible {
   border-color: var(--color-border-emphasis);
 }
+
+/* 测试失败的行内提示（按错误码分文案：ID 不对/豆瓣不可达/冷却） */
+.login-dialog__error {
+  margin: 10px 0 0;
+  color: var(--color-text-danger);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}

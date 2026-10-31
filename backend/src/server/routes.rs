@@ -82,6 +82,7 @@ pub fn build_app(state: AppState) -> Router {
             delete(delete_subject_job),
         )
         .route("/users/{uid}/profile", get(get_user_profile))
+        .route("/users/{uid}/verify", post(verify_user))
         .route("/subscriptions", get(list_subscriptions))
         .route(
             "/subscriptions/{uid}",
@@ -948,6 +949,18 @@ async fn get_user_profile(
     Path(uid): Path<String>,
 ) -> AppResult<Json<service::UserProfileView>> {
     Ok(Json(service::get_user_profile(&state, &uid).await?))
+}
+
+/// 测试豆瓣 ID（本地捷径 + 单页抓取验证，语义见 service::verify_user）。
+/// 路由层无共享 fetcher——worker/订阅循环各自泛型注入，此处按既有做法
+/// 持独立实例；verify 是低频用户动作且服务端有同 uid 冷却兜底，
+/// 请求内构造一次性实例的成本可接受
+async fn verify_user(
+    State(state): State<AppState>,
+    Path(uid): Path<String>,
+) -> AppResult<Json<service::UserProfileView>> {
+    let fetcher = super::fetcher::ReqwestFetcher::with_cookie(&state.config.douban_cookie);
+    Ok(Json(service::verify_user(&state, &fetcher, &uid).await?))
 }
 
 // --------------------------------------------------------------------------- //

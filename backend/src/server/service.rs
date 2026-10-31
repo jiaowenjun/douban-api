@@ -5,12 +5,12 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::{Row, SqlitePool};
 
-use crate::crawler::{parse_uid, Category, Record, Status};
+use crate::crawler::{self, collection_url, parse_uid, referer_for, Category, Record, Status};
 
 use super::config::ServerConfig;
 use super::covers::cover_proxy_url;
 use super::error::{AppError, AppResult};
-use super::fetcher::DoubanFetcher;
+use super::fetcher::{DoubanFetcher, FetchError};
 use super::state::AppState;
 
 pub const TERMINAL_STATUSES: [&str; 3] = ["completed", "partial", "failed"];
@@ -155,7 +155,7 @@ pub async fn upsert_user_profile(
     Ok(())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct UserProfileView {
     pub uid: String,
     pub username: String,
@@ -164,16 +164,74 @@ pub struct UserProfileView {
 }
 
 pub async fn get_user_profile(state: &AppState, uid: &str) -> AppResult<UserProfileView> {
+    load_user_profile(&state.pool, uid)
+        .await?
+        .ok_or_else(|| AppError::UserNotFound(uid.to_string()))
+}
+
+/// 读 users 表资料行 → 视图（头像改写为本地代理端点）；无行返回 None。
+/// get_user_profile（404 语义）与 verify_user（本地捷径）共用
+async fn load_user_profile(pool: &SqlitePool, uid: &str) -> AppResult<Option<UserProfileView>> {
     let row = sqlx::query("SELECT username, avatar FROM users WHERE uid = ?")
         .bind(uid)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::UserNotFound(uid.to_string()))?;
-    Ok(UserProfileView {
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|row| UserProfileView {
         uid: uid.to_string(),
         username: row.get("username"),
         avatar: cover_proxy_url(&row.get::<String, _>("avatar")),
-    })
+    }))
+}
+
+/// 测试豆瓣 ID（登录框「测试」按钮）：本地已入库直接返回（曾同步/曾
+/// 验证过的 uid 零外呼）；否则抓一页收藏页（movie/collect 第 1 页），
+/// 解析顶部资料块（头像/用户名）upsert 入库并返回——保存后侧边栏身份
+/// 栏立即有资料可展示，不必等同步任务跑完第一页。
+/// 错误三类：PAGE_NOT_FOUND（ID 大概率有误）/ DOUBAN_UNAVAILABLE（豆瓣
+/// 侧限流/超时/熔断/改版）/ TOO_MANY_REQUESTS（同 uid 10s 冷却）。
+/// 冷却只挂豆瓣抓取路径且失败也计数（本地捷径可随意命中）。
+pub async fn verify_user<F: DoubanFetcher>(
+    state: &AppState,
+    fetcher: &F,
+    uid: &str,
+) -> AppResult<UserProfileView> {
+    // 本地捷径：不外呼、不受冷却
+    if let Some(view) = load_user_profile(&state.pool, uid).await? {
+        return Ok(view);
+    }
+    if state.verify_cooldown_remaining_ms(uid) > 0 {
+        return Err(AppError::TooManyRequests);
+    }
+    state.record_verify_attempt(uid);
+    // 熔断开启时与 worker 同进退，不再向豆瓣施压
+    if state.circuit_remaining_ms() > 0 {
+        return Err(AppError::UserVerifyUpstream("豆瓣侧熔断中".into()));
+    }
+    let url = collection_url(Category::Movie, uid, Status::Collect, 0);
+    let html = match fetcher.fetch_page(&url, &referer_for(uid)).await {
+        Ok(html) => html,
+        Err(e) => {
+            // 瞬态失败（限流/超时/网络）计入熔断；NotFound/解析异常按既有
+            // 教义不计（确定性结构证据，非豆瓣拒绝服务）
+            if e.is_transient() {
+                state.record_crawl_failure();
+            }
+            return Err(match e {
+                FetchError::NotFound => AppError::UserVerifyNotFound(uid.to_string()),
+                other => AppError::UserVerifyUpstream(other.to_string()),
+            });
+        }
+    };
+    state.record_crawl_success();
+    let profile = crawler::parse_profile(&html).ok_or_else(|| {
+        // 页面抓到了但没有资料块：收藏页改版/登录墙（解析哨兵同源问题），
+        // 对 verify 而言与豆瓣侧故障同等对待
+        AppError::UserVerifyUpstream("页面缺少资料块（疑似改版或登录墙）".into())
+    })?;
+    upsert_user_profile(&state.pool, uid, &profile).await?;
+    load_user_profile(&state.pool, uid)
+        .await?
+        .ok_or_else(|| AppError::Internal("verify 入库后读取资料失败".into()))
 }
 
 /// 全用户列表（admin 管理台）：uid 取四表并集——users（已入库资料）∪

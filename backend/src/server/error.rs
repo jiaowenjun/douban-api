@@ -21,6 +21,13 @@ pub enum AppError {
     SubscriptionNotFound(String),
     #[error("该用户资料尚未同步（需成功抓取其收藏页）: {0}")]
     UserNotFound(String),
+    /// verify 端点专用：豆瓣收藏页 404，ID 大概率有误。与 UserNotFound 的
+    /// 「本地未同步」语义区分，前端据此提示检查 ID
+    #[error("未找到该豆瓣用户，请检查 ID 是否正确: {0}")]
+    UserVerifyNotFound(String),
+    /// verify 端点专用：豆瓣侧故障（限流/超时/熔断中/页面缺资料块）
+    #[error("豆瓣侧暂时无法完成验证: {0}")]
+    UserVerifyUpstream(String),
     #[error("该维度无缓存，请先创建同步任务")]
     DimensionNotCached,
     #[error("条目元信息不存在或尚未富集: {0}")]
@@ -58,6 +65,8 @@ impl AppError {
             AppError::TaskNotFound(_) => "TASK_NOT_FOUND",
             AppError::SubscriptionNotFound(_) => "SUBSCRIPTION_NOT_FOUND",
             AppError::UserNotFound(_) => "USER_NOT_FOUND",
+            AppError::UserVerifyNotFound(_) => "PAGE_NOT_FOUND",
+            AppError::UserVerifyUpstream(_) => "DOUBAN_UNAVAILABLE",
             AppError::DimensionNotCached => "DIMENSION_NOT_CACHED",
             AppError::SubjectNotFound(_) => "SUBJECT_NOT_FOUND",
             AppError::JobNotFound(_) => "JOB_NOT_FOUND",
@@ -76,12 +85,13 @@ impl AppError {
             AppError::TaskNotFound(_)
             | AppError::SubscriptionNotFound(_)
             | AppError::UserNotFound(_)
+            | AppError::UserVerifyNotFound(_)
             | AppError::DimensionNotCached
             | AppError::SubjectNotFound(_)
             | AppError::JobNotFound(_) => StatusCode::NOT_FOUND,
             AppError::TaskNotFinished(_) => StatusCode::CONFLICT,
             AppError::TooManyRequests | AppError::TooManyTasks => StatusCode::TOO_MANY_REQUESTS,
-            AppError::CoverUpstream(_) => StatusCode::BAD_GATEWAY,
+            AppError::CoverUpstream(_) | AppError::UserVerifyUpstream(_) => StatusCode::BAD_GATEWAY,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
