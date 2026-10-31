@@ -182,14 +182,6 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
-  /** 身份栏设置入口：跳设置页（静态路由，不在 marks 视图解析内），
-   *  回顶与收抽屉口径同 handlePathSelect */
-  function openSettings() {
-    navigate('/settings')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-    onClose()
-  }
-
   /** 「全部标记」评分子节点：目标必为 all——已在 all 视图改 ?rating=
    *  即生效（再点同评分取消，父行点击经 handlePathSelect 空路径全清），
    *  在其他类别则跳路由携带 */
@@ -261,7 +253,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="site-sidebar">
-      <SidebarHeader onOpenSettings={openSettings} />
+      <SidebarHeader />
       <div className="site-sidebar__body">
         <SidebarStats />
         <nav aria-label="条目导航" className="site-sidebar__nav">

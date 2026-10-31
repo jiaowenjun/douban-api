@@ -7,6 +7,7 @@ import {
   readStoredSiteSettings,
   type SiteSettings,
 } from './site-settings'
+import { SettingsDialog } from './settings-dialog'
 
 function persistSiteSettings(settings: SiteSettings) {
   try {
@@ -17,11 +18,14 @@ function persistSiteSettings(settings: SiteSettings) {
 }
 
 /** 站点本地偏好：存 localStorage（本机偏好随浏览器，不进后端/URL），
- *  惰性初始化读一次；更新即合并写 state + 持久化。消费方式——设置页
- *  读写全量 settings，MarkCard 等只读初始默认值（useState 初始化器，
- *  设置变化不影响已挂载卡片的手动展开态，重挂载后生效） */
+ *  惰性初始化读一次；更新即合并写 state + 持久化。设置对话框的开关
+ *  也持在这里，openSettings 供侧边栏等入口共用（同 DoubanUserProvider
+ *  挂 LoginDialog 的「对话框归 Provider」模式）。消费方式——设置对
+ *  话框读写全量 settings，MarkCard 等只读初始默认值（useState 初始
+ *  化器，设置变化不影响已挂载卡片的手动展开态，重挂载后生效） */
 export function SiteSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<SiteSettings>(readStoredSiteSettings)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const updateSettings = useCallback((partial: Partial<SiteSettings>) => {
     setSettings((prev) => {
@@ -31,14 +35,17 @@ export function SiteSettingsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const openSettings = useCallback(() => setSettingsOpen(true), [])
+
   const value = useMemo(
-    () => ({ settings, updateSettings }),
-    [settings, updateSettings],
+    () => ({ settings, updateSettings, openSettings }),
+    [settings, updateSettings, openSettings],
   )
 
   return (
     <SiteSettingsContext.Provider value={value}>
       {children}
+      <SettingsDialog onOpenChange={setSettingsOpen} open={settingsOpen} />
     </SiteSettingsContext.Provider>
   )
 }

@@ -4,17 +4,16 @@ import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 
 import { resolveApiUrl } from './api'
 import { useDoubanUser } from './douban-user'
+import { useSiteSettings } from './site-settings'
 import './sidebar-header.css'
 
 /** 侧边栏身份栏：左侧头像 + 用户名，右侧登录/设置入口（GhostIconButton），
     样式对齐 weimo-biji 的 biji-side-bar__header；统计区/导航/筛选树
-    由 SiteSidebar 主体区承接；onOpenSettings 跳设置页（含收抽屉） */
-export function SidebarHeader({
-  onOpenSettings,
-}: {
-  onOpenSettings: () => void
-}) {
+    由 SiteSidebar 主体区承接；两个入口都开弹层对话框（登录归
+    DoubanUserProvider、设置归 SiteSettingsProvider），抽屉保持原样 */
+export function SidebarHeader() {
   const { uid, profile, openLogin } = useDoubanUser()
+  const { openSettings } = useSiteSettings()
 
   return (
     <div className="sidebar-header">
@@ -65,7 +64,7 @@ export function SidebarHeader({
           <GhostIconButton
             aria-label="打开设置"
             className="sidebar-header__button"
-            onClick={onOpenSettings}
+            onClick={openSettings}
             size="sm"
             tooltip="设置"
           >

@@ -1,0 +1,33 @@
+/* 设置对话框：弹层壳（背景/边框/圆角/阴影，明暗双态）由 weimo-ui-core
+   的 dialog 提供，这里只留组内布局与排版，token 口径对齐
+   login-dialog.css */
+
+/* 标题栏去底边框：组件默认带 header 分隔线，但本弹层仅两行设置且组
+   标题已分层，再加一条线显冗余——标题与内容直接连排更简洁 */
+.settings-dialog .coss-dialog__header {
+  border-bottom: none;
+}
+
+/* 设置组：组标题 + 设置行统一 14px 节奏（对齐原设置页面板 gap） */
+.settings-dialog__group {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-dialog__group-title {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* 设置行：左名称占满、右开关钉尾不参与压缩 */
+.settings-dialog__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 16px;
+}
+
+.settings-dialog__item-name {
+  min-width: 0;
+  font-weight: 650;
+}

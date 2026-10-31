@@ -17,7 +17,6 @@ import {
 } from './site/navigation'
 import { TopBarExport } from './site/marks-export'
 import { MarksPage } from './site/pages/marks-page'
-import { SettingsPage } from './site/pages/settings-page'
 import { WelcomePage } from './site/pages/welcome-page'
 import { TopBarSearch } from './site/search-dialog'
 import { SiteSettingsProvider } from './site/site-settings-provider'
@@ -101,13 +100,10 @@ function SiteShell() {
   const { pathname } = useLocation()
   const view = useMarksViewFromLocation()
   const topBarLeading = useFacetBreadcrumb()
-  // 设置页不在 marks 视图解析范围内，单独给标题（pageTitle 始终驱动
-  // document.title）；movie 标题随形态（真一级，无「影视」聚合名；形态
-  // 步由 MarksRoute 保证存在，find 不到仅重定向前一帧的兜底）；其余
-  // 类别/全部标记原样
-  const pageTitle = pathname.split('/')[1] === 'settings'
-    ? '设置'
-    : view && view.category === 'movie'
+  // movie 标题随形态（真一级，无「影视」聚合名；形态步由 MarksRoute
+  // 保证存在，find 不到仅重定向前一帧的兜底）；其余类别/全部标记原样
+  // （pageTitle 始终驱动 document.title）
+  const pageTitle = view && view.category === 'movie'
       ? moviePageTitle(
           parseFacetPath('movie', searchParams.get('facet')).find(
             (step) => step.dim === 'is_tv',
@@ -137,8 +133,13 @@ function SiteShell() {
       topBarLeading={topBarLeading}
     >
       <Routes>
-        {/* 静态段优先于动态 /:category，react-router 按具体度排序匹配 */}
-        <Route element={<SettingsPage />} path="/settings" />
+        {/* 静态段优先于动态 /:category，react-router 按具体度排序匹配。
+            设置已改为弹层对话框（SiteSettingsProvider 挂载），/settings
+            仅留重定向兜底旧书签/历史记录 */}
+        <Route
+          element={<Navigate replace to={DEFAULT_MARKS_PATH} />}
+          path="/settings"
+        />
         <Route element={<MarksRoute />} path="/:category" />
         <Route
           element={<Navigate replace to={DEFAULT_MARKS_PATH} />}

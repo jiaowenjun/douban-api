@@ -20,6 +20,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
 export type SiteSettingsValue = {
   settings: SiteSettings
   updateSettings: (partial: Partial<SiteSettings>) => void
+  /** 打开设置对话框（对话框由 Provider 挂载，同 openLogin 模式） */
+  openSettings: () => void
 }
 
 export const SiteSettingsContext = createContext<SiteSettingsValue | null>(null)
