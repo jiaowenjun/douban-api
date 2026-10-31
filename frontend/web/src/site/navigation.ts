@@ -88,11 +88,14 @@ export type RatingKey = string
 
 /** 「全部标记」导航子节点：我的评分快捷筛选入口（后端 rating 参数仅
  *  all 合并视图支持——单类别筛选走前端 dims ids 模式，评分不在其中，
- *  故入口只挂 all 下） */
+ *  故入口只挂 all 下）；1-5 精确档全量铺开（'lteN' 区间键已不入导航，
+ *  仅留 URL 兜底解析） */
 export const NAV_RATING_STEPS: readonly { key: RatingKey; label: string }[] = [
-  { key: '5', label: '我的五星标记' },
-  { key: '4', label: '我的四星标记' },
-  { key: 'lte3', label: '三分及以下标记' },
+  { key: '5', label: '五星力荐' },
+  { key: '4', label: '四星推荐' },
+  { key: '3', label: '三星中评' },
+  { key: '2', label: '两星负评' },
+  { key: '1', label: '一星差评' },
 ]
 
 /** 导航树评分子节点 tag（「全部标记」树内层级路径，拼装风格与 facet
@@ -120,8 +123,8 @@ export function ratingKeyMatches(
     : myRating === Number(key)
 }
 
-/** 评分筛选键 → meta 行后缀文案；导航入口外的键（手改 URL 的 '3'/
- *  'lte2' 等）按名词表兜底拼 */
+/** 评分筛选键 → meta 行后缀文案；导航入口外的键（手改 URL 的 'lteN'
+ *  区间键等——1-5 精确档已全量在导航）按名词表兜底拼 */
 export function ratingFilterLabel(key: RatingKey): string {
   const hit = NAV_RATING_STEPS.find((step) => step.key === key)
   if (hit) return hit.label

@@ -107,7 +107,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   // 行尾计数随 dims 数据挂：全部标记=三类别条目总数（dims 全量投影
   // length 求和，与筛选树类别根/统计区同源——失败/未同步的类别无数据
   // 计 0，合并视图本就只含已同步类别）；评分子节点=键命中数
-  // （ratingKeyMatches，'lteN' 区间与后端 <= 比较同口径，my_rating 随
+  // （ratingKeyMatches，精确星级 === 比较与后端口径一致，my_rating 随
   // dims item 平铺下发）。三类别查询全部 settle 才显示（error 也算
   // settle），避免加载中途先亮部分和再跳变；useMemo 与 dimsData 同理
   // 钉住引用，跨类别过滤计数不随无关重渲染重跑
