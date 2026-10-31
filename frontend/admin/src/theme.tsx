@@ -34,6 +34,9 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: { colorPrimary: '#007722', borderRadius: 6 },
+        // 输入类控件统一 16px（Input 的 token 覆盖 TextArea/Search/Password）：
+        // iOS Safari 对字号 <16px 的输入框聚焦时会自动放大页面
+        components: { Input: { fontSize: 16 }, InputNumber: { fontSize: 16 } },
       }}
     >
       <ThemeSync dark={dark} />
