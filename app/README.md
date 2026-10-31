@@ -6,7 +6,7 @@ weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见�
 ## 架构
 
 ```
-weimo-douban.app（单进程）
+微墨·豆瓣.app（单进程）
 ├─ Tauri 2（WKWebView 窗口壳，无自定义协议、无 IPC）
 ├─ weimo_douban::server::build_server(config)   ← backend 以 lib 依赖内嵌
 │   ├─ axum API（/api/v1/**，含抓取/富集/订阅后台任务）
