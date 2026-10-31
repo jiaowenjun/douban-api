@@ -135,10 +135,10 @@ export function WelcomePage() {
   return (
     <MiniSiteTemplate
       contentClassName="welcome-page"
-      headline="把你的豆瓣书影音，搬回自己手里"
+      headline="豆瓣书影音，搬回自己手里"
       pageTitle="首页"
       siteName="微墨·豆瓣"
-      subheadline="免登录同步你的公开标记与短评，自动补全条目元信息，热力图与分面筛选树帮你重新发现十年积攒——自托管 Web，附 macOS 菜单栏桌面 App。"
+      subheadline="免登录同步，自托管保存，亮暗主题自适应"
       topBarLeading={<span className="welcome-page__brand">微墨·豆瓣</span>}
     >
       <div className="welcome-page__cta">
