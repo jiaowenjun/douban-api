@@ -7,8 +7,10 @@ import './settings-page.css'
 /** 设置页：站点本地偏好（localStorage 持久化，见 site-settings）。
  *  「卡片显示」组：条目信息初始展开态（仅影响此后挂载的卡片，返回
  *  列表页整体重挂载即全量生效，不打扰已挂载卡片的手动展开）与折叠
- *  态标题行对齐（纯展示，已挂载卡片即时生效）。后续设置项在此页按
- *  分组追加 */
+ *  态标题行对齐（纯展示，已挂载卡片即时生效）。设置项文案口径：名
+ *  称是纯名词不含状态值（如「条目详细信息」而非「默认展开」），状
+ *  态交给开关两侧状态词补全，任意档位拼读都通顺；不配说明文字，保
+ *  持整站简洁克制。后续设置项在此页按分组追加 */
 export function SettingsPage() {
   const { settings, updateSettings } = useSiteSettings()
 
@@ -17,15 +19,9 @@ export function SettingsPage() {
       <div className={getCardSurfaceClassName('settings-page__panel')}>
         <div className="settings-page__group-title">卡片显示</div>
         <div className="settings-page__item">
-          <div className="settings-page__item-text">
-            <span className="settings-page__item-name">条目信息默认展开</span>
-            <p className="settings-page__item-hint">
-              开启后，标记卡片的封面与豆瓣评分等信息默认展开；关闭则默认
-              折叠，仍可点卡片右侧开关展开。
-            </p>
-          </div>
+          <span className="settings-page__item-name">条目详细信息</span>
           <LabeledSwitch
-            ariaLabel="条目信息默认展开"
+            ariaLabel="条目详细信息"
             checked={settings.defaultMetaExpanded}
             labelOff="默认折叠"
             labelOn="默认展开"
@@ -35,15 +31,9 @@ export function SettingsPage() {
           />
         </div>
         <div className="settings-page__item">
-          <div className="settings-page__item-text">
-            <span className="settings-page__item-name">折叠时标题行居中</span>
-            <p className="settings-page__item-hint">
-              卡片折叠时标题行水平居中；关闭则左对齐，与展开后的标题位
-              置更连贯。
-            </p>
-          </div>
+          <span className="settings-page__item-name">折叠时标题对齐</span>
           <LabeledSwitch
-            ariaLabel="折叠时标题行居中"
+            ariaLabel="折叠时标题对齐"
             checked={settings.collapsedTitleAlign !== 'left'}
             labelOff="左对齐"
             labelOn="居中"

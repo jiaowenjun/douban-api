@@ -18,7 +18,7 @@
   font-size: var(--font-size-sm);
 }
 
-/* 设置行：左文案列占满、右开关钉尾不参与压缩 */
+/* 设置行：左名称占满、右开关钉尾不参与压缩 */
 .settings-page__item {
   display: flex;
   align-items: center;
@@ -26,18 +26,7 @@
   column-gap: 16px;
 }
 
-.settings-page__item-text {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
 .settings-page__item-name {
+  min-width: 0;
   font-weight: 650;
-}
-
-.settings-page__item-hint {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
 }
