@@ -14,12 +14,14 @@
     "active": true,
     "targets": [
       "app",
-      "dmg"
+      "dmg",
+      "nsis"
     ],
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon.icns",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "category": "Lifestyle",
     "shortDescription": "微墨·豆瓣——书影音同步与浏览（内嵌本地服务器）",

@@ -1,0 +1,74 @@
+# Windows 桌面构建：macOS 本机无法交叉编译 Windows 产物（WebView2/NSIS
+# 工具链都在 Windows 侧），由本工作流出 windows-latest 编译并上传 run
+# artifacts，供本地 app/scripts/release.sh 发布时拉取合并进同一 Release
+# （latest.json 的 windows-x86_64 条目 + nsis 三件套资产）。
+#
+# 发布流程（配合 release.sh，版本以 tauri.conf.json 为准）：
+#   1. tauri.conf.json bump 版本，push 到 main
+#   2. Actions 页面手动运行本工作流（产物附 version.txt 供 release.sh 校验）
+#   3. 本地跑 release.sh —— 自动拉取本工作流最新成功产物并入 Release
+#
+# Secrets（仓库 Settings → Secrets and variables → Actions，一次性配置）：
+#   TAURI_SIGNING_PRIVATE_KEY          updater 签名私钥内容
+#                                     （cat ~/.tauri-keys/weimo-douban-updater.key）
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD 私钥口令（本仓密钥生成时口令为空，
+#                                     未配置时展开为空串等同无口令）
+name: app-windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+
+      - name: 安装依赖（前端 + tauri CLI）
+        run: |
+          pnpm --dir frontend/web install --frozen-lockfile
+          pnpm --dir app install --frozen-lockfile
+
+      - name: 构建 Windows App（含 updater 签名产物）
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm --dir app tauri build
+
+      # 本地产物名随 productName（微墨·豆瓣，含 CJK）；上传前统一复制为
+      # ASCII 名——与 mac 侧 release.sh 同一约定（gh 上传会剥掉资产名里的
+      # 非 ASCII 前缀，latest/download 直链与 updater URL 全部落空）。
+      # Windows 侧用通配匹配产物文件，脚本里不写死 CJK 文件名。
+      - name: 汇总产物（ASCII 资产名 + 版本校验文件）
+        shell: bash
+        run: |
+          cd app
+          VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' tauri.conf.json | head -1)
+          NSIS=target/release/bundle/nsis
+          mkdir -p ../dist
+          cp "$NSIS"/*_x64-setup.exe "../dist/weimo-douban_${VERSION}_x64-setup.exe"
+          cp "$NSIS"/*_x64-setup.nsis.zip ../dist/weimo-douban_x64-setup.nsis.zip
+          cp "$NSIS"/*_x64-setup.nsis.zip.sig ../dist/weimo-douban_x64-setup.nsis.zip.sig
+          echo "$VERSION" > ../dist/version.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: dist/
+          if-no-files-found: error

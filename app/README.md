@@ -1,4 +1,4 @@
-# 微墨·豆瓣 macOS 桌面 App（Tauri）
+# 微墨·豆瓣桌面 App（Tauri，macOS / Windows）
 
 方案 B 全栈封装：**Tauri 壳 + 内嵌同步服务器，单进程自足运行**。不依赖
 weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见下）。
@@ -48,6 +48,9 @@ weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见�
 区托盘：**左键托盘开/聚焦主窗口，右键菜单（打开主窗口 / 检查更新… /
 退出）**。关窗 = 隐藏不退出——订阅 RSS 轮询、富集流水线、缓存清理等
 后台任务持续在跑（这正是「数据新鲜度 = App 存活期」的缓解手段）。
+Windows 无 LSUIElement 概念（该 plist 项被忽略）：App 正常显示任务栏
+图标 + 系统托盘，托盘交互/关窗隐藏行为与 macOS 一致（tauri `tray-icon`
+跨平台，`main.rs` 无平台分支）。
 
 ### 3. 自动更新（tauri-plugin-updater）
 
@@ -57,10 +60,37 @@ weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见�
 - minisign 签名校验（`updater.pubkey` 编入二进制；私钥在
   `~/.tauri-keys/weimo-douban-updater.key`，**丢失即无法再推送更新，
   务必备份**）；
-- 安装后重启（macOS 上整包替换 .app）。
+- 安装后重启（macOS 上整包替换 .app；Windows 上装 NSIS 更新包整包替换）。
 
-发布流程：bump `tauri.conf.json` 版本 → `./scripts/release.sh`（构建签名
-产物 → 生成 latest.json → `gh release` 上传 dmg/tar.gz/sig/latest.json）。
+发布流程：bump `tauri.conf.json` 版本并 push → 手动 dispatch
+`app-windows` 工作流（出 Windows 产物，mac 无法交叉编译）→ 本地
+`./scripts/release.sh`（构建签名产物 → 拉取 Windows CI 产物 → 生成
+latest.json → `gh release` 上传双平台 dmg/exe/tar.gz/nsis.zip/sig/
+latest.json；找不到匹配版本的 Windows 产物时自动回落仅发 macOS）。
+
+## Windows 版（CI 构建，mac 无法交叉编译）
+
+同一份代码直接编 Windows：依赖面干净（reqwest 走 rustls 无 OpenSSL、
+sqlx sqlite bundled、托盘用 tauri 跨平台 `tray-icon`，`main.rs` 无
+平台分支），产物为 NSIS 安装包 `weimo-douban_<ver>_x64-setup.exe`
+（WebView2 缺失时安装包自动引导，Win10/11 一般自带）。
+
+构建走 GitHub Actions（`.github/workflows/app-windows.yml`，
+`windows-latest`，手动 dispatch）：
+
+1. **一次性配置 Secrets**（Settings → Secrets and variables → Actions）：
+   `TAURI_SIGNING_PRIVATE_KEY` = 私钥内容
+   （`cat ~/.tauri-keys/weimo-douban-updater.key`）；
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = 私钥口令（本仓密钥为空可不配）。
+2. bump 版本 push 到 main → Actions 手动运行 app-windows；
+3. 本地 `./scripts/release.sh` 拉取该 run 的产物（附 version.txt 校验
+   版本一致才并入），与 mac 产物合并进同一 Release，latest.json 补
+   `windows-x86_64` 条目（updater 指向 `.nsis.zip` 签名压缩包）。
+
+CI 产物资产名全 ASCII（`weimo-douban` 前缀，与 mac 同约定——gh 上传
+会剥掉 CJK 资产名前缀导致 updater URL 落空）。分发给他人的未签名 exe
+首次运行有 SmartScreen 提示（「仍要运行」即可；要消除需代码签名证书，
+暂不做）。
 
 ## 环境变量（从终端启动二进制时生效；Finder 启动为默认值）
 
@@ -79,7 +109,8 @@ weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见�
 ## 数据目录
 
 `~/Library/Application Support/ink.weimo.douban/`（`douban_export.db` +
-`covers/`）。删除该目录即回到全新首启状态（可再次触发种子）。
+`covers/`）；Windows 为 `%APPDATA%\ink.weimo.douban\`。删除该目录即回到
+全新首启状态（可再次触发种子）。
 
 手工种子（跳过下载）：
 
