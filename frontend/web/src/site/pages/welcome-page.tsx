@@ -17,7 +17,7 @@ import './welcome-page.css'
  *  app/tauri.conf.json 的 version 保持同步；资产名是 release.sh 统一的
  *  ASCII 前缀（gh 上传会剥掉 CJK 文件名，此处的 latest/download 直链按
  *  产物名精确匹配），APP_VERSION 仍是版本号唯一改点 */
-const APP_VERSION = '0.4.1'
+const APP_VERSION = '0.4.2'
 const APP_DMG_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_aarch64.dmg`
 const APP_EXE_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_x64-setup.exe`
 const REPO_URL = 'https://github.com/jiaowenjun/weimo-douban'
