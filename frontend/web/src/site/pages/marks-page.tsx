@@ -259,8 +259,8 @@ export function MarksPage() {
       <div className="marks-page__placeholder">
         <p>
           {view.category === 'all'
-            ? '输入豆瓣 ID 后，这里会展示你的全部书影音标记。'
-            : `输入豆瓣 ID 后，这里会展示你${displayTitle}的记录。`}
+            ? '输入豆瓣 ID，展示你的书影音标记'
+            : `输入豆瓣 ID，展示你的${displayTitle}记录`}
         </p>
         <TextButton onClick={openLogin} type="button">
           输入豆瓣 ID

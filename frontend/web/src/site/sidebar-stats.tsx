@@ -11,16 +11,33 @@ import './sidebar-stats.css'
 /** 侧边栏标记统计区：StatGroup 三类计数（影视/图书/音乐——movie 合并
  *  电影+电视剧计数显示「影视」，取 /stats 端点 totals）+ Heatmap 近
  *  13 周热力图，布局对齐 weimo-biji 的 biji-side-bar__stats（header
- *  下方紧跟 stats 区）。未登录整区隐藏；加载中占位行；失败且无旧
- *  数据（持久缓存/上一版本回退都没有）给轻量重试行——版本轮询自愈
- *  之外的立即出口。热力图暂仅展示——站点还没有按日期过滤的页面，
- *  格子点击无动作。数据经 react-query 缓存（版本进 query key），
- *  路由来回切零请求 */
+ *  下方紧跟 stats 区）。未登录渲染零态（计数全 0、热力图空数据
+ *  天然全 0 格——侧边栏结构常驻不因清除 ID 塌掉）；加载中占位行；
+ *  失败且无旧数据（持久缓存/上一版本回退都没有）给轻量重试行——
+ *  版本轮询自愈之外的立即出口。热力图暂仅展示——站点还没有按日期
+ *  过滤的页面，格子点击无动作。数据经 react-query 缓存（版本进
+ *  query key），路由来回切零请求 */
 export function SidebarStats() {
   const { uid } = useDoubanUser()
   const statsQuery = useDoubanStatsQuery(uid)
 
-  if (!uid) return null
+  const statItems: StatGroupItem[] = MARKS_CATEGORIES.map((category) => ({
+    key: category,
+    value: String(statsQuery.data?.totals[category] ?? 0),
+    label: CATEGORY_NOUNS[category],
+  }))
+
+  // 零态：结构常驻，计数全 0 + 空 dailyCounts（热力图日期网格自渲染
+  // 全 0 格）；查询本就因 uid 为空禁用，无请求无占位
+  if (!uid) {
+    return (
+      <section aria-label="标记统计" className="sidebar-stats">
+        <StatGroup items={statItems} />
+        <Heatmap dailyCounts={[]} />
+      </section>
+    )
+  }
+
   // 成功必带数据（requireData 抛错语义），此分支仅防御
   if (statsQuery.isSuccess && !statsQuery.data) return null
 
@@ -33,11 +50,6 @@ export function SidebarStats() {
     !stats &&
     (!(statsQuery.error instanceof DoubanDataQueryError) ||
       statsQuery.error.kind === 'error')
-  const statItems: StatGroupItem[] = MARKS_CATEGORIES.map((category) => ({
-    key: category,
-    value: String(stats?.totals[category] ?? 0),
-    label: CATEGORY_NOUNS[category],
-  }))
 
   return (
     <section aria-label="标记统计" className="sidebar-stats">

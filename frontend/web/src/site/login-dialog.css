@@ -146,6 +146,18 @@
   border-color: var(--color-border-emphasis);
 }
 
+/* 已登记态（readOnly）：边框透明去描边（保 1px 几何不变，同
+   text-button ghost 变体的哲学）、字色降为占位色——只读展示与
+   输入表单的视觉区分；聚焦也不复亮边框 */
+.login-dialog__input[readonly] {
+  border-color: transparent;
+  color: var(--color-text-placeholder);
+}
+
+.login-dialog__input[readonly]:focus-visible {
+  border-color: transparent;
+}
+
 /* 测试失败的行内提示（按错误码分文案：ID 不对/豆瓣不可达/冷却） */
 .login-dialog__error {
   margin: 10px 0 0;

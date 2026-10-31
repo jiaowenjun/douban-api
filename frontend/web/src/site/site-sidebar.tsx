@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Grid2X2 } from 'lucide-react'
+import { BookOpen, Film, Grid2X2, Music, Tv } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { TextButton } from 'weimo-ui-core/components/text-button'
 import { TagTree, type TagTreeNode } from 'weimo-ui-tagtree/components/tag-tree'
@@ -31,6 +31,37 @@ import {
 } from './navigation'
 import './site-sidebar.css'
 
+/** 未登录零态筛选树（模块级静态：结构对齐 FacetTree 常驻树一级——
+ *  影视形态两节点 + 图书/音乐类别根，图标同款、计数全 0、无子级）：
+ *  侧边栏结构常驻不因未登录/清除 ID 塌掉；点行跳对应类别（形态两
+ *  节点都归影视）。tag 无需匹配真实树语义（零态无选中/展开联动） */
+const EMPTY_FACET_NODES: TagTreeNode[] = [
+  {
+    tag: 'movie/film',
+    label: '电影',
+    icon: <Film aria-hidden="true" />,
+    itemCount: 0,
+  },
+  {
+    tag: 'movie/tv',
+    label: '电视剧',
+    icon: <Tv aria-hidden="true" />,
+    itemCount: 0,
+  },
+  {
+    tag: 'book',
+    label: '图书',
+    icon: <BookOpen aria-hidden="true" />,
+    itemCount: 0,
+  },
+  {
+    tag: 'music',
+    label: '音乐',
+    icon: <Music aria-hidden="true" />,
+    itemCount: 0,
+  },
+]
+
 /** 站点侧边栏：整体接管模板 sidebar 插槽，布局对齐 weimo-biji 的
  *  biji-side-bar——身份栏固定在顶，滚动主体依次为标记统计区
  *  （StatGroup/Heatmap）→ 导航区（全部标记，下挂我的评分子节点）→
@@ -45,7 +76,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { uid, openLogin } = useDoubanUser()
+  const { uid } = useDoubanUser()
   const category = resolveMarksView(pathname.split('/')[1])?.category
   // 分面仅真实类别有维度（all 合并视图无分面）
   const realCategory = category !== undefined && category !== ALL_MARKS_TAG
@@ -99,7 +130,7 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
       dimsQueries[c].error.kind === 'not-cached',
   )
   const countsReady =
-    uid !== null && MARKS_CATEGORIES.every((c) => !dimsQueries[c].isPending)
+    uid === null || MARKS_CATEGORIES.every((c) => !dimsQueries[c].isPending)
 
   // 导航区节点：全部标记（书影音合并视图入口，图标对齐 biji-side-bar
   // 全部笔记的 Grid2X2；类别导航由筛选树一级根兼任，不在此重复），其
@@ -205,17 +236,23 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // 筛选树区三态：未填 ID 给输入引导（分面数据随身份而来，空侧边栏
-  // 需要可发现的入口）；三类别查询全部加载中给占位行——TagTree 默认
-  // 空态「暂无标签」会把加载期误表达为空态；任一类别失败给轻量重试
-  // 行（见 retryFailedDims），已就绪的类别根照常渐次出现
+  // 筛选树区状态：未填 ID 渲染零态树（结构常驻计数全 0，侧边栏不因
+  // 清除 ID 塌掉；登录入口在身份栏与内容页占位区）；三类别查询全部
+  // 加载中给占位行——TagTree 默认空态「暂无标签」会把加载期误表达为
+  // 空态；任一类别失败给轻量重试行（见 retryFailedDims），已就绪的
+  // 类别根照常渐次出现
   const facetBody = !uid ? (
-    <div className="site-sidebar__login-hint">
-      <p>输入豆瓣 ID 后，可在这里按分类筛选你的书影音标记。</p>
-      <TextButton onClick={openLogin} type="button">
-        输入豆瓣 ID
-      </TextButton>
-    </div>
+    <TagTree
+      nodes={EMPTY_FACET_NODES}
+      onSelect={(tag) => {
+        // 零态无子级无筛选：点行只跳类别（影视形态两节点都归影视）
+        handlePathSelect(
+          tag === 'book' || tag === 'music' ? tag : 'movie',
+          [],
+        )
+      }}
+      variant="no-action"
+    />
   ) : dimsLoading ? (
     <p className="site-sidebar__status" role="status">
       筛选加载中…

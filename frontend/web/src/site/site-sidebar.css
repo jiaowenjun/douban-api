@@ -63,19 +63,3 @@
   font-size: 13px;
   line-height: 1.4;
 }
-
-/* 未登录筛选区登录引导：文案 + 按钮纵排，文案与占位行同色系 */
-.site-sidebar__login-hint {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding-block: 2px 4px;
-}
-
-.site-sidebar__login-hint p {
-  margin: 0;
-  color: var(--color-text-placeholder);
-  font-size: 13px;
-  line-height: 1.4;
-}
