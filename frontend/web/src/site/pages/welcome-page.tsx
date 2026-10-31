@@ -1,4 +1,4 @@
-import { Apple, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
@@ -74,6 +74,24 @@ function useAppliedDarkTheme(): boolean {
   return dark
 }
 
+/** Apple 官方标志（Font Awesome「apple」品牌字形，CC BY 4.0）：lucide 的
+ *  Apple 是水果造型非品牌标志，故内联此路径；fill=currentColor 随按钮
+ *  文字色走，明暗主题与实心/ghost 变体均自适应——img 引 SVG 无法继承
+ *  文字色（黑色 logo 在实心主按钮上隐形），只能内联 */
+function AppleLogo({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden
+      fill="currentColor"
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <path d="M18.71 19.5C17.88 20.74 17 21.95 15.66 21.97C14.32 22 13.89 21.18 12.37 21.18C10.84 21.18 10.37 21.95 9.09997 22C7.78997 22.05 6.79997 20.68 5.95997 19.47C4.24997 17 2.93997 12.45 4.69997 9.39C5.56997 7.87 7.12997 6.91 8.81997 6.88C10.1 6.86 11.32 7.75 12.11 7.75C12.89 7.75 14.37 6.68 15.92 6.84C16.57 6.87 18.39 7.1 19.56 8.82C19.47 8.88 17.39 10.1 17.41 12.63C17.44 15.65 20.06 16.66 20.09 16.67C20.06 16.74 19.67 18.11 18.71 19.5ZM13 3.5C13.73 2.67 14.94 2.04 15.94 2C16.07 3.17 15.6 4.35 14.9 5.19C14.21 6.04 13.07 6.7 11.95 6.61C11.8 5.46 12.36 4.26 13 3.5Z" />
+    </svg>
+  )
+}
+
 /** 欢迎页（营销页）：`/` 根路径的门面。MiniSiteTemplate 无侧边栏单页壳
  *  （hero 标题区 + 全宽内容），展示卖点与真实界面截图；CTA 按登录态换
  *  文案进入标记列表。截图按当前生效主题成对提供（*-light/*-dark 各一套
@@ -90,7 +108,13 @@ export function WelcomePage() {
       pageTitle="首页"
       siteName="微墨·豆瓣"
       subheadline="免登录同步，自托管保存，亮暗主题自适应"
-      topBarLeading={<span className="welcome-page__brand">微墨·豆瓣</span>}
+      topBarLeading={
+        <span className="welcome-page__brand">
+          {/* alt 置空：紧邻的品牌文字已传达名称，图标纯装饰 */}
+          <img alt="" className="welcome-page__brand-icon" src={appIcon} />
+          微墨·豆瓣
+        </span>
+      }
     >
       <div className="welcome-page__cta">
         <TextButton
@@ -104,8 +128,8 @@ export function WelcomePage() {
          * href（右键另存/新标签直下），dmg 直链由浏览器下载不离开本页；
          *  无 data-variant 即默认实心，与左侧进入按钮同款 */}
         <a className="text-button" href={APP_DMG_URL}>
-          <Apple aria-hidden size={16} />
-          下载 dmg
+          <AppleLogo size={16} />
+          Mac 客户端
         </a>
       </div>
 

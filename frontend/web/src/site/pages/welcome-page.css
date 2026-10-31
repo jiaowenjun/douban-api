@@ -8,10 +8,24 @@
   padding-block-end: 24px;
 }
 
-/* 顶栏品牌标识（topBarLeading 插槽）：纯文字，不承担导航语义 */
+/* 顶栏品牌标识（topBarLeading 插槽）：App 图标 + 文字，不承担导航语义 */
 .welcome-page__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 650;
   color: var(--color-text-primary);
+}
+
+/* App 图标：源稿拷贝自 app/icons/icon.svg（宣纸底 + 墨滴，全出血方形），
+ * macOS 切的圆角在这里自切——22.5% 即系统图标的圆角比例；尺寸贴合顶栏
+ * 文字（46px 高的 slot 内 22px 图标与 650 字重文字视觉均衡） */
+.welcome-page__brand-icon {
+  flex: none;
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 22.5%;
 }
 
 /* hero 区 CTA 行：居中双实心按钮（进入应用 + dmg 下载真链接，同款样式） */
@@ -22,6 +36,12 @@
   align-items: center;
   gap: 12px;
   margin-block-end: 8px;
+}
+
+/* 按钮内图标与文字间距：text-button 基类无 gap（左按钮文字↔箭头、
+ * 右按钮 Apple 标志↔文字同享此规则） */
+.welcome-page__cta .text-button {
+  gap: 6px;
 }
 
 /* 截图容器：card-surface 材质 + 小内衬，图片铺满宽；--tall 用于竖条
