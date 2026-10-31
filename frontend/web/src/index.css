@@ -1,3 +1,15 @@
 @import 'weimo-ui-core/styles/tokens.css';
 @import 'weimo-ui-editor/styles/tokens.css';
 @import 'weimo-ui-template/styles/base.css';
+
+/* 移动端对话框垂直居中：weimo-ui-core 的 coss-dialog 在 ≤640px 默认
+   align-items:end 贴底（底部面板式），本站对话框（登录/设置/搜索/导出）
+   内容都少，居中比贴底更聚焦。viewport 是 popup 的父节点、组件未开
+   className 口，故只能站点级覆盖（未分层样式压过库的 @layer components，
+   库层六仓库共用不动）；popup 自带 max-height ≤ 100vh-24px，无居中溢出
+   裁切风险 */
+@media (max-width: 640px) {
+  .coss-dialog__viewport {
+    align-items: center;
+  }
+}

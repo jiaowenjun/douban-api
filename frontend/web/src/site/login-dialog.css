@@ -29,7 +29,8 @@
   margin-right: auto;
 }
 
-/* 当前账号行：头像 + 用户名 + @uid（后端未同步过该用户时无头像/用户名，回退 uid） */
+/* 当前账号行：头像 + 用户名（ID 在输入框里已有，不再重复 @uid；
+   后端未同步过该用户时无头像/用户名，回退 uid 作用户名展示） */
 .login-dialog__account {
   display: flex;
   align-items: center;
@@ -58,13 +59,6 @@
   font-weight: 560;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.login-dialog__account-uid {
-  margin-left: auto;
-  flex: none;
-  color: var(--color-text-placeholder);
-  font-size: var(--font-size-sm);
 }
 
 /* 字段只剩单输入框（标题即提示，label 仅作点击聚焦的命中区包一层）；

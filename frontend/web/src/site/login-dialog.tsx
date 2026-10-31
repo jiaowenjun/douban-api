@@ -167,7 +167,6 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
                 <span className="login-dialog__account-name">
                   {preview.username || preview.uid}
                 </span>
-                <span className="login-dialog__account-uid">@{preview.uid}</span>
               </div>
             ) : null}
             <label className="login-dialog__field">
