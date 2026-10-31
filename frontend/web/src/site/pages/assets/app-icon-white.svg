@@ -1,29 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="微墨 white ink drop logo">
+  <!-- Warm-white body, low-chroma cool shadows and a neutral-white highlight. -->
   <defs>
-    <linearGradient id="dropTone" x1="0.16" y1="0.05" x2="0.82" y2="0.96">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="0.62" stop-color="#F7F7F7"/>
-      <stop offset="1" stop-color="#D8D8D8"/>
+    <path id="ink-white-silhouette" d="M256 54 C241 111 220 153 184 202 C148 251 119 291 119 343 C119 421 178 468 256 468 C334 468 393 421 393 343 C393 291 364 251 328 202 C292 153 271 111 256 54 Z"/>
+    <radialGradient id="ink-white-volume" gradientUnits="userSpaceOnUse" cx="208" cy="252" r="290" gradientTransform="translate(208 252) scale(.76 1.12) translate(-208 -252)">
+      <stop offset="0" stop-color="#FAF7F0"/>
+      <stop offset=".34" stop-color="#EFECE5"/>
+      <stop offset=".61" stop-color="#D8D7D4"/>
+      <stop offset=".79" stop-color="#AFB4BA"/>
+      <stop offset="1" stop-color="#6F747A"/>
+    </radialGradient>
+    <linearGradient id="ink-white-neck" gradientUnits="userSpaceOnUse" x1="256" y1="65" x2="256" y2="228">
+      <stop offset="0" stop-color="#FFFEFA" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="glint" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
-      <stop offset="0.62" stop-color="#FFFFFF" stop-opacity="0.35"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.04"/>
+    <linearGradient id="ink-white-reflection" gradientUnits="userSpaceOnUse" x1="204" y1="158" x2="195" y2="353">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".98"/>
+      <stop offset=".50" stop-color="#FFFFFF" stop-opacity=".86"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="ink-white-bounce" gradientUnits="userSpaceOnUse" x1="379" y1="313" x2="286" y2="457">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#F3F5F5" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ink-white-soft-reflection" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="2.3"/></filter>
+    <filter id="ink-white-soft-bounce" x="-40%" y="-30%" width="180%" height="160%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="3"/></filter>
+    <clipPath id="ink-white-inside"><use href="#ink-white-silhouette"/></clipPath>
   </defs>
-  <!-- No background rectangle: the canvas remains transparent. -->
-  <path fill="url(#dropTone)" d="M256 54
-    C241 111 220 153 184 202
-    C148 251 119 291 119 343
-    C119 421 178 468 256 468
-    C334 468 393 421 393 343
-    C393 291 364 251 328 202
-    C292 153 271 111 256 54 Z"/>
-  <path fill="url(#glint)" d="M246 112
-    C233 157 213 192 187 231
-    C163 267 151 295 151 323
-    C151 341 157 354 168 361
-    C179 368 190 357 195 340
-    C204 309 220 279 240 247
-    C259 217 266 181 246 112 Z"/>
+  <g clip-path="url(#ink-white-inside)">
+    <use href="#ink-white-silhouette" fill="url(#ink-white-volume)"/>
+    <use href="#ink-white-silhouette" fill="url(#ink-white-neck)"/>
+    <g id="ink-white-surface-reflections">
+      <path fill="url(#ink-white-reflection)" filter="url(#ink-white-soft-reflection)" d="M241 128 C226 174 207 207 186 240 C167 270 155 297 158 316 C160 331 169 337 176 320 C186 294 199 267 220 234 C239 204 250 170 241 128 Z"/>
+      <path fill="none" stroke="url(#ink-white-bounce)" stroke-width="8" stroke-linecap="round" filter="url(#ink-white-soft-bounce)" d="M375 315 C402 385 355 445 285 457"/>
+    </g>
+  </g>
 </svg>

@@ -18,7 +18,7 @@
 }
 
 /* App 图标：黑白双稿随主题切换（app-icon.svg 浓墨 / app-icon-white.svg
- * 纸白，src 在 tsx 里按 dark 换），双稿均为透明底墨滴、无方形画布，不需
+ * 暖白，src 在 tsx 里按 dark 换），双稿均为透明底墨滴、无方形画布，不需
  * 圆角裁切；尺寸贴合顶栏文字（46px 高的 slot 内 22px 图标与 650 字重文字
  * 视觉均衡） */
 .welcome-page__brand-icon {

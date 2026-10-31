@@ -5,6 +5,8 @@
 `SiteTemplate`：侧栏导航（699px 断点自动折叠为抽屉）、顶栏、亮/暗/跟随系统
 三态主题切换、文档标题管理。
 
+白色品牌图标的设计过程与采用参数见 [白色墨滴图标优化实验记录](../../docs/white-ink-icon-experiment.md)。
+
 ## 技术栈
 
 - Vite 8 + React 19（React Compiler）+ TypeScript

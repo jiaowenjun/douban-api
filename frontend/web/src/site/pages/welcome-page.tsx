@@ -207,7 +207,7 @@ export function WelcomePage() {
       }
       topBarLeading={
         <span className="welcome-page__brand">
-          {/* 黑白双稿随主题切换：亮色浓墨 / 暗色纸白，dark 来自
+          {/* 黑白双稿随主题切换：亮色浓墨 / 暗色暖白，dark 来自
               useAppliedDarkTheme 对 html.dark 的观测（口径同下方主截图
               的双主题换图）；alt 置空：紧邻的品牌文字已传达名称，图标纯装饰 */}
           <img
