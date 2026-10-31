@@ -68,8 +68,10 @@ jobs:
           NSIS=target/release/bundle/nsis
           mkdir -p ../dist
           cp "$NSIS"/*_x64-setup.exe "../dist/weimo-douban_${VERSION}_x64-setup.exe"
-          cp "$NSIS"/*_x64-setup.nsis.zip ../dist/weimo-douban_x64-setup.nsis.zip
-          cp "$NSIS"/*_x64-setup.nsis.zip.sig ../dist/weimo-douban_x64-setup.nsis.zip.sig
+          # Tauri v2 NSIS 的 updater 产物=对 setup.exe 本体的 minisign 签名
+          # （.exe.sig）——没有 v1 时代的 .nsis.zip 包装，updater 直接下载
+          # exe 校验签名后静默安装
+          cp "$NSIS"/*_x64-setup.exe.sig ../dist/weimo-douban_x64-setup.exe.sig
           echo "$VERSION" > ../dist/version.txt
 
       - uses: actions/upload-artifact@v4

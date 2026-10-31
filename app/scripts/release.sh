@@ -37,8 +37,8 @@ cp "$APP_TGZ" "$TGZ_ASCII"
 cp "$APP_TGZ.sig" "$TGZ_ASCII.sig"
 
 # ---- Windows 产物：mac 无法交叉编译，由 app-windows 工作流出
-# windows-latest 构建并存为 run artifact（exe 安装包 + nsis.zip updater
-# 产物 + version.txt）。拉最新成功运行，版本一致才并入本次发布；
+# windows-latest 构建并存为 run artifact（exe 安装包 + exe.sig 更新
+# 签名 + version.txt）。拉最新成功运行，版本一致才并入本次发布；
 # 缺失或版本不符则仅发 macOS（Windows 条目留待下次发布补上）。
 WIN_DIR="$BUNDLE/windows-ci"
 WIN_PRESENT=0
@@ -64,15 +64,16 @@ ASSET_URL="https://github.com/$REPO/releases/download/v$VERSION/weimo-douban.app
 WIN_SIG=""
 WIN_URL=""
 if [ "$WIN_PRESENT" = 1 ]; then
-  WIN_SIG=$(cat "$WIN_DIR/weimo-douban_x64-setup.nsis.zip.sig")
-  WIN_URL="https://github.com/$REPO/releases/download/v$VERSION/weimo-douban_x64-setup.nsis.zip"
+  WIN_SIG=$(cat "$WIN_DIR/weimo-douban_x64-setup.exe.sig")
+  # Tauri v2 NSIS updater 直接指向 setup.exe 本体（对其 minisign 签名，
+  # 无 v1 时代的 .nsis.zip 包装），URL 用 ASCII 资产名
+  WIN_URL="https://github.com/$REPO/releases/download/v$VERSION/weimo-douban_${VERSION}_x64-setup.exe"
 fi
 python3 - "$ASSET_URL" "$VERSION" "$DATE" "$SIG" "$WIN_SIG" "$WIN_URL" << 'EOF'
 import json, sys
 url, version, date, sig, win_sig, win_url = sys.argv[1:7]
 platforms = {"darwin-aarch64": {"signature": sig, "url": url}}
 if win_sig:
-    # Windows updater 指向 nsis.zip（installer 的签名压缩包），非 setup.exe
     platforms["windows-x86_64"] = {"signature": win_sig, "url": win_url}
 json.dump({
     "version": version,
@@ -87,8 +88,7 @@ ASSETS=("$DMG_ASCII" "$TGZ_ASCII" "$TGZ_ASCII.sig" latest.json)
 if [ "$WIN_PRESENT" = 1 ]; then
   ASSETS+=(
     "$WIN_DIR/weimo-douban_${VERSION}_x64-setup.exe"
-    "$WIN_DIR/weimo-douban_x64-setup.nsis.zip"
-    "$WIN_DIR/weimo-douban_x64-setup.nsis.zip.sig"
+    "$WIN_DIR/weimo-douban_x64-setup.exe.sig"
   )
 fi
 # 注意：紧邻全角字符的版本变量必须写成 ${VERSION}——macOS 自带 bash 3.2

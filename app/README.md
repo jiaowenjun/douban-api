@@ -65,8 +65,8 @@ Windows 无 LSUIElement 概念（该 plist 项被忽略）：App 正常显示任
 发布流程：bump `tauri.conf.json` 版本并 push → 手动 dispatch
 `app-windows` 工作流（出 Windows 产物，mac 无法交叉编译）→ 本地
 `./scripts/release.sh`（构建签名产物 → 拉取 Windows CI 产物 → 生成
-latest.json → `gh release` 上传双平台 dmg/exe/tar.gz/nsis.zip/sig/
-latest.json；找不到匹配版本的 Windows 产物时自动回落仅发 macOS）。
+latest.json → `gh release` 上传双平台 dmg/exe/tar.gz/sig/latest.json；
+找不到匹配版本的 Windows 产物时自动回落仅发 macOS）。
 
 ## Windows 版（CI 构建，mac 无法交叉编译）
 
@@ -85,7 +85,8 @@ sqlx sqlite bundled、托盘用 tauri 跨平台 `tray-icon`，`main.rs` 无
 2. bump 版本 push 到 main → Actions 手动运行 app-windows；
 3. 本地 `./scripts/release.sh` 拉取该 run 的产物（附 version.txt 校验
    版本一致才并入），与 mac 产物合并进同一 Release，latest.json 补
-   `windows-x86_64` 条目（updater 指向 `.nsis.zip` 签名压缩包）。
+   `windows-x86_64` 条目（updater 直接指向 setup.exe 本体——Tauri v2
+   对 exe 做 minisign 签名，无 v1 时代的 `.nsis.zip` 包装）。
 
 CI 产物资产名全 ASCII（`weimo-douban` 前缀，与 mac 同约定——gh 上传
 会剥掉 CJK 资产名前缀导致 updater URL 落空）。分发给他人的未签名 exe
