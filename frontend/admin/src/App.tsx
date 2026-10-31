@@ -19,6 +19,34 @@ import SubjectJobs from './pages/SubjectJobs';
 import { getApiBase, getToken, getUser, parseUserInput, setApiBase, setToken, setUser } from './api';
 import { UserAvatar, useUserProfile } from './user-profile';
 
+/** 微墨墨滴标：currentColor 单色标，颜色随 antd 侧栏文字色自适应明暗主题 */
+function BrandLogo() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 512 512" width={26} height={26} style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id="wmDropTone" x1="0.18" y1="0.08" x2="0.82" y2="0.94">
+          <stop offset="0" stopColor="currentColor" stopOpacity="0.96" />
+          <stop offset="0.58" stopColor="currentColor" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.82" />
+        </linearGradient>
+        <linearGradient id="wmGlint" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.92" />
+          <stop offset="0.55" stopColor="#fff" stopOpacity="0.38" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <path
+        fill="url(#wmDropTone)"
+        d="M256 54C241 111 220 153 184 202C148 251 119 291 119 343C119 421 178 468 256 468C334 468 393 421 393 343C393 291 364 251 328 202C292 153 271 111 256 54Z"
+      />
+      <path
+        fill="url(#wmGlint)"
+        d="M246 112C233 157 213 192 187 231C163 267 151 295 151 323C151 341 157 354 168 361C179 368 190 357 195 340C204 309 220 279 240 247C259 217 266 181 246 112Z"
+      />
+    </svg>
+  );
+}
+
 /** 右上角连接设置：豆瓣用户 ID（单用户站点的身份，只在这里填一次）+ API 地址 + Bearer Token */
 function ConnectionSettings() {
   const { message } = AntApp.useApp();
@@ -80,8 +108,8 @@ function Layout() {
 
   return (
     <ProLayout
-      title="豆瓣数据后台"
-      logo={false}
+      title="微墨·豆瓣"
+      logo={<BrandLogo />}
       layout="side"
       fixSiderbar
       location={{ pathname: location.pathname }}

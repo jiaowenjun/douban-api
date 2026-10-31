@@ -119,7 +119,7 @@ function SiteShell() {
       showSidebarCloseButton={false}
       // 顶栏右侧主题切换让位给搜索入口（主题仍随系统 defaultTheme 同步 html.dark）
       showThemeToggle={false}
-      siteName="weimo-douban"
+      siteName="微墨·豆瓣"
       sidebar={(api) => <SiteSidebar onClose={api.close} />}
       topBarActions={<TopBarSearch />}
       topBarLeading={topBarLeading}

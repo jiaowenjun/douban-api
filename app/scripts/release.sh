@@ -17,20 +17,22 @@ cd "$(dirname "$0")/.."
 REPO="jiaowenjun/weimo-douban"
 VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' tauri.conf.json | head -1)
 BUNDLE=target/release/bundle
-APP_TGZ="$BUNDLE/macos/weimo-douban.app.tar.gz"
+# 产物名随 productName（微墨·豆瓣）；latest.json 的 URL 保持未编码 UTF-8，
+# updater 侧 reqwest/url 解析时会自动百分号编码请求路径
+APP_TGZ="$BUNDLE/macos/微墨·豆瓣.app.tar.gz"
 
 echo "==> 构建 v$VERSION"
 pnpm tauri build
 
 DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SIG=$(cat "$APP_TGZ.sig")
-ASSET_URL="https://github.com/$REPO/releases/download/v$VERSION/weimo-douban.app.tar.gz"
+ASSET_URL="https://github.com/$REPO/releases/download/v$VERSION/微墨·豆瓣.app.tar.gz"
 python3 - "$ASSET_URL" "$VERSION" "$DATE" "$SIG" << 'EOF'
 import json, sys
 url, version, date, sig = sys.argv[1:5]
 json.dump({
     "version": version,
-    "notes": f"weimo-douban 桌面 App v{version}",
+    "notes": f"微墨·豆瓣桌面 App v{version}",
     "pub_date": date,
     "platforms": {"darwin-aarch64": {"signature": sig, "url": url}},
 }, open("latest.json", "w"), indent=2)
@@ -38,8 +40,8 @@ EOF
 
 echo "==> 创建 GitHub Release v$VERSION"
 gh release create "v$VERSION" \
-  "$BUNDLE/dmg/weimo-douban_${VERSION}_aarch64.dmg" \
+  "$BUNDLE/dmg/微墨·豆瓣_${VERSION}_aarch64.dmg" \
   "$APP_TGZ" "$APP_TGZ.sig" latest.json \
-  --title "weimo-douban App v$VERSION" \
-  --notes "桌面 App v$VERSION（darwin-aarch64）。已装旧版者经托盘「检查更新」或启动自检自动升级；新安装请下载 dmg。"
+  --title "微墨·豆瓣 App v$VERSION" \
+  --notes "微墨·豆瓣桌面 App v$VERSION（darwin-aarch64）。已装旧版者经托盘「检查更新」或启动自检自动升级；新安装请下载 dmg。"
 echo "==> 发布完成：v$VERSION（latest.json 已随 release 上传，默认端点即可发现新版本）"

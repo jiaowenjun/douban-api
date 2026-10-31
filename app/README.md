@@ -1,4 +1,4 @@
-# weimo-douban macOS 桌面 App（Tauri）
+# 微墨·豆瓣 macOS 桌面 App（Tauri）
 
 方案 B 全栈封装：**Tauri 壳 + 内嵌同步服务器，单进程自足运行**。不依赖
 weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见下）。

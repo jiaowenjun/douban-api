@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "weimo-douban",
+  "productName": "微墨·豆瓣",
   "version": "0.4.0",
   "identifier": "ink.weimo.douban",
   "build": {
@@ -22,7 +22,7 @@
       "icons/icon.png"
     ],
     "category": "Lifestyle",
-    "shortDescription": "豆瓣书影音同步与浏览（内嵌本地服务器）",
+    "shortDescription": "微墨·豆瓣——书影音同步与浏览（内嵌本地服务器）",
     "macOS": {
       "infoPlist": "Info.plist"
     }

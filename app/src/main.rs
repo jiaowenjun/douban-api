@@ -1,4 +1,4 @@
-//! 微末·豆瓣书影音 macOS 桌面 App——Tauri 壳 + 内嵌 weimo-douban 同步服务器。
+//! 微墨·豆瓣书影音 macOS 桌面 App——Tauri 壳 + 内嵌 weimo-douban 同步服务器。
 //!
 //! 架构（全栈单进程）：启动时在回环随机端口拉起 `weimo_douban::server`
 //! （API + 抓取/富集/订阅后台任务），前端静态资源（frontend/web 构建产物，
@@ -159,7 +159,7 @@ fn create_main_window(handle: &tauri::AppHandle, port: u16) {
         .parse()
         .expect("窗口地址构造失败");
     if let Err(error) = WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(url))
-        .title("微末·豆瓣书影音")
+        .title("微墨·豆瓣")
         .inner_size(1280.0, 860.0)
         .min_inner_size(960.0, 600.0)
         .focused(true)
@@ -257,7 +257,7 @@ fn build_tray(handle: &tauri::AppHandle) -> Result<()> {
         .clone();
     TrayIconBuilder::with_id("main-tray")
         .icon(icon)
-        .tooltip("微末·豆瓣托盘")
+        .tooltip("微墨·豆瓣")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {

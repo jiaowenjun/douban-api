@@ -2,7 +2,7 @@
 name = "weimo-douban-app"
 version = "0.4.0"
 edition = "2021"
-description = "微末·豆瓣书影音 macOS 桌面 App（Tauri 壳 + 内嵌同步服务器）"
+description = "微墨·豆瓣书影音 macOS 桌面 App（Tauri 壳 + 内嵌同步服务器）"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

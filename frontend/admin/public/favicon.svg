@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="微墨 ink drop logo">
+  <!-- 微墨·豆瓣 墨滴标：currentColor 系单色标，作为 favicon 时由内嵌样式
+       按系统明暗主题落墨——亮色浓墨、暗色纸白，高光在暗色下转为淡墨晕 -->
+  <style>
+    svg { color: #1b1d23; }
+    .glint { stop-color: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      svg { color: #e8e8ed; }
+      .glint { stop-color: rgba(23, 25, 31, 0.32); }
+    }
+  </style>
+  <defs>
+    <linearGradient id="dropTone" x1="0.18" y1="0.08" x2="0.82" y2="0.94">
+      <stop offset="0" stop-color="currentColor" stop-opacity="0.96"/>
+      <stop offset="0.58" stop-color="currentColor"/>
+      <stop offset="1" stop-color="currentColor" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="glint" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" class="glint" stop-opacity="0.92"/>
+      <stop offset="0.55" class="glint" stop-opacity="0.38"/>
+      <stop offset="1" class="glint" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#dropTone)" d="M256 54
+    C241 111 220 153 184 202
+    C148 251 119 291 119 343
+    C119 421 178 468 256 468
+    C334 468 393 421 393 343
+    C393 291 364 251 328 202
+    C292 153 271 111 256 54 Z"/>
+  <path fill="url(#glint)" d="M246 112
+    C233 157 213 192 187 231
+    C163 267 151 295 151 323
+    C151 341 157 354 168 361
+    C179 368 190 357 195 340
+    C204 309 220 279 240 247
+    C259 217 266 181 246 112 Z"/>
+</svg>
