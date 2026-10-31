@@ -17,6 +17,7 @@ import {
 } from './site/navigation'
 import { MarksPage } from './site/pages/marks-page'
 import { SettingsPage } from './site/pages/settings-page'
+import { WelcomePage } from './site/pages/welcome-page'
 import { TopBarSearch } from './site/search-dialog'
 import { SiteSettingsProvider } from './site/site-settings-provider'
 import { SiteSidebar } from './site/site-sidebar'
@@ -113,6 +114,11 @@ function SiteShell() {
         )
       : view?.pageTitle
 
+  // 根路径 = 欢迎页（营销页）：自带 MiniSiteTemplate 独立壳（无侧边栏、
+  // hero 标题区），不套 SiteTemplate 应用壳。分支置于全部 hooks 之后——
+  // 提前 return 会令 / 与应用页两分支 hook 数不一致，违反 Rules of Hooks
+  if (pathname === '/') return <WelcomePage />
+
   return (
     <SiteTemplate
       pageTitle={pageTitle}
@@ -125,7 +131,6 @@ function SiteShell() {
       topBarLeading={topBarLeading}
     >
       <Routes>
-        <Route element={<Navigate replace to={DEFAULT_MARKS_PATH} />} path="/" />
         {/* 静态段优先于动态 /:category，react-router 按具体度排序匹配 */}
         <Route element={<SettingsPage />} path="/settings" />
         <Route element={<MarksRoute />} path="/:category" />

@@ -1,0 +1,196 @@
+/* 欢迎页（营销页）：MiniSiteTemplate 全宽壳内的内容排版。材质（背景/
+   边框/圆角/阴影，明暗双态）复用 card-surface，由组件挂 card-surface 类
+   提供，本文件只管布局与排版，token 口径对齐 settings-page.css */
+
+/* 模板 __content 追加类：纵向节奏沿用模板 gutter gap（hero wrapper 内
+ * CTA 起步，各小节自持宽度居中收拢） */
+.welcome-page {
+  padding-block-end: 24px;
+}
+
+/* 顶栏品牌标识（topBarLeading 插槽）：纯文字，不承担导航语义 */
+.welcome-page__brand {
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+/* hero 区 CTA 行：居中双按钮（主 = 进入应用，次 = ghost 全部标记） */
+.welcome-page__cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-block-end: 8px;
+}
+
+/* 截图容器：card-surface 材质 + 小内衬，图片铺满宽；--tall 用于竖条
+ * 特写（侧栏统计 344×850），按定高 cover 裁剪、顶端对齐保住统计与热
+ * 力图区；其余横图 height:auto 原比例呈现 */
+.welcome-page__shot {
+  padding: 8px;
+}
+
+.welcome-page__shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: calc(var(--radius-sm, 10px) - 4px);
+}
+
+.welcome-page__shot--tall img {
+  height: 440px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.welcome-page__shot figcaption {
+  padding: 8px 4px 2px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* 主卖点小节：图文两列（图 7 文 5），相邻小节左右交替（奇偶反序） */
+.welcome-page__feature {
+  display: grid;
+  max-width: 1080px;
+  width: 100%;
+  margin-inline: auto;
+  align-items: center;
+  gap: 32px;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+}
+
+.welcome-page__feature:nth-of-type(even) {
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+}
+
+.welcome-page__feature:nth-of-type(even) .welcome-page__feature-text {
+  order: -1;
+}
+
+.welcome-page__feature-text h3 {
+  margin: 0 0 10px;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.welcome-page__feature-text p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+
+/* 次要卖点网格小节：标题居中，卡片 auto-fit 自适应列 */
+.welcome-page__section {
+  max-width: 1080px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.welcome-page__section-title {
+  margin: 8px 0 20px;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  text-align: center;
+  color: var(--color-text-primary);
+}
+
+.welcome-page__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.welcome-page__card {
+  display: grid;
+  gap: 6px;
+  padding: calc(var(--space-card-pad, 13px) * 1.3);
+  align-content: start;
+}
+
+.welcome-page__card-icon {
+  color: var(--color-primary, hsl(var(--primary)));
+}
+
+.welcome-page__card-title {
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.welcome-page__card-desc {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.65;
+}
+
+/* 桌面 App 下载条：横向卡片（左文案右按钮），窄屏纵排 */
+.welcome-page__download {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: calc(var(--space-card-pad, 13px) * 1.6);
+  gap: 16px;
+}
+
+.welcome-page__download-text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.welcome-page__download-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.welcome-page__download-desc {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.welcome-page__download-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 页脚：居中弱化小字，链接继承文字色加下划线区分 */
+.welcome-page__footer {
+  max-width: 1080px;
+  width: 100%;
+  margin-inline: auto;
+  padding-block: 16px 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.welcome-page__footer a {
+  color: inherit;
+}
+
+/* 窄屏：图文行纵排（图上文下、取消交替反序），竖条特写放宽取景高度 */
+@media (max-width: 899px) {
+  .welcome-page__feature,
+  .welcome-page__feature:nth-of-type(even) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .welcome-page__feature:nth-of-type(even) .welcome-page__feature-text {
+    order: 0;
+  }
+
+  .welcome-page__shot--tall img {
+    height: 320px;
+  }
+}

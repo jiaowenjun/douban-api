@@ -17,16 +17,25 @@ cd "$(dirname "$0")/.."
 REPO="jiaowenjun/weimo-douban"
 VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' tauri.conf.json | head -1)
 BUNDLE=target/release/bundle
-# 产物名随 productName（微墨·豆瓣）；latest.json 的 URL 保持未编码 UTF-8，
-# updater 侧 reqwest/url 解析时会自动百分号编码请求路径
+# 本地产物名随 productName（微墨·豆瓣，含 CJK）；上传前统一复制为 ASCII 名——
+# gh release 上传会剥掉资产名里的非 ASCII 前缀（实测 CJK dmg 变成
+# "_0.4.0_aarch64.dmg"），latest/download 直链与 updater URL 全部落空，
+# 故 dmg/tgz/sig 三件全用 weimo-douban 前缀的稳定 ASCII 名
 APP_TGZ="$BUNDLE/macos/微墨·豆瓣.app.tar.gz"
+DMG_ASCII="$BUNDLE/dmg/weimo-douban_${VERSION}_aarch64.dmg"
+TGZ_ASCII="$BUNDLE/macos/weimo-douban.app.tar.gz"
 
 echo "==> 构建 v$VERSION"
 pnpm tauri build
 
+echo "==> 复制产物为 ASCII 资产名"
+cp "$BUNDLE/dmg/微墨·豆瓣_${VERSION}_aarch64.dmg" "$DMG_ASCII"
+cp "$APP_TGZ" "$TGZ_ASCII"
+cp "$APP_TGZ.sig" "$TGZ_ASCII.sig"
+
 DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SIG=$(cat "$APP_TGZ.sig")
-ASSET_URL="https://github.com/$REPO/releases/download/v$VERSION/微墨·豆瓣.app.tar.gz"
+ASSET_URL="https://github.com/$REPO/releases/download/v$VERSION/weimo-douban.app.tar.gz"
 python3 - "$ASSET_URL" "$VERSION" "$DATE" "$SIG" << 'EOF'
 import json, sys
 url, version, date, sig = sys.argv[1:5]
@@ -39,9 +48,11 @@ json.dump({
 EOF
 
 echo "==> 创建 GitHub Release v$VERSION"
+# 注意：紧邻全角字符的版本变量必须写成 ${VERSION}——macOS 自带 bash 3.2
+# 的多字节解析 bug 会把后续 CJK 字符的字节吞进变量名（unbound variable）
 gh release create "v$VERSION" \
-  "$BUNDLE/dmg/微墨·豆瓣_${VERSION}_aarch64.dmg" \
-  "$APP_TGZ" "$APP_TGZ.sig" latest.json \
+  "$DMG_ASCII" \
+  "$TGZ_ASCII" "$TGZ_ASCII.sig" latest.json \
   --title "微墨·豆瓣 App v$VERSION" \
-  --notes "微墨·豆瓣桌面 App v$VERSION（darwin-aarch64）。已装旧版者经托盘「检查更新」或启动自检自动升级；新安装请下载 dmg。"
-echo "==> 发布完成：v$VERSION（latest.json 已随 release 上传，默认端点即可发现新版本）"
+  --notes "微墨·豆瓣桌面 App v${VERSION}（darwin-aarch64）。已装旧版者经托盘「检查更新」或启动自检自动升级；新安装请下载 dmg。"
+echo "==> 发布完成：v${VERSION}（latest.json 已随 release 上传，默认端点即可发现新版本）"
