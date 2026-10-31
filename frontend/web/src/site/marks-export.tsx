@@ -76,7 +76,10 @@ function downloadTextFile(filename: string, content: string, mime: string) {
   anchor.href = url
   anchor.download = filename
   anchor.click()
-  URL.revokeObjectURL(url)
+  // 立即 revoke 在 WebKit 系（Safari / macOS App 的 WKWebView）会让刚
+  // 起步的下载按 URL 取不到 blob 内容而失败——click 只是异步发起，宿主
+  // 稍后才回读；延迟释放对 Chrome 等无影响，百 KB 级 CSV 短暂驻留可忽略
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
 /** 全量拉取登录用户的标记（all 合并视图，日期倒序）：循环翻页直到取满

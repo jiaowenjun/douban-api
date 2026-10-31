@@ -22,10 +22,12 @@ mod static_files;
 
 use anyhow::{Context, Result};
 use clap::Parser as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::menu::{Menu, MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::webview::DownloadEvent;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
@@ -119,14 +121,17 @@ fn main() {
 /// 装配并运行内嵌服务器：首启种子 → 后台任务 + API 路由 + /douban/ 静态
 /// 资源 → 创建主窗口（服务就绪前开窗只会砸在一个空端口上）
 async fn run_server(handle: tauri::AppHandle, listener: tokio::net::TcpListener) -> Result<()> {
-    let data_dir = handle.path().app_data_dir().context("获取应用数据目录失败")?;
+    let data_dir = handle
+        .path()
+        .app_data_dir()
+        .context("获取应用数据目录失败")?;
 
     maybe_seed(&handle, &data_dir).await;
 
     // 空参数 parse：忽略 Finder 传入的启动参数（clap 对未知参数会报错），
     // 但保留 SYNC_CRAWL_*/SYNC_SUBJECT_* 等环境变量覆盖（从终端启动时可调参）
-    let mut config = ServerConfig::try_parse_from(["weimo-douban-app"])
-        .context("解析服务器配置失败")?;
+    let mut config =
+        ServerConfig::try_parse_from(["weimo-douban-app"]).context("解析服务器配置失败")?;
     config.bind = listener.local_addr()?.to_string();
     config.data_dir = data_dir;
     // 回环单用户 + 前后端同源：不启用鉴权与 CORS
@@ -158,11 +163,39 @@ fn create_main_window(handle: &tauri::AppHandle, port: u16) {
     let url: tauri::Url = format!("http://127.0.0.1:{port}{WEB_MOUNT}/")
         .parse()
         .expect("窗口地址构造失败");
+
+    // 下载生命周期钩子（标记 CSV 导出走 blob 锚点点击）：不挂时 wry 对
+    // macOS 的下载导航一律 Cancel——App 内点导出实际静默无效；挂上即放行
+    // （默认存系统下载文件夹，重名自动加 (n) 后缀），完成/失败弹窗告知。
+    // macOS 的 Finished 事件 wry 恒不回传最终路径，Requested 阶段先按 url
+    // 记下目的地、Finished 时配对取回（Windows 的 Finished 自带路径优先）
+    let notify_handle = handle.clone();
+    let decided: Arc<Mutex<Option<(String, PathBuf)>>> = Arc::new(Mutex::new(None));
+    let decided_on_request = decided.clone();
     if let Err(error) = WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(url))
         .title("微墨·豆瓣")
         .inner_size(1280.0, 860.0)
         .min_inner_size(960.0, 600.0)
         .focused(true)
+        .on_download(move |_webview, event| match event {
+            DownloadEvent::Requested { url, destination } => {
+                tracing::info!(%url, path = ?destination, "下载开始");
+                *decided_on_request.lock().expect("下载状态锁中毒") =
+                    Some((url.to_string(), destination.clone()));
+                true
+            }
+            DownloadEvent::Finished { url, path, success } => {
+                let fallback = decided
+                    .lock()
+                    .expect("下载状态锁中毒")
+                    .take()
+                    .filter(|(requested_url, _)| *requested_url == url.as_str())
+                    .map(|(_, path)| path);
+                notify_download_done(&notify_handle, success, path.or(fallback).as_deref());
+                true
+            }
+            _ => true,
+        })
         .build()
     {
         // 窗口失败不致命（托盘仍可重试打开），但基本不可能发生
@@ -175,6 +208,69 @@ fn create_main_window(handle: &tauri::AppHandle, port: u16) {
             window.outer_size(),
             window.outer_position()
         );
+    }
+}
+
+// --------------------------------------------------------------------------- //
+// 下载完成提示（CSV 导出等 webview 内下载）
+// --------------------------------------------------------------------------- //
+
+/// 下载结束弹窗：成功告知保存位置，副按钮一键在文件管理器中定位选中；
+/// 失败仅报错。均非阻塞（on_download 回调在 macOS 跑主线程，不能
+/// blocking 等用户点按——与 dialog_ask 的后台线程用法区分）
+fn notify_download_done(handle: &tauri::AppHandle, success: bool, path: Option<&Path>) {
+    if !success {
+        tracing::warn!("下载失败");
+        dialog_error(handle, "下载失败，请重试");
+        return;
+    }
+    let Some(path) = path else {
+        dialog_info(handle, "下载完成，已保存到系统下载文件夹");
+        return;
+    };
+    tracing::info!("下载完成: {}", path.display());
+    let reveal_label = if cfg!(target_os = "macos") {
+        "在访达中显示"
+    } else {
+        "在资源管理器中显示"
+    };
+    let revealed_path = path.to_path_buf();
+    handle
+        .dialog()
+        .message(format!("已保存到：\n{}", path.display()))
+        .title("下载完成")
+        // ok 位（右/主按钮）= 定位文件，取消位 = 关闭；路径含中文与空格，
+        // display() 原样呈现（Explorer/访达均接受未加引号的展示文本）
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            reveal_label.into(),
+            "完成".into(),
+        ))
+        .show(move |reveal| {
+            if reveal {
+                reveal_in_file_manager(&revealed_path);
+            }
+        });
+}
+
+/// 在系统文件管理器中定位并选中文件（只选中不打开）：macOS 用 open -R，
+/// Windows 用 explorer /select,（opener crate 同款做法），其余平台忽略
+fn reveal_in_file_manager(path: &Path) {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg("-R").arg(path);
+        command
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer");
+        command.arg(format!("/select,{}", path.display()));
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new("true");
+    if let Err(error) = command.status() {
+        tracing::warn!("打开文件位置失败: {error}");
     }
 }
 
@@ -347,9 +443,12 @@ async fn check_update(handle: tauri::AppHandle, manual: bool) {
         }
     }
     if let Err(error) = update
-        .download_and_install(|_, _| {}, || {
-            tracing::info!("更新包下载完成，开始安装");
-        })
+        .download_and_install(
+            |_, _| {},
+            || {
+                tracing::info!("更新包下载完成，开始安装");
+            },
+        )
         .await
     {
         tracing::error!("更新安装失败: {error}");
@@ -380,7 +479,10 @@ async fn dialog_ask(handle: &tauri::AppHandle, title: &str, message: &str) -> bo
         .dialog()
         .message(message)
         .title(title)
-        .buttons(MessageDialogButtons::OkCancelCustom("确定".into(), "取消".into()))
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "确定".into(),
+            "取消".into(),
+        ))
         .show(move |ok| {
             let _ = send.send(ok);
         });
