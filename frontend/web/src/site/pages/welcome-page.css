@@ -84,50 +84,6 @@
   line-height: 1.7;
 }
 
-/* 次要卖点网格小节：标题居中，卡片 auto-fit 自适应列 */
-.welcome-page__section {
-  max-width: 1080px;
-  width: 100%;
-  margin-inline: auto;
-}
-
-.welcome-page__section-title {
-  margin: 8px 0 20px;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  text-align: center;
-  color: var(--color-text-primary);
-}
-
-.welcome-page__grid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.welcome-page__card {
-  display: grid;
-  gap: 6px;
-  padding: calc(var(--space-card-pad, 13px) * 1.3);
-  align-content: start;
-}
-
-.welcome-page__card-icon {
-  color: var(--color-primary, hsl(var(--primary)));
-}
-
-.welcome-page__card-title {
-  font-weight: 650;
-  color: var(--color-text-primary);
-}
-
-.welcome-page__card-desc {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.65;
-}
-
 /* 页脚：居中弱化小字，链接继承文字色加下划线区分 */
 .welcome-page__footer {
   max-width: 1080px;

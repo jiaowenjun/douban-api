@@ -1,14 +1,4 @@
-import {
-  Apple,
-  ArrowRight,
-  Globe,
-  Image as ImageIcon,
-  Monitor,
-  Moon,
-  RefreshCw,
-  Server,
-  Sparkles,
-} from 'lucide-react'
+import { Apple, ArrowRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
@@ -16,6 +6,7 @@ import { TextButton } from 'weimo-ui-core/components/text-button'
 import { MiniSiteTemplate } from 'weimo-ui-template/components/mini-site-template'
 
 import { useDoubanUser } from '../douban-user'
+import appIcon from './assets/app-icon.svg'
 import facetFilterDark from './assets/facet-filter-dark.png'
 import facetFilterLight from './assets/facet-filter-light.png'
 import marksOverviewDark from './assets/marks-overview-dark.png'
@@ -25,46 +16,6 @@ import ratingFilterLight from './assets/rating-filter-light.png'
 import sidebarStatsDark from './assets/sidebar-stats-dark.png'
 import sidebarStatsLight from './assets/sidebar-stats-light.png'
 import './welcome-page.css'
-
-/** 次要卖点卡：图标 + 标题 + 一句话描述，纯文案网格 */
-const HIGHLIGHTS = [
-  {
-    icon: Globe,
-    title: '免登录抓取',
-    description: '直读豆瓣公开收藏页，无需账号与 Cookie，标记与短评一并入库。',
-  },
-  {
-    icon: RefreshCw,
-    title: '自动增量同步',
-    description: '订阅轮询 + 维度缓存，只抓变化的部分；全局限速与熔断保护豆瓣侧。',
-  },
-  {
-    icon: Sparkles,
-    title: '条目元信息富集',
-    description: '年份 / 导演 / 主演 / 类型自动补全，跨用户共享缓存，越用越快。',
-  },
-  {
-    icon: ImageIcon,
-    title: '封面代理防裂图',
-    description: '绕开豆瓣 CDN 防盗链并磁盘缓存，列表封面即刷即出，告别裂图。',
-  },
-  {
-    icon: Moon,
-    title: '明暗双主题',
-    description:
-      '浅色清爽、深色护眼，默认跟随系统自动切换——本页截图正随你的系统主题实时切换。',
-  },
-  {
-    icon: Server,
-    title: '单二进制自托管',
-    description: 'Rust 编译为单个可执行文件，一个数据目录就是全部状态，随处部署。',
-  },
-  {
-    icon: Monitor,
-    title: 'macOS 菜单栏 App',
-    description: 'Tauri 全栈封装：首启快照种子、菜单栏常驻、GitHub Releases 自动更新。',
-  },
-] as const
 
 /** 主卖点小节：图文行（当前主题截图 + 标题描述），相邻小节左右交替 */
 const FEATURES = [
@@ -189,22 +140,6 @@ export function WelcomePage() {
           </div>
         </section>
       ))}
-
-      <section className="welcome-page__section">
-        <h2 className="welcome-page__section-title">为什么选微墨·豆瓣</h2>
-        <div className="welcome-page__grid">
-          {HIGHLIGHTS.map(({ icon: Icon, title, description }) => (
-            <div
-              className={getCardSurfaceClassName('welcome-page__card')}
-              key={title}
-            >
-              <Icon aria-hidden className="welcome-page__card-icon" size={20} />
-              <div className="welcome-page__card-title">{title}</div>
-              <p className="welcome-page__card-desc">{description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
 
       <footer className="welcome-page__footer">
         <span>开源仓库：</span>
