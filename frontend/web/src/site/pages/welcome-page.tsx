@@ -4,21 +4,26 @@ import {
   Globe,
   Image as ImageIcon,
   Monitor,
+  Moon,
   RefreshCw,
   Server,
   Sparkles,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
 import { TextButton } from 'weimo-ui-core/components/text-button'
 import { MiniSiteTemplate } from 'weimo-ui-template/components/mini-site-template'
 
 import { useDoubanUser } from '../douban-user'
-import darkThemeShot from './assets/dark-theme.png'
-import facetFilterShot from './assets/facet-filter.png'
-import marksOverviewShot from './assets/marks-overview.png'
-import ratingFilterShot from './assets/rating-filter.png'
-import sidebarStatsShot from './assets/sidebar-stats.png'
+import facetFilterDark from './assets/facet-filter-dark.png'
+import facetFilterLight from './assets/facet-filter-light.png'
+import marksOverviewDark from './assets/marks-overview-dark.png'
+import marksOverviewLight from './assets/marks-overview-light.png'
+import ratingFilterDark from './assets/rating-filter-dark.png'
+import ratingFilterLight from './assets/rating-filter-light.png'
+import sidebarStatsDark from './assets/sidebar-stats-dark.png'
+import sidebarStatsLight from './assets/sidebar-stats-light.png'
 import './welcome-page.css'
 
 /** 次要卖点卡：图标 + 标题 + 一句话描述，纯文案网格 */
@@ -44,6 +49,12 @@ const HIGHLIGHTS = [
     description: '绕开豆瓣 CDN 防盗链并磁盘缓存，列表封面即刷即出，告别裂图。',
   },
   {
+    icon: Moon,
+    title: '明暗双主题',
+    description:
+      '浅色清爽、深色护眼，默认跟随系统自动切换——本页截图正随你的系统主题实时切换。',
+  },
+  {
     icon: Server,
     title: '单二进制自托管',
     description: 'Rust 编译为单个可执行文件，一个数据目录就是全部状态，随处部署。',
@@ -55,6 +66,37 @@ const HIGHLIGHTS = [
   },
 ] as const
 
+/** 主卖点小节：图文行（当前主题截图 + 标题描述），相邻小节左右交替 */
+const FEATURES = [
+  {
+    shotAlt: '侧边栏统计与活动热力图：影视、图书、音乐三类计数与近十三周标记热力格',
+    shotDark: sidebarStatsDark,
+    shotLight: sidebarStatsLight,
+    tall: true,
+    title: '全景统计，一目了然',
+    description:
+      '三类计数与十三周活动热力图常驻侧栏，你的观看节奏一眼可读；标记卡片保留标记日期，我的评分与豆瓣评分双星对照。',
+  },
+  {
+    shotAlt: '分面筛选树：电影按中国大陆筛选，顶栏面包屑与列表联动',
+    shotDark: facetFilterDark,
+    shotLight: facetFilterLight,
+    tall: false,
+    title: '分面筛选树，一步直达',
+    description:
+      '类别 → 维度 → 值三级下钻：地区、类型、年代、导演、主演……点开即筛；筛选路径化作顶栏面包屑，随时回跳任意层级。',
+  },
+  {
+    shotAlt: '全部标记视图按我的五星评分筛选的结果列表',
+    shotDark: ratingFilterDark,
+    shotLight: ratingFilterLight,
+    tall: false,
+    title: '评分快捷筛选',
+    description:
+      '我的五星标记、四星标记、三分及以下——「全部标记」视图按你的评分一键分档，好片烂片各归其位。',
+  },
+] as const
+
 /** 桌面 App 版本与下载地址：版本号与 app/tauri.conf.json 的 version 保持
  *  同步；dmg 资产名是 release.sh 统一的 ASCII 前缀（gh 上传会剥掉 CJK
  *  文件名，此处的 latest/download 直链按产物名精确匹配） */
@@ -62,49 +104,33 @@ const APP_VERSION = '0.4.0'
 const APP_DMG_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_aarch64.dmg`
 const APP_RELEASES_URL = 'https://github.com/jiaowenjun/weimo-douban/releases'
 
-/** 主卖点小节：图文行（截图 + 标题描述），相邻小节左右交替 */
-const FEATURES = [
-  {
-    shot: sidebarStatsShot,
-    shotAlt: '侧边栏统计与活动热力图：影视、图书、音乐三类计数与近十三周标记热力格',
-    tall: true,
-    title: '全景统计，一目了然',
-    description:
-      '三类计数与十三周活动热力图常驻侧栏，你的观看节奏一眼可读；标记卡片保留标记日期，我的评分与豆瓣评分双星对照。',
-  },
-  {
-    shot: facetFilterShot,
-    shotAlt: '分面筛选树：电影按中国大陆筛选，顶栏面包屑与列表联动',
-    tall: false,
-    title: '分面筛选树，一步直达',
-    description:
-      '类别 → 维度 → 值三级下钻：地区、类型、年代、导演、主演……点开即筛；筛选路径化作顶栏面包屑，随时回跳任意层级。',
-  },
-  {
-    shot: ratingFilterShot,
-    shotAlt: '全部标记视图按我的五星评分筛选的结果列表',
-    tall: false,
-    title: '评分快捷筛选',
-    description:
-      '我的五星标记、四星标记、三分及以下——「全部标记」视图按你的评分一键分档，好片烂片各归其位。',
-  },
-  {
-    shot: darkThemeShot,
-    shotAlt: '深色主题下的标记列表：展开卡片与折叠卡片混排',
-    tall: false,
-    title: '明暗双主题',
-    description:
-      '浅色清爽、深色护眼，默认跟随系统自动切换；上图即应用实拍，两种主题同一套组件渲染，观感一致。',
-  },
-] as const
+/** 当前实际生效主题是否为深色：模板主题（跟随系统或顶栏手动切换）最终
+ *  都同步到 html.dark 类，观测根类名即唯一事实源——MutationObserver 监听
+ *  class 变化，系统主题增删与手动切换均实时驱动截图换图（亮主题只显亮
+ *  色截图、暗主题只显暗色截图，页面永不混排两套主题的实拍） */
+function useAppliedDarkTheme(): boolean {
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains('dark'),
+  )
+  useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => {
+      setDark(root.classList.contains('dark'))
+    })
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+  return dark
+}
 
 /** 欢迎页（营销页）：`/` 根路径的门面。MiniSiteTemplate 无侧边栏单页壳
  *  （hero 标题区 + 全宽内容），展示卖点与真实界面截图；CTA 按登录态换
- *  文案进入标记列表。截图为 1280×850 视口实拍，经 import 引用随生产
- *  base（/douban/）重写资源地址 */
+ *  文案进入标记列表。截图按当前生效主题成对提供（*-light/*-dark 各一套
+ *  实拍，1280×850），经 import 引用随生产 base（/douban/）重写资源地址 */
 export function WelcomePage() {
   const navigate = useNavigate()
   const { uid } = useDoubanUser()
+  const dark = useAppliedDarkTheme()
 
   return (
     <MiniSiteTemplate
@@ -135,7 +161,7 @@ export function WelcomePage() {
       <figure className={getCardSurfaceClassName('welcome-page__shot')}>
         <img
           alt="标记列表页全景：侧边栏统计与筛选树、顶栏面包屑、封面与双星评分的标记卡片"
-          src={marksOverviewShot}
+          src={dark ? marksOverviewDark : marksOverviewLight}
         />
         <figcaption>
           标记列表：封面、双星评分、条目元信息与富文本短评，逐卡折叠展开
@@ -151,7 +177,10 @@ export function WelcomePage() {
                 : 'welcome-page__shot',
             )}
           >
-            <img alt={feature.shotAlt} src={feature.shot} />
+            <img
+              alt={feature.shotAlt}
+              src={dark ? feature.shotDark : feature.shotLight}
+            />
           </figure>
           <div className="welcome-page__feature-text">
             <h3>{feature.title}</h3>

@@ -14,20 +14,20 @@ test('parseStoredSiteSettings 回落默认：空值/坏 JSON/非对象', () => {
 })
 
 test('parseStoredSiteSettings 字段级容错：非法字段回落默认、合法字段保留', () => {
-  // defaultMetaExpanded 类型非法：仅该字段回落，其余合法字段保留
+  // defaultMetaExpanded 类型非法：仅该字段回落（默认 true 展开），其余合法字段保留
   assert.deepEqual(
     parseStoredSiteSettings('{"defaultMetaExpanded":"yes","collapsedTitleAlign":"left"}'),
-    { defaultMetaExpanded: false, collapsedTitleAlign: 'left' },
+    { defaultMetaExpanded: true, collapsedTitleAlign: 'left' },
   )
-  // collapsedTitleAlign 取值非法（不在枚举内）：仅该字段回落
+  // collapsedTitleAlign 取值非法（不在枚举内）：仅该字段回落（默认 left）
   assert.deepEqual(
     parseStoredSiteSettings('{"defaultMetaExpanded":true,"collapsedTitleAlign":"right"}'),
-    { defaultMetaExpanded: true, collapsedTitleAlign: 'center' },
+    { defaultMetaExpanded: true, collapsedTitleAlign: 'left' },
   )
   // 旧版本存档缺新字段：缺省字段回落默认，不废弃整个存档
   assert.deepEqual(parseStoredSiteSettings('{"defaultMetaExpanded":true}'), {
     defaultMetaExpanded: true,
-    collapsedTitleAlign: 'center',
+    collapsedTitleAlign: 'left',
   })
 })
 

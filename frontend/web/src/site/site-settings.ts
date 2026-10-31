@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 
 export const SITE_SETTINGS_STORAGE_KEY = 'weimo-douban:settings'
 
-/** 折叠态标题行水平对齐：居中（默认，原版观感）/ 左对齐 */
+/** 折叠态标题行水平对齐：左对齐（默认，与展开态标题起点连贯）/ 居中 */
 export type CollapsedTitleAlign = 'center' | 'left'
 
 export type SiteSettings = {
@@ -13,8 +13,8 @@ export type SiteSettings = {
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
-  defaultMetaExpanded: false,
-  collapsedTitleAlign: 'center',
+  defaultMetaExpanded: true,
+  collapsedTitleAlign: 'left',
 }
 
 export type SiteSettingsValue = {
