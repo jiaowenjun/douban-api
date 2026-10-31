@@ -21,6 +21,16 @@ const APP_VERSION = '0.4.1'
 const APP_DMG_URL = `https://github.com/jiaowenjun/weimo-douban/releases/latest/download/weimo-douban_${APP_VERSION}_aarch64.dmg`
 const REPO_URL = 'https://github.com/jiaowenjun/weimo-douban'
 
+/** 是否运行在 Tauri 桌面 App 壳内：Tauri 2 对壳内每个 webview（含
+ *  External URL，窗口加载的是内嵌服务器的 http://127.0.0.1/douban/）在
+ *  文档起始注入 window.isTauri=true，先于页面任何脚本、React 渲染时必然
+ *  已就绪；普通浏览器（线上站点与本地 dev）永不定义——同一份构建产物
+ *  零配置区分两端，App 内隐藏仅网页端有意义的内容（下载 CTA 与 GitHub
+ *  入口，桌面端各自有更新器与源码仓库）。进程内恒定，模块级求值即可 */
+const IN_TAURI_APP =
+  typeof window !== 'undefined' &&
+  (window as { isTauri?: boolean }).isTauri === true
+
 /** 当前实际生效主题是否为深色：模板主题最终都同步到 html.dark 类，观测
  *  根类名即唯一事实源——MutationObserver 监听 class 变化，系统主题增删
  *  实时驱动截图换图（亮主题只显亮色截图、暗主题只显暗色截图，页面永不
@@ -103,13 +113,17 @@ export function WelcomePage() {
       showThemeToggle={false}
       subheadline="免登录，自托管，亮暗主题自适应"
       topBarActions={
-        <FrostedIconButton
-          aria-label="GitHub 仓库"
-          onClick={() => window.open(REPO_URL, '_blank', 'noopener,noreferrer')}
-          tooltip="GitHub 仓库"
-        >
-          <GitHubIcon />
-        </FrostedIconButton>
+        // GitHub 入口仅网页端：桌面端用户从安装包获得 App、更新走内建
+        // 更新器，仓库链接无意义（topBarActions 本是可选插槽，缺省即空）
+        IN_TAURI_APP ? undefined : (
+          <FrostedIconButton
+            aria-label="GitHub 仓库"
+            onClick={() => window.open(REPO_URL, '_blank', 'noopener,noreferrer')}
+            tooltip="GitHub 仓库"
+          >
+            <GitHubIcon />
+          </FrostedIconButton>
+        )
       }
       topBarLeading={
         <span className="welcome-page__brand">
@@ -133,13 +147,17 @@ export function WelcomePage() {
           {uid ? '进入我的标记' : '进入标记列表'}
           <ArrowRight aria-hidden size={16} />
         </TextButton>
-        {/* 借用 text-button 组件类渲染真链接：下载 CTA 需要真实
-         * href（右键另存/新标签直下），dmg 直链由浏览器下载不离开本页；
-         *  无 data-variant 即默认实心，与左侧进入按钮同款 */}
-        <a className="text-button" href={APP_DMG_URL}>
-          <AppleLogo size={16} />
-          Mac 客户端
-        </a>
+        {/* 下载 CTA 仅网页端：桌面端已在 App 内，下载按钮无意义（隐藏
+         *  后剩单按钮，flex 居中布局天然成立）。借用 text-button 组件类
+         *  渲染真链接：下载需要真实 href（右键另存/新标签直下），dmg 直链
+         *  由浏览器下载不离开本页；无 data-variant 即默认实心，与左侧
+         *  进入按钮同款 */}
+        {!IN_TAURI_APP && (
+          <a className="text-button" href={APP_DMG_URL}>
+            <AppleLogo size={16} />
+            Mac 客户端
+          </a>
+        )}
       </div>
 
       <figure
