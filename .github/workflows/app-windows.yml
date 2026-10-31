@@ -32,6 +32,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          # setup-node 的 pnpm 缓存默认只找仓库根 pnpm-lock.yaml，本仓锁文件
+          # 在 app/ 与 frontend/web/ 两处子目录（无 workspace 根），须显式指定
+          cache-dependency-path: |
+            app/pnpm-lock.yaml
+            frontend/web/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
 
