@@ -1,0 +1,22 @@
+[package]
+name = "weimo-douban-app"
+version = "0.3.0"
+edition = "2021"
+description = "微末·豆瓣书影音 macOS 桌面 App（Tauri 壳 + 内嵌同步服务器）"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+weimo-douban = { path = "../backend" }
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+mime_guess = "2"
+rust-embed = { version = "8", features = ["debug-embed"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

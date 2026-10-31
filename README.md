@@ -49,6 +49,17 @@ curl -H "Authorization: Bearer my-secret" \
 
 缓存恢复、内容版本、HTTP 条件请求及全量同步快照策略见 [缓存与同步策略.md](缓存与同步策略.md)。
 
+## macOS 桌面 App（app/）
+
+Tauri 2 全栈封装：backend 以 lib 内嵌、前端 dist 编进二进制，单进程在回环随机端口同时服务 API 与静态资源，窗口加载同源 `/douban/`——零 CORS、零跨进程、不依赖线上服务器：
+
+```bash
+pnpm --dir app install
+pnpm --dir app tauri build   # 产出 .app 与 .dmg
+```
+
+详见 [app/README.md](app/README.md)。
+
 ## 管理后台（frontend/admin/）
 
 服务器自带一个 Ant Design Pro 风格的管理页面（Vite + React + pnpm），提供概览监控、抓取任务的创建/进度、库内数据浏览：
