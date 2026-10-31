@@ -29,13 +29,31 @@
   margin-right: auto;
 }
 
-/* 当前账号行：头像 + 用户名（ID 在输入框里已有，不再重复 @uid；
-   后端未同步过该用户时无头像/用户名，回退 uid 作用户名展示） */
+/* 输入区：无预览单列整行；有预览（--split）输入框 1fr 弹性占余、预览
+   auto 按内容收缩——轨道在外层分配，免受 account padding/边框的
+   box-sizing 干扰；stretch 等高 */
+.login-dialog__row {
+  display: grid;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.login-dialog__row--split {
+  /* fit-content(60%)：预览按内容收缩、以行宽 60% 封顶（百分比对容器
+     解析）——防超长用户名把输入框挤到不可用。不能在 account 上用
+     max-width:%，百分比在内容尺寸轨道里循环解析、固有尺寸阶段按 0，
+     实测会把盒子压到只剩头像 */
+  grid-template-columns: 1fr fit-content(60%);
+}
+
+/* 验证预览（行内右半）：头像 + 用户名，内容右对齐——贴着盒子右缘与
+   行尾呼应（ID 在输入框里已有，不再重复 @uid；后端未同步过该用户时
+   无头像/用户名，回退 uid 作用户名展示；封顶时名字段 ellipsis 接住） */
 .login-dialog__account {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 14px;
   padding: 8px 10px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);

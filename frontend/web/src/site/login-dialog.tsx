@@ -132,7 +132,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
     navigate('/')
   }
 
-  // 预览行：验证通过的身份优先（将要备份的是谁）；未改动草稿且已登录时
+  // 预览区：验证通过的身份优先（将要备份的是谁，行内右半）；未改动草稿且已登录时
   // 展示当前账号；改动了新 ID 尚未验证则空白（不给错误暗示）
   const preview: DoubanProfile | null =
     verify.phase === 'verified'
@@ -149,37 +149,45 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
             <DialogTitle>请输入你的豆瓣 ID</DialogTitle>
           </DialogHeader>
           <DialogPanel>
-            {preview ? (
-              <div className="login-dialog__account">
-                {preview.avatar ? (
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="login-dialog__account-avatar"
-                    src={resolveApiUrl(preview.avatar)}
-                  />
-                ) : (
-                  <UserRound
-                    aria-hidden="true"
-                    className="login-dialog__account-avatar"
-                  />
-                )}
-                <span className="login-dialog__account-name">
-                  {preview.username || preview.uid}
-                </span>
-              </div>
-            ) : null}
-            <label className="login-dialog__field">
-              <input
-                className="login-dialog__input"
-                name="douban-uid"
-                onChange={(event) => handleDraftChange(event.target.value)}
-                onKeyDown={handleInputKeyDown}
-                placeholder="如：wenjun30"
-                type="text"
-                value={draft}
-              />
-            </label>
+            <div
+              className={
+                preview
+                  ? 'login-dialog__row login-dialog__row--split'
+                  : 'login-dialog__row'
+              }
+            >
+              <label className="login-dialog__field">
+                <input
+                  className="login-dialog__input"
+                  name="douban-uid"
+                  onChange={(event) => handleDraftChange(event.target.value)}
+                  onKeyDown={handleInputKeyDown}
+                  placeholder="如：wenjun30"
+                  type="text"
+                  value={draft}
+                />
+              </label>
+              {preview ? (
+                <div className="login-dialog__account">
+                  {preview.avatar ? (
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="login-dialog__account-avatar"
+                      src={resolveApiUrl(preview.avatar)}
+                    />
+                  ) : (
+                    <UserRound
+                      aria-hidden="true"
+                      className="login-dialog__account-avatar"
+                    />
+                  )}
+                  <span className="login-dialog__account-name">
+                    {preview.username || preview.uid}
+                  </span>
+                </div>
+              ) : null}
+            </div>
             {verify.phase === 'error' ? (
               <p className="login-dialog__error" role="alert">
                 {verify.message}
