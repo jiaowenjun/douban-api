@@ -311,7 +311,7 @@ export async function triggerDoubanFirstSync(
 }
 
 // --------------------------------------------------------------------------- //
-// /users/{uid}/verify（登录框「测试」按钮）
+// /users/{uid}/verify（登录框「验证 ID」按钮）
 // --------------------------------------------------------------------------- //
 
 /** verify 失败语义：not-found=ID 不对、unavailable=豆瓣侧故障、
@@ -322,7 +322,7 @@ export type DoubanVerifyResult =
   | { ok: true; data: DoubanProfile }
   | { ok: false; kind: DoubanVerifyErrorKind; message: string }
 
-/** 测试豆瓣 ID（POST /users/{uid}/verify）：后端本地已入库直接返回
+/** 验证豆瓣 ID（POST /users/{uid}/verify）：后端本地已入库直接返回
  *  （零豆瓣请求，曾同步/曾验证过的 uid 毫秒级命中），否则抓一页收藏页
  *  验证、资料入库后返回。错误按 code 分类供文案分派，不抛错 */
 export async function verifyDoubanUser(uid: string): Promise<DoubanVerifyResult> {

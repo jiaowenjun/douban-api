@@ -22,7 +22,7 @@ type LoginDialogProps = {
   open: boolean
 }
 
-/** 测试态错误文案（后端 message 是通用措辞，这里按定稿口径覆盖） */
+/** 验证失败的展示文案（后端 message 是通用措辞，这里按定稿口径覆盖） */
 const VERIFY_ERROR_COPY: Record<DoubanVerifyErrorKind, string> = {
   'not-found': '未找到该用户，请检查 ID 是否正确',
   unavailable: '豆瓣暂时无法访问，请稍后再试',
@@ -30,9 +30,9 @@ const VERIFY_ERROR_COPY: Record<DoubanVerifyErrorKind, string> = {
   error: '服务暂不可用，请稍后再试',
 }
 
-/** 验证状态机：unverified（按钮=测试）→ testing → verified（按钮=开始备份）
- *  / error（行内提示，按钮回测试）。修改输入即过期退回 unverified，
- *  新值需重新测试（曾验证过的 ID 走后端本地捷径毫秒过） */
+/** 验证状态机：unverified（按钮=验证 ID）→ testing（验证中…）→ verified（按钮=开始备份）
+ *  / error（行内提示，按钮回验证 ID）。修改输入即过期退回 unverified，
+ *  新值需重新验证（曾验证过的 ID 走后端本地捷径毫秒过） */
 type VerifyState =
   | { phase: 'unverified' }
   | { phase: 'testing' }
@@ -40,7 +40,7 @@ type VerifyState =
   | { phase: 'error'; message: string }
 
 /** 豆瓣 ID 对话框：输入豆瓣用户 ID 作为站点身份（全程免账号密码，与
- *  欢迎页「免登录」口径一致），测试通过展示头像/用户名预览、开始
+ *  欢迎页「免登录」口径一致），验证通过展示头像/用户名预览、开始
  *  备份后侧边栏身份栏立即有资料；已填时可切换或清除；底部「返回」关框
  *  并退回欢迎页（未填误入内容页的退路） */
 export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
@@ -48,7 +48,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   const [verify, setVerify] = useState<VerifyState>({ phase: 'unverified' })
-  // 竞态守卫：每次发起测试自增；编辑输入同样自增作废在途响应，
+  // 竞态守卫：每次发起验证自增；编辑输入同样自增作废在途响应，
   // 迟到的结果（旧 ID 的）不覆盖当前状态
   const testSeqRef = useRef(0)
   // 每次打开时重置草稿与验证态（render 期调整，避免 effect 级联渲染）
@@ -65,7 +65,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
 
   function handleDraftChange(value: string) {
     setDraft(value)
-    // 修改即过期：任何非 unverified 态退回测试态（作废在途响应）；
+    // 修改即过期：任何非 unverified 态退回未验证态（作废在途响应）；
     // 即便改回原值也不再自动恢复——验证过的身份是快照，不是实时推断
     if (verify.phase === 'unverified') return
     testSeqRef.current += 1
@@ -111,7 +111,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   }
 
   // input 的 Enter 不走隐式提交（部分 webview 不触发），显式处理；
-  // 语义跟随主按钮：已验证=开始备份，否则=测试
+  // 语义跟随主按钮：已验证=开始备份，否则=验证 ID
   function handleInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== 'Enter') return
     event.preventDefault()
@@ -132,8 +132,8 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
     navigate('/')
   }
 
-  // 预览行：测试通过的身份优先（将要备份的是谁）；未改动草稿且已登录时
-  // 展示当前账号；改动了新 ID 尚未测试则空白（待验证，不给错误暗示）
+  // 预览行：验证通过的身份优先（将要备份的是谁）；未改动草稿且已登录时
+  // 展示当前账号；改动了新 ID 尚未验证则空白（不给错误暗示）
   const preview: DoubanProfile | null =
     verify.phase === 'verified'
       ? verify.profile
@@ -209,7 +209,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
                 onClick={() => void runTest()}
                 type="button"
               >
-                {verify.phase === 'testing' ? '测试中…' : '测试'}
+                {verify.phase === 'testing' ? '验证中…' : '验证 ID'}
               </TextButton>
             )}
           </DialogFooter>

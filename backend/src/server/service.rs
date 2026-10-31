@@ -183,7 +183,7 @@ async fn load_user_profile(pool: &SqlitePool, uid: &str) -> AppResult<Option<Use
     }))
 }
 
-/// 测试豆瓣 ID（登录框「测试」按钮）：本地已入库直接返回（曾同步/曾
+/// 验证豆瓣 ID（登录框「验证 ID」按钮）：本地已入库直接返回（曾同步/曾
 /// 验证过的 uid 零外呼）；否则抓一页收藏页（movie/collect 第 1 页），
 /// 解析顶部资料块（头像/用户名）upsert 入库并返回——保存后侧边栏身份
 /// 栏立即有资料可展示，不必等同步任务跑完第一页。
