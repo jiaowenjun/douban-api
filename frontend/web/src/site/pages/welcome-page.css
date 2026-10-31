@@ -3,7 +3,7 @@
    提供，本文件只管布局与排版，token 口径对齐 settings-page.css */
 
 /* 模板 __content 追加类：纵向节奏沿用模板 gutter gap（hero wrapper 内
- * CTA 起步，各小节自持宽度居中收拢） */
+ * CTA 起步，主截图自持宽度居中收拢） */
 .welcome-page {
   padding-block-end: 24px;
 }
@@ -44,9 +44,7 @@
   gap: 6px;
 }
 
-/* 截图容器：card-surface 材质 + 小内衬，图片铺满宽；--tall 用于竖条
- * 特写（侧栏统计 344×850），按定高 cover 裁剪、顶端对齐保住统计与热
- * 力图区；其余横图 height:auto 原比例呈现 */
+/* 截图容器：card-surface 材质 + 小内衬，图片铺满宽、height:auto 原比例呈现 */
 .welcome-page__shot {
   padding: 8px;
 }
@@ -64,58 +62,4 @@
   width: 100%;
   height: auto;
   border-radius: calc(var(--radius-sm, 10px) - 4px);
-}
-
-.welcome-page__shot--tall img {
-  height: 440px;
-  object-fit: cover;
-  object-position: top;
-}
-
-/* 主卖点小节：图文两列（图 7 文 5），相邻小节左右交替（奇偶反序） */
-.welcome-page__feature {
-  display: grid;
-  max-width: 1080px;
-  width: 100%;
-  margin-inline: auto;
-  align-items: center;
-  gap: 32px;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-}
-
-.welcome-page__feature:nth-of-type(even) {
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-}
-
-.welcome-page__feature:nth-of-type(even) .welcome-page__feature-text {
-  order: -1;
-}
-
-.welcome-page__feature-text h3 {
-  margin: 0 0 10px;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-
-.welcome-page__feature-text p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  line-height: 1.7;
-}
-
-/* 窄屏：图文行纵排（图上文下、取消交替反序），竖条特写放宽取景高度 */
-@media (max-width: 899px) {
-  .welcome-page__feature,
-  .welcome-page__feature:nth-of-type(even) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .welcome-page__feature:nth-of-type(even) .welcome-page__feature-text {
-    order: 0;
-  }
-
-  .welcome-page__shot--tall img {
-    height: 320px;
-  }
 }
