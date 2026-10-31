@@ -99,6 +99,25 @@
   border: 1px dashed var(--color-border);
 }
 
+/* 封面重试耗尽：空占位骨架上居中一个手动重试按钮 */
+.mark-card__cover--failed {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mark-card__cover-failed-image {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mark-card__cover--failed > button {
+  position: relative;
+  z-index: 1;
+}
+
 .mark-card__info {
   display: grid;
   gap: 2px;

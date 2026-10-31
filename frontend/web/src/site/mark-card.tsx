@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronRight, RotateCw } from 'lucide-react'
 
 import { getCardSurfaceClassName } from 'weimo-ui-core/components/card-surface'
 import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
@@ -107,6 +107,74 @@ type Flight = {
   clone: HTMLElement
   fromEl: HTMLElement
   toEl: HTMLElement
+}
+
+/** 封面自动重试上限与逐次延迟 */
+const COVER_RETRY_MAX = 2
+const COVER_RETRY_DELAYS_MS = [500, 1500]
+
+/** 封面图（含失败恢复）：加载失败自动限次延迟重试——重试请求在代理
+ *  URL 外层追加 _r=N 显式改变资源地址，不依赖浏览器对相同 src 重新渲染
+ *  的处理（_r 不动 u 与鉴权参数，后端 covers 端点忽略未知参数）；重试
+ *  耗尽切换占位骨架与手动重试按钮。调用处以 key=cover 挂载，封面源
+ *  变化即整体重挂载重置；卸载清理挂起的重试定时器 */
+function MarkCover({ cover, title }: { cover: string; title: string }) {
+  const [attempt, setAttempt] = useState(0)
+  const [failed, setFailed] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== undefined) {
+      clearTimeout(timerRef.current)
+      timerRef.current = undefined
+    }
+  }, [])
+  useEffect(() => clearTimer, [clearTimer])
+
+  const reset = () => {
+    clearTimer()
+    setAttempt(0)
+    setFailed(false)
+  }
+
+  if (failed) {
+    return (
+      <div
+        aria-label={`${title} 封面未能加载`}
+        className="mark-card__cover mark-card__cover--empty mark-card__cover--failed"
+        role="group"
+      >
+        <span
+          aria-label={`${title} 封面未能加载`}
+          className="mark-card__cover-failed-image"
+          role="img"
+        />
+        <GhostIconButton aria-label="重新加载封面" onClick={reset} size="sm" type="button">
+          <RotateCw aria-hidden="true" />
+        </GhostIconButton>
+      </div>
+    )
+  }
+
+  const baseSrc = resolveApiUrl(cover)
+  return (
+    <img
+      alt=""
+      className="mark-card__cover"
+      loading="lazy"
+      onError={() => {
+        if (attempt >= COVER_RETRY_MAX) {
+          setFailed(true)
+          return
+        }
+        clearTimer()
+        timerRef.current = setTimeout(
+          () => setAttempt(attempt + 1),
+          COVER_RETRY_DELAYS_MS[attempt] ?? COVER_RETRY_DELAYS_MS[COVER_RETRY_DELAYS_MS.length - 1],
+        )
+      }}
+      src={attempt > 0 ? `${baseSrc}${baseSrc.includes('&') ? '&' : '?'}_r=${attempt}` : baseSrc}
+    />
+  )
 }
 
 /** 书影音标记卡片，四段式一级结构：顶部标记行（日期 看过/读过/听
@@ -350,12 +418,7 @@ export function MarkCard({ mark }: MarkCardProps) {
         <div className="mark-card__meta-region" data-expanded={metaExpanded ? 'true' : 'false'}>
           <div className="mark-card__subject">
             {cover ? (
-              <img
-                alt=""
-                className="mark-card__cover"
-                loading="lazy"
-                src={resolveApiUrl(cover)}
-              />
+              <MarkCover cover={cover} key={cover} title={mark.title} />
             ) : (
               <div className="mark-card__cover mark-card__cover--empty" />
             )}
