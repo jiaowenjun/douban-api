@@ -552,10 +552,24 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
                     // refresh：暂存新快照，保留已发布数据
                     refresh_dimension(&state.pool, &uid, cat.key(), st.key(), now).await?;
                 } else {
-                    // idle/error：清错误与计数后入队，保留已有 records/next_start 续爬
+                    // idle/error：清错误与计数后入队，保留已有 records/next_start 续爬。
+                    // staging 取向 = 该维度有没有对外已发布的数据：有（历史完成/直写
+                    // 遗留）继续两阶段发布，抓取期间旧快照一直可读；没有（首发）
+                    // 直写 records——每页落库即 bump 版本，配合查询门禁放行
+                    // running，前端逐页渐进展示。冲突时保留维度现有 staging 标志：
+                    // 中断续爬沿用上次的写入路径，直写遗留与暂存快照不混写
+                    let published: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM records
+                         WHERE uid = ? AND category = ? AND dim_status = ?)",
+                    )
+                    .bind(&uid)
+                    .bind(cat.key())
+                    .bind(st.key())
+                    .fetch_one(&state.pool)
+                    .await?;
                     sqlx::query(
                         "INSERT INTO dimensions (uid, category, dim_status, state, updated_ms, staging)
-                         VALUES (?, ?, ?, 'queued', ?, 1)
+                         VALUES (?, ?, ?, 'queued', ?, ?)
                          ON CONFLICT(uid, category, dim_status) DO UPDATE SET
                             state='queued', attempts=0, next_sync_ms=NULL, last_error=NULL,
                             updated_ms=excluded.updated_ms",
@@ -564,6 +578,7 @@ pub async fn create_task(state: &AppState, input: CreateTaskInput) -> AppResult<
                     .bind(cat.key())
                     .bind(st.key())
                     .bind(now)
+                    .bind(published)
                     .execute(&state.pool)
                     .await?;
                 }
@@ -890,7 +905,10 @@ pub struct MarksPage {
     pub items: Vec<Record>,
 }
 
-/// 维度无已发布快照时返回 DimensionNotCached；刷新中/失败仍读取上次快照。
+/// 维度无已发布快照时返回 DimensionNotCached；刷新中/失败仍读取上次
+/// 快照。首发直写维度放行 running——抓取期间已落库的部分数据即可读
+/// （配合 create_task 的 staging 取向实现逐页渐进展示）；queued（尚未
+/// 抓到任何页）与 error（无已发布数据）仍按未缓存处理。
 pub(super) async fn ensure_dimension_cached(
     state: &AppState,
     uid: &str,
@@ -910,10 +928,12 @@ pub(super) async fn ensure_dimension_cached(
     let Some(row) = row else {
         return Err(AppError::DimensionNotCached);
     };
-    if row.get::<String, _>("state") != "ok" && row.get::<Option<i64>, _>("fetched_ms").is_none() {
+    let dim_state: String = row.get("state");
+    let fetched_ms: Option<i64> = row.get("fetched_ms");
+    if dim_state != "ok" && dim_state != "running" && fetched_ms.is_none() {
         return Err(AppError::DimensionNotCached);
     }
-    Ok(row.get("fetched_ms"))
+    Ok(fetched_ms)
 }
 
 pub async fn read_marks(
@@ -1011,8 +1031,9 @@ pub enum RatingFilter {
     AtMost(i64),
 }
 
-/// 三类别合并分页读：维度门禁放行口径比单类别宽——任一类别已同步即
-/// 返回（已同步部分的记录），三类别全未同步才 DIMENSION_NOT_CACHED；
+/// 三类别合并分页读：维度门禁放行口径比单类别宽——任一类别已同步
+/// （含首发直写 running，已落库部分渐进可读）即返回（已同步部分的记
+/// 录），三类别全未同步才 DIMENSION_NOT_CACHED；
 /// cached_at/fresh 取三维度最近一次抓取。排序与单类别一致
 /// （date DESC, category, subject_id），跨类别按日期自然归并；Record.category 用行
 /// 自身类别（expand=subject 时路由层按它分组查视图）。
@@ -1057,7 +1078,7 @@ pub async fn read_all_marks(
     let total: i64 = sqlx::query_scalar(&format!(
         "SELECT COUNT(*) FROM records WHERE uid = ? AND dim_status = ?{rating_clause}
          AND EXISTS (SELECT 1 FROM dimensions d WHERE d.uid=records.uid AND d.category=records.category
-                     AND d.dim_status=records.dim_status AND (d.state='ok' OR d.fetched_ms IS NOT NULL))"
+                     AND d.dim_status=records.dim_status AND (d.state IN ('ok','running') OR d.fetched_ms IS NOT NULL))"
     ))
     .bind(uid)
     .bind(status.key())
@@ -1070,7 +1091,7 @@ pub async fn read_all_marks(
          FROM records
          WHERE uid = ? AND dim_status = ?{rating_clause}
          AND EXISTS (SELECT 1 FROM dimensions d WHERE d.uid=records.uid AND d.category=records.category
-                     AND d.dim_status=records.dim_status AND (d.state='ok' OR d.fetched_ms IS NOT NULL))
+                     AND d.dim_status=records.dim_status AND (d.state IN ('ok','running') OR d.fetched_ms IS NOT NULL))
          ORDER BY date DESC, category, subject_id
          LIMIT ? OFFSET ?"
     ))

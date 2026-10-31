@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { TextButton } from 'weimo-ui-core/components/text-button'
 
 import type { DoubanMark } from '../api'
-import { DoubanDataQueryError, triggerDoubanFirstSync } from '../api'
+import {
+  DoubanDataQueryError,
+  fetchDoubanSyncTask,
+  triggerDoubanFirstSync,
+} from '../api'
 import { useDoubanUser } from '../douban-user'
 import {
   doubanQueryKeys,
@@ -32,10 +36,36 @@ import './marks-page.css'
 
 const PAGE_SIZE = MARKS_PAGE_SIZE
 
-/** 首发同步会话级去重（跨导航存活）：uid → 触发结果。重复触发本身
- *  无害（后端 single-flight 并入运行中任务），去重只为避免每次导航
- *  到未同步视图都发一次 POST；刷新页面后 Set 清空重触发亦安全 */
-const firstSyncState = new Map<string, 'triggering' | 'syncing' | 'failed'>()
+/** 首发同步会话级状态（跨导航存活）：uid → 进度。triggering=POST 进行
+ *  中；syncing=任务运行中（携带 task_id 供轮询，percent 随轮询回填）；
+ *  done=任务终态（completed/partial/failed），停轮询收起横幅；failed=
+ *  触发失败（回落手动指引文案）。重复触发本身无害（后端 single-flight
+ *  并入运行中任务），会话级去重只为避免每次导航到未同步视图都发一次
+ *  POST；刷新页面后 Map 清空重触发亦安全 */
+type FirstSync =
+  | { phase: 'triggering' }
+  | { phase: 'syncing'; taskId: string; percent?: number }
+  | { phase: 'done' }
+  | { phase: 'failed' }
+
+/** Map 是模块级可变源，组件须经 useSyncExternalStore 订阅读取——render
+ *  期直读会被 React Compiler 按 uid 记忆化，异步回填后重渲染拿的是
+ *  缓存值（横幅/引导文案不切换的根因） */
+const firstSyncState = new Map<string, FirstSync>()
+const firstSyncListeners = new Set<() => void>()
+
+function setFirstSync(uid: string, value: FirstSync) {
+  firstSyncState.set(uid, value)
+  for (const notify of firstSyncListeners) notify()
+}
+
+function subscribeFirstSync(notify: () => void) {
+  firstSyncListeners.add(notify)
+  return () => firstSyncListeners.delete(notify)
+}
+
+/** 后端任务终态（TERMINAL_STATUSES 同款）：到任一终态即停止轮询 */
+const SYNC_TASK_TERMINAL = new Set(['completed', 'partial', 'failed'])
 
 /** RFC3339 → YYYY-MM-DD（cached_at 只取日期粒度即可） */
 function formatDate(iso: string): string {
@@ -180,36 +210,61 @@ export function MarksPage() {
   }, [uid, openLogin])
 
   // 首发同步：数据未同步（not-cached）时自动触发一次自助全量同步，
-  // 成功后展示同步中引导；同步发布时 revision bump → 版本查询感知 →
-  // 版本 key 变化自动重拉，数据无需手动刷新即出现。展示态 render 期
-  // 直读会话级 Map（uid 天然隔离，无切号重置），异步回填后 tick 触发
-  // 重渲染——effect 内不同步 setState（React Compiler 会因此放弃优化
-  // 整个组件）；触发失败本会话不自动重试（刷新页面重走一次）
-  const [, setFirstSyncTick] = useState(0)
-  const syncPhase = uid ? firstSyncState.get(uid) : undefined
+  // 成功后转 syncing（携带 task_id）；进度经 useSyncExternalStore 订阅
+  // 会话级 Map（uid 天然隔离，无切号重置）；触发失败本会话不自动重试
+  // （刷新页面重走一次）
+  const syncPhase = useSyncExternalStore(
+    subscribeFirstSync,
+    () => (uid ? firstSyncState.get(uid) : undefined),
+    () => undefined,
+  )
   useEffect(() => {
     if (state.phase !== 'not-cached' || !uid) return
     if (firstSyncState.has(uid)) return
-    firstSyncState.set(uid, 'triggering')
+    setFirstSync(uid, { phase: 'triggering' })
     void triggerDoubanFirstSync(uid).then((task) => {
-      firstSyncState.set(uid, task ? 'syncing' : 'failed')
-      setFirstSyncTick((tick) => tick + 1)
+      setFirstSync(
+        uid,
+        task ? { phase: 'syncing', taskId: task.task_id } : { phase: 'failed' },
+      )
     })
   }, [state.phase, uid])
 
-  // 同步中每 10s 失效版本查询：发布瞬间尽快感知 revision bump（60s
-  // 常规轮询兜底），版本变化触发全量查询按新 key 自动重拉
+  // 同步中双轮询（3s）：失效版本查询让首发直写的每页落库尽快可见
+  // （revision bump → 版本 key 变化 → 数据查询自动重拉；60s 常规轮询
+  // 兜底），同时查任务终态——到终态停轮询收起横幅。轮询失败静默由
+  // 下一 tick 重试（会话级短生命周期，任务过期清理等场景无谓报错）
+  const syncTaskId = syncPhase?.phase === 'syncing' ? syncPhase.taskId : null
   useEffect(() => {
-    if (state.phase !== 'not-cached' || syncPhase !== 'syncing' || !uid) {
-      return
-    }
+    if (!syncTaskId || !uid) return
+    let stopped = false
     const timer = setInterval(() => {
+      if (stopped) return
       void queryClient.invalidateQueries({
         queryKey: [...doubanQueryKeys.uid(uid), 'versions'],
       })
-    }, 10_000)
-    return () => clearInterval(timer)
-  }, [state.phase, syncPhase, uid])
+      void fetchDoubanSyncTask(syncTaskId)
+        .then((task) => {
+          if (stopped) return
+          const current = firstSyncState.get(uid)
+          if (SYNC_TASK_TERMINAL.has(task.status)) {
+            if (current?.phase === 'syncing') {
+              setFirstSync(uid, { phase: 'done' })
+            }
+          } else if (
+            current?.phase === 'syncing' &&
+            current.percent !== (task.percent ?? undefined)
+          ) {
+            setFirstSync(uid, { ...current, percent: task.percent ?? undefined })
+          }
+        })
+        .catch(() => {})
+    }, 3_000)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [syncTaskId, uid])
 
   async function loadMore() {
     if (
@@ -270,23 +325,23 @@ export function MarksPage() {
   } else if (state.phase === 'loading') {
     content = <div className="marks-page__placeholder">加载中…</div>
   } else if (state.phase === 'not-cached') {
-    // 首发同步三档展示：触发中/同步中给自动同步引导（完成后自动翻页），
-    // 触发失败回落手动指引
+    // 首发同步引导（首批数据到达前）：触发中/同步中给自动同步引导，
+    // 触发失败回落手动指引；首批页落库后转列表态，同步横幅接管进度展示
     content =
-      syncPhase === 'triggering' || syncPhase === 'syncing' ? (
+      syncPhase?.phase === 'triggering' || syncPhase?.phase === 'syncing' ? (
         <div className="marks-page__placeholder">
           <p>
             首次使用：正在从豆瓣同步 {profile?.username || uid} 的标记。
           </p>
           <p className="marks-page__hint">
-            全量抓取通常需要几分钟，完成后这里会自动展示，无需手动刷新。
+            已同步的条目会陆续自动展示，无需手动刷新。
           </p>
         </div>
       ) : (
         <div className="marks-page__placeholder">
           <p>用户 {profile?.username || uid} 的数据还没有同步过。</p>
           <p className="marks-page__hint">
-            {syncPhase === 'failed'
+            {syncPhase?.phase === 'failed'
               ? '自动同步发起失败（服务不可达或请求被限流），请稍后刷新页面重试，或在管理端手动发起同步。'
               : `本站只读缓存，请先在服务端发起一次同步，完成后刷新本页即可看到${displayTitle}的记录。`}
           </p>
@@ -328,6 +383,11 @@ export function MarksPage() {
       : facetPath
     content = (
       <>
+        {syncPhase?.phase === 'syncing' ? (
+          <p className="marks-page__syncing">
+            {`正在从豆瓣同步其余标记${syncPhase.percent != null ? `（${syncPhase.percent}%）` : ''}，已同步部分即时展示`}
+          </p>
+        ) : null}
         <p className="marks-page__meta">
           {profile?.username || uid}
           {realCategory

@@ -253,6 +253,16 @@ async fn process_page(
                 .bind(&dim.dim_status)
                 .execute(&mut *tx)
                 .await?;
+        } else {
+            // 直写路径收尾：防御性清掉该维度可能残存的暂存行（正常直写流
+            // 不产生，历史中断换路径等场景兜底），维持终态不变量——ok 维度
+            // 在 record_staging 无行
+            sqlx::query("DELETE FROM record_staging WHERE uid=? AND category=? AND dim_status=?")
+                .bind(&dim.uid)
+                .bind(&dim.category)
+                .bind(&dim.dim_status)
+                .execute(&mut *tx)
+                .await?;
         }
         let fetched_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM records WHERE uid=? AND category=? AND dim_status=?",

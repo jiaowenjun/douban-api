@@ -9,6 +9,14 @@
   font-size: var(--font-size-sm);
 }
 
+/* 首发同步进行中横幅（列表态顶部）：已同步部分即时展示时的进行时
+   提示，任务终态即收起 */
+.marks-page__syncing {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 /* 空态占位卡：文案与按钮整体居中（短文案 + 居中 CTA 的空态惯例） */
 .marks-page__placeholder {
   display: grid;

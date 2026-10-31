@@ -34,7 +34,7 @@ pub async fn user_stats(state: &AppState, uid: &str, status: Status) -> AppResul
         "SELECT category, COUNT(*) AS n FROM records
          WHERE uid = ? AND dim_status = ?
          AND EXISTS (SELECT 1 FROM dimensions d WHERE d.uid=records.uid AND d.category=records.category
-                     AND d.dim_status=records.dim_status AND (d.state='ok' OR d.fetched_ms IS NOT NULL))
+                     AND d.dim_status=records.dim_status AND (d.state IN ('ok','running') OR d.fetched_ms IS NOT NULL))
          GROUP BY category",
     )
     .bind(uid)
@@ -50,7 +50,7 @@ pub async fn user_stats(state: &AppState, uid: &str, status: Status) -> AppResul
         "SELECT date, COUNT(*) AS n FROM records
          WHERE uid = ? AND dim_status = ?
          AND EXISTS (SELECT 1 FROM dimensions d WHERE d.uid=records.uid AND d.category=records.category
-                     AND d.dim_status=records.dim_status AND (d.state='ok' OR d.fetched_ms IS NOT NULL)) AND date != ''
+                     AND d.dim_status=records.dim_status AND (d.state IN ('ok','running') OR d.fetched_ms IS NOT NULL)) AND date != ''
          GROUP BY date ORDER BY date",
     )
     .bind(uid)

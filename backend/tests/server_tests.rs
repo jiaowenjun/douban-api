@@ -505,6 +505,137 @@ async fn worker_crawls_music_with_dedup_and_percent_progress() {
     assert_eq!(view["percent"], 100);
 }
 
+/// 首发同步直写 records（staging=0）：无已发布数据的新维度抓取期间
+/// running 态的已落库部分即可见——marks/stats/all 渐进返回，每页落库
+/// 即 bump 版本（前端版本轮询感知）；完成即 ok 且暂存表无行。
+/// 对照：有已发布数据的刷新仍走两阶段发布（见
+/// refresh_keeps_published_snapshot_until_success_and_after_failure）。
+#[tokio::test]
+async fn first_sync_direct_write_streams_progressively() {
+    let (_dir, state) = setup().await;
+    let version_before = weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+        .await
+        .unwrap()
+        .music;
+    post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+
+    // 新维度无已发布数据 → 直写取向
+    assert_eq!(
+        count(
+            &state,
+            "SELECT staging FROM dimensions WHERE category='music'"
+        )
+        .await,
+        0
+    );
+
+    // 抓完第一页：running 态的部分数据即可见
+    assert!(worker::process_next_due(&state, &fixture_fetcher())
+        .await
+        .unwrap());
+    assert_eq!(
+        count(
+            &state,
+            "SELECT COUNT(*) FROM dimensions WHERE category='music' AND state='running'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 20)
+            .await
+            .unwrap()
+            .total,
+        15
+    );
+    // 版本随页落库 bump：前端轮询 cache-version 即可感知渐进数据
+    assert_ne!(
+        version_before,
+        weimo_douban::server::cache::versions(&state, "wenjun30", "collect")
+            .await
+            .unwrap()
+            .music
+    );
+    let app = build_app(state.clone());
+    let (_, stats) = request(
+        app.clone(),
+        Method::GET,
+        "/api/v1/users/wenjun30/stats",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(stats["totals"]["music"], 15);
+    let (_, all) = request(
+        app,
+        Method::GET,
+        "/api/v1/users/wenjun30/marks?category=all&status=collect",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(all["total"], 15);
+
+    // 完成：直写维度的记录数与暂存表清洁
+    drive(&state, &fixture_fetcher()).await;
+    assert_eq!(
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 200)
+            .await
+            .unwrap()
+            .total,
+        28
+    );
+    assert_eq!(
+        count(
+            &state,
+            "SELECT COUNT(*) FROM dimensions WHERE category='music' AND state='ok' AND staging=0"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(&state, "SELECT COUNT(*) FROM record_staging").await,
+        0
+    );
+}
+
+/// 首发失败重试仍直写：error 维度无已发布数据，重新入队保留 staging=0
+/// （冲突不更新标志），续爬直写至完成。
+#[tokio::test]
+async fn first_sync_error_then_resume_stays_direct_write() {
+    let (_dir, state) = setup().await;
+    post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    // 连续失败耗尽重试 → 维度 error，records 无行
+    drive(&state, &FakeFetcher(|_: &str| Err(FetchError::NotFound))).await;
+    assert_eq!(
+        count(
+            &state,
+            "SELECT COUNT(*) FROM dimensions WHERE state='error'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(count(&state, "SELECT COUNT(*) FROM records").await, 0);
+
+    post_sync(&state, json!({"user": "wenjun30", "categories": ["music"]})).await;
+    assert_eq!(
+        count(
+            &state,
+            "SELECT staging FROM dimensions WHERE category='music'"
+        )
+        .await,
+        0
+    );
+    drive(&state, &fixture_fetcher()).await;
+    assert_eq!(
+        service::read_marks(&state, "wenjun30", Category::Music, Status::Collect, 1, 200)
+            .await
+            .unwrap()
+            .total,
+        28
+    );
+}
+
 #[tokio::test]
 async fn single_flight_links_two_tasks_to_same_dimension() {
     let (_dir, state) = setup().await;

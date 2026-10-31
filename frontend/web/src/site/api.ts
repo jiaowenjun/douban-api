@@ -291,6 +291,15 @@ export type DoubanSyncTask = {
   status: string
 }
 
+/** 同步任务视图（GET /syncs/{task_id} 轮询用）：只声明前端消费的字段 */
+export type DoubanSyncTaskView = {
+  task_id: string
+  user: string
+  status: string
+  /** 任务总进度百分比（0-100）；completed 恒为 100，未终态封顶 99，无法判定为 null */
+  percent: number | null
+}
+
 /** 触发自助首发同步：POST /users/{uid}/syncs——服务端固定全类别 collect、
  *  不 refresh，重复触发由后端 create_task 内建兜底（新鲜缓存直接 done、
  *  queued/running 并入 single-flight、队列上限拒绝），不会重复抓取。
@@ -308,6 +317,18 @@ export async function triggerDoubanFirstSync(
   } catch {
     return null
   }
+}
+
+/** 轮询首发同步任务（GET /syncs/{task_id}）：status 到终态
+ *  （completed/partial/failed）即同步结束，前端停轮询收起横幅；
+ *  失败抛错由调用方容错（下一 tick 重试） */
+export async function fetchDoubanSyncTask(taskId: string): Promise<DoubanSyncTaskView> {
+  const res = await fetch(
+    `${API_BASE}/syncs/${encodeURIComponent(taskId)}`,
+    { headers: authHeaders },
+  )
+  if (!res.ok) throw new Error(`同步任务查询失败（HTTP ${res.status}）`)
+  return (await res.json()) as DoubanSyncTaskView
 }
 
 // --------------------------------------------------------------------------- //
