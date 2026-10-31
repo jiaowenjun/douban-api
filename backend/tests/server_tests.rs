@@ -7,7 +7,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -20,6 +20,7 @@ use weimo_douban::server::{
     db,
     fetcher::{DoubanFetcher, FetchError},
     routes::build_app,
+    seed,
     service,
     state::AppState,
     subject, worker,
@@ -2873,4 +2874,92 @@ async fn conditional_cache_does_not_bypass_auth_or_cache_missing_dimensions() {
             .await
             .2
     );
+}
+
+// --------------------------------------------------------------------------- //
+// 全库快照 / 首启种子（桌面 App 冷启动链路）
+// --------------------------------------------------------------------------- //
+
+#[tokio::test]
+async fn server_snapshot_streams_valid_sqlite_with_data() {
+    let (_dir, state) = setup().await;
+    sqlx::query(
+        "INSERT INTO users (uid, username, avatar, updated_ms) VALUES ('wenjun30', '芝麻', '', 1)",
+    )
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let app = build_app(state.clone());
+    let req = Request::get("/api/v1/server/snapshot")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = to_bytes(resp.into_body(), 32 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert!(bytes.starts_with(b"SQLite format 3\0"), "快照应为 SQLite 文件");
+
+    // 落盘只读打开：业务表齐备 + 用户数据透传
+    let path = std::env::temp_dir().join(format!("snapshot-test-{}.db", std::process::id()));
+    std::fs::write(&path, &bytes).unwrap();
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&path)
+        .read_only(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE uid = 'wenjun30'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(users, 1);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn seed_fetch_downloads_and_installs_snapshot() {
+    // 同进程起真端口，用生产 router 当种子源
+    let (_dir, state) = setup().await;
+    let app = build_app(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    let dest = tempfile::tempdir().unwrap();
+    assert!(seed::is_cold(dest.path()));
+    let seeded = seed::fetch_seed(
+        &format!("http://{addr}/api/v1/server/snapshot"),
+        "",
+        dest.path(),
+    )
+    .await
+    .unwrap();
+    assert!(seeded);
+    assert!(!seed::is_cold(dest.path()));
+
+    // 落盘库可被正常连接（bootstrap 建表幂等通过 = schema 兼容）
+    let pool = db::connect(&dest.path().join("douban_export.db"))
+        .await
+        .unwrap();
+    let n: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'records'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(n, 1);
+
+    // 404 → Ok(false)：远端未提供快照时静默回落常规冷启动
+    let dest2 = tempfile::tempdir().unwrap();
+    let seeded = seed::fetch_seed(&format!("http://{addr}/api/v1/no-such"), "", dest2.path())
+        .await
+        .unwrap();
+    assert!(!seeded);
+    assert!(seed::is_cold(dest2.path()));
 }

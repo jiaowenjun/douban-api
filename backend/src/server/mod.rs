@@ -8,6 +8,7 @@ pub mod dims;
 pub mod error;
 pub mod fetcher;
 pub mod routes;
+pub mod seed;
 pub mod service;
 pub mod subject;
 pub mod state;
