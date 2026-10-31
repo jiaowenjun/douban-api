@@ -79,7 +79,7 @@ function AppleLogo({ size = 16 }: { size?: number }) {
 /** 欢迎页（营销页）：`/` 根路径的门面。MiniSiteTemplate 无侧边栏单页壳
  *  （hero 标题区 + 全宽内容），CTA 按登录态换文案进入标记列表，主截图
  *  一张收尾。截图按当前生效主题成对提供（*-light/*-dark 各一套实拍，
- *  1280×850），经 import 引用随生产 base（/douban/）重写资源地址 */
+ *  1280×960，4:3），经 import 引用随生产 base（/douban/）重写资源地址 */
 export function WelcomePage() {
   const navigate = useNavigate()
   const { uid } = useDoubanUser()

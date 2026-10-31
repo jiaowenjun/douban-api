@@ -61,5 +61,5 @@
   display: block;
   width: 100%;
   height: auto;
-  border-radius: calc(var(--radius-sm, 10px) - 4px);
+  border-radius: calc(var(--radius, 10px) - 4px);
 }
