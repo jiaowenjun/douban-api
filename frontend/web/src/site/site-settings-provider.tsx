@@ -21,8 +21,8 @@ function persistSiteSettings(settings: SiteSettings) {
  *  惰性初始化读一次；更新即合并写 state + 持久化。设置对话框的开关
  *  也持在这里，openSettings 供侧边栏等入口共用（同 DoubanUserProvider
  *  挂 LoginDialog 的「对话框归 Provider」模式）。消费方式——设置对
- *  话框读写全量 settings，MarkCard 等只读初始默认值（useState 初始
- *  化器，设置变化不影响已挂载卡片的手动展开态，重挂载后生效） */
+ *  话框读写全量 settings，MarkCard 读默认展开值（挂载时初始化、变化
+ *  时未手动拨过的卡片即时跟随，手动拨过的保留用户态） */
 export function SiteSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<SiteSettings>(readStoredSiteSettings)
   const [settingsOpen, setSettingsOpen] = useState(false)

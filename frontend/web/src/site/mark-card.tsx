@@ -116,7 +116,8 @@ type Flight = {
     右侧信息列首行——两处渲染，由根
     data-expanded 的 CSS 切换）/ 可折叠条目信息区（封面 64px 左，文
     字列右——豆瓣评分「五星 + 数字」+ 单行元信息摘要或 intro 兜底；
-    内容全空时整区与开关不渲染；初始态随站点设置，默认展开）/ 评论正文区（WdfRender
+    内容全空时整区与开关不渲染；初始态随站点设置，默认值变化时
+    未手动拨过的已挂载卡片即时跟随，手动拨过的保留用户态）/ 评论正文区（WdfRender
     渲染短评段落，无短评整区不渲染），含 <li> 列表条目语义。
     折叠开关切换带标题行 FLIP 共享元素过渡：两态标题副本排版逐字一
     致、纵向同位，切换时「量旧位置 → 克隆 fixed 钉旧位（脱离折叠容器
@@ -128,12 +129,27 @@ type Flight = {
     飞行中再点从克隆当前视觉位置续接。材质复用 card-surface；折叠实
     现同源 BaseCard metaCollapsible；交互仅折叠开关 */
 export function MarkCard({ mark }: MarkCardProps) {
-  // 初始展开态读站点设置（设置页可改）：仅作 useState 初始化器——设置
-  // 变化不打扰已挂载卡片的手动展开态，列表页重挂载后按新默认生效
+  // 展开态读站点设置（设置对话框可改）：挂载时按默认值初始化，默认值
+  // 变化时即时跟随——但手动拨过折叠开关的卡片（metaTouched）保留用
+  // 户态不被覆盖；render 期调整避免 effect 级联（口径同 LoginDialog
+  // 的 prevOpen）
   const { settings } = useSiteSettings()
   const [metaExpanded, setMetaExpanded] = useState(
     () => settings.defaultMetaExpanded,
   )
+  // 手动拨过折叠开关即置位：此后默认值变化不再跟随，保留用户态。用
+  // state 而非 ref 承载——render 期跟随逻辑要读它（React 规则禁 render
+  // 期读 ref）
+  const [metaTouched, setMetaTouched] = useState(false)
+  const [prevDefaultExpanded, setPrevDefaultExpanded] = useState(
+    settings.defaultMetaExpanded,
+  )
+  if (settings.defaultMetaExpanded !== prevDefaultExpanded) {
+    setPrevDefaultExpanded(settings.defaultMetaExpanded)
+    if (!metaTouched) {
+      setMetaExpanded(settings.defaultMetaExpanded)
+    }
+  }
   const cover = mark.subject?.cover || mark.cover
   const metaLine = mark.subject ? subjectMetaLine(mark.subject) : null
   const year = mark.subject?.year
@@ -214,6 +230,7 @@ export function MarkCard({ mark }: MarkCardProps) {
       }
     }
     flipFromRef.current = rect ? { rect, anchor, singleLine } : null
+    setMetaTouched(true)
     setMetaExpanded((current) => !current)
   }
 
