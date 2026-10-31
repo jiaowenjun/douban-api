@@ -22,8 +22,9 @@ type LoginDialogProps = {
   open: boolean
 }
 
-/** 登录对话框：输入豆瓣用户 ID 作为站点身份，已登录时可切换或退出；
- *  底部「返回」关框并退回欢迎页（未登录误入内容页的退路） */
+/** 豆瓣 ID 对话框：输入豆瓣用户 ID 作为站点身份（全程免账号密码，与
+ *  欢迎页「免登录」口径一致），已填时可切换或清除；底部「返回」关框
+ *  并退回欢迎页（未填误入内容页的退路） */
 export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   const { uid, profile, signIn, signOut } = useDoubanUser()
   const navigate = useNavigate()
@@ -72,10 +73,9 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
       <DialogPopup className="login-dialog">
         <form className="login-dialog__form" onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>登录</DialogTitle>
+            <DialogTitle>请输入你的豆瓣 ID</DialogTitle>
             <DialogDescription>
-              输入你的豆瓣用户 ID（个人主页地址 people/
-              后的那段字符），用于同步并展示你的标记数据。
+              即个人主页地址 people/ 后的那段字符，无需账号密码，仅用于同步并展示你的标记数据。
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -119,11 +119,11 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
             </TextButton>
             {uid ? (
               <TextButton onClick={handleSignOut} type="button" variant="ghost">
-                退出登录
+                清除 ID
               </TextButton>
             ) : null}
             <TextButton disabled={!normalized} type="submit">
-              {uid ? '切换账号' : '登录'}
+              保存
             </TextButton>
           </DialogFooter>
         </form>

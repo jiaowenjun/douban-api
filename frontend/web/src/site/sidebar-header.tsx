@@ -1,4 +1,4 @@
-import { LogIn, Settings, UserRound } from 'lucide-react'
+import { Settings, UserRound } from 'lucide-react'
 
 import { GhostIconButton } from 'weimo-ui-core/components/ghost-icon-button'
 
@@ -7,9 +7,9 @@ import { useDoubanUser } from './douban-user'
 import { useSiteSettings } from './site-settings'
 import './sidebar-header.css'
 
-/** 侧边栏身份栏：左侧头像 + 用户名，右侧登录/设置入口（GhostIconButton），
+/** 侧边栏身份栏：左侧头像 + 用户名，右侧 ID/设置入口（GhostIconButton），
     样式对齐 weimo-biji 的 biji-side-bar__header；统计区/导航/筛选树
-    由 SiteSidebar 主体区承接；两个入口都开弹层对话框（登录归
+    由 SiteSidebar 主体区承接；两个入口都开弹层对话框（豆瓣 ID 归
     DoubanUserProvider、设置归 SiteSettingsProvider），抽屉保持原样 */
 export function SidebarHeader() {
   const { uid, profile, openLogin } = useDoubanUser()
@@ -36,13 +36,13 @@ export function SidebarHeader() {
             }
             title={uid ?? undefined}
           >
-            {uid ? profile?.username || uid : '未登录'}
+            {uid ? profile?.username || uid : '未输入'}
           </span>
         </div>
         <div className="sidebar-header__actions">
           <GhostIconButton
             aria-label={
-              uid ? `豆瓣账号：${uid}，点击管理` : '登录豆瓣账号'
+              uid ? `豆瓣 ID：${uid}，点击管理` : '输入豆瓣 ID'
             }
             className="sidebar-header__button"
             onClick={openLogin}
@@ -52,14 +52,10 @@ export function SidebarHeader() {
                 ? profile?.username
                   ? `${profile.username}（${uid}）`
                   : uid
-                : '登录'
+                : '输入豆瓣 ID'
             }
           >
-            {uid ? (
-              <UserRound aria-hidden="true" />
-            ) : (
-              <LogIn aria-hidden="true" />
-            )}
+            <UserRound aria-hidden="true" />
           </GhostIconButton>
           <GhostIconButton
             aria-label="打开设置"

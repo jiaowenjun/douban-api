@@ -205,15 +205,15 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // 筛选树区三态：未登录给登录引导（分面数据随登录而来，空侧边栏
+  // 筛选树区三态：未填 ID 给输入引导（分面数据随身份而来，空侧边栏
   // 需要可发现的入口）；三类别查询全部加载中给占位行——TagTree 默认
   // 空态「暂无标签」会把加载期误表达为空态；任一类别失败给轻量重试
   // 行（见 retryFailedDims），已就绪的类别根照常渐次出现
   const facetBody = !uid ? (
     <div className="site-sidebar__login-hint">
-      <p>登录豆瓣账号后，可在这里按分类筛选你的书影音标记。</p>
+      <p>输入豆瓣 ID 后，可在这里按分类筛选你的书影音标记。</p>
       <TextButton onClick={openLogin} type="button">
-        登录豆瓣账号
+        输入豆瓣 ID
       </TextButton>
     </div>
   ) : dimsLoading ? (

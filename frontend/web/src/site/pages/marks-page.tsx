@@ -169,9 +169,9 @@ export function MarksPage() {
           cachedAt: first.data.cached_at,
         }
 
-  // 未登录进入内容页：自动弹一次登录对话框。ref 守卫保证每个页面实例
-  // 只弹一次——关掉后仍可点占位区「登录豆瓣账号」手动打开，类别切换
-  // （同实例不重挂）、登出、StrictMode 双跑都不重弹，避免反复打扰
+  // 未填 ID 进入内容页：自动弹一次豆瓣 ID 对话框。ref 守卫保证每个页面
+  // 实例只弹一次——关掉后仍可点占位区「输入豆瓣 ID」手动打开，类别切换
+  // （同实例不重挂）、清除 ID、StrictMode 双跑都不重弹，避免反复打扰
   const autoLoginPromptedRef = useRef(false)
   useEffect(() => {
     if (autoLoginPromptedRef.current) return
@@ -259,11 +259,11 @@ export function MarksPage() {
       <div className="marks-page__placeholder">
         <p>
           {view.category === 'all'
-            ? '登录豆瓣账号后，这里会展示你的全部书影音标记。'
-            : `登录豆瓣账号后，这里会展示你${displayTitle}的记录。`}
+            ? '输入豆瓣 ID 后，这里会展示你的全部书影音标记。'
+            : `输入豆瓣 ID 后，这里会展示你${displayTitle}的记录。`}
         </p>
         <TextButton onClick={openLogin} type="button">
-          登录豆瓣账号
+          输入豆瓣 ID
         </TextButton>
       </div>
     )
