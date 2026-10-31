@@ -173,8 +173,9 @@ const PLATFORM_LOGO = {
 } as const
 
 /** 欢迎页（营销页）：`/` 根路径的门面。MiniSiteTemplate 无侧边栏单页壳
- *  （hero 标题区 + 全宽内容），CTA 按登录态换文案进入标记列表，主截图
- *  一张收尾。截图按当前生效主题成对提供（*-light/*-dark 各一套实拍，
+ *  （hero 标题区 + 全宽内容），CTA 双按钮——客户端下载居左（更推荐）
+ *  +「体验网页版」居右（App 壳内回落进入语义单按钮），主截图一张
+ *  收尾。截图按当前生效主题成对提供（*-light/*-dark 各一套实拍，
  *  1024×768，4:3），经 import 引用随生产 base（/douban/）重写资源地址 */
 export function WelcomePage() {
   const navigate = useNavigate()
@@ -220,13 +221,8 @@ export function WelcomePage() {
       }
     >
       <div className="welcome-page__cta">
-        <TextButton
-          onClick={() => navigate('/all')}
-          type="button"
-        >
-          {uid ? '进入我的标记' : '进入标记列表'}
-          <ArrowRight aria-hidden size={16} />
-        </TextButton>
+        {/* 客户端下载居左（首选阅读位，客户端是更推荐的使用方式）、
+         *  网页版居右；两端同为实心按钮，主次由位置表达 */}
         {/* 下载 CTA 仅网页端且平台有对应客户端：桌面端已在 App 内、
          *  other 态（Linux/移动端/未识别）暂无客户端，两态均不渲染
          *  （隐藏后剩单按钮，flex 居中布局天然成立），待相应客户端
@@ -234,13 +230,22 @@ export function WelcomePage() {
          *  误检测/Intel Mac 经顶栏 GitHub 仓库入口的 releases 自救。
          *  借用 text-button 组件类渲染真链接：下载需要真实 href（右键
          *  另存/新标签直下），安装包直链由浏览器下载不离开本页；无
-         *  data-variant 即默认实心，与左侧进入按钮同款 */}
+         *  data-variant 即默认实心，与右侧网页版按钮同款 */}
         {!IN_TAURI_APP && DETECTED_PLATFORM !== 'other' && (
           <a className="text-button" href={downloadHref}>
             <PlatformLogo size={16} />
             {downloadLabel}
           </a>
         )}
+        <TextButton
+          onClick={() => navigate('/all')}
+          type="button"
+        >
+          {/* 网页端叫「体验网页版」（承接「一键备份」叙事，与左侧
+              下载客户端相对）；App 壳内已在客户端中，维持进入语义 */}
+          {IN_TAURI_APP ? (uid ? '进入我的标记' : '进入标记列表') : '体验网页版'}
+          <ArrowRight aria-hidden size={16} />
+        </TextButton>
       </div>
 
       <figure

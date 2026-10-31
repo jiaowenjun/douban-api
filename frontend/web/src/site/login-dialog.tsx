@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { UserRound } from 'lucide-react'
+import { ArrowLeft, ArrowRight, UserRound } from 'lucide-react'
 
 import {
   Dialog,
@@ -41,7 +41,7 @@ type VerifyState =
 
 /** 豆瓣 ID 对话框：输入豆瓣用户 ID 作为站点身份（全程免账号密码，与
  *  欢迎页「免登录」口径一致），验证通过展示头像/用户名预览、开始
- *  备份后侧边栏身份栏立即有资料；已填时可切换或清除；底部「返回」关框
+ *  备份后侧边栏身份栏立即有资料；已填时可切换或清除；底部「返回主页」关框
  *  并退回欢迎页（未填误入内容页的退路） */
 export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   const { uid, profile, signIn, signOut } = useDoubanUser()
@@ -172,7 +172,7 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
                   name="douban-uid"
                   onChange={(event) => handleDraftChange(event.target.value)}
                   onKeyDown={handleInputKeyDown}
-                  placeholder="如：wenjun30"
+                  placeholder="从「我的豆瓣」查找豆瓣 ID"
                   type="text"
                   value={draft}
                 />
@@ -222,7 +222,8 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
               type="button"
               variant="ghost"
             >
-              返回
+              <ArrowLeft aria-hidden size={16} />
+              返回主页
             </TextButton>
             {uid ? (
               <TextButton onClick={handleSignOut} type="button" variant="ghost">
@@ -230,7 +231,10 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
               </TextButton>
             ) : null}
             {verify.phase === 'verified' ? (
-              <TextButton type="submit">开始备份</TextButton>
+              <TextButton type="submit">
+                开始备份
+                <ArrowRight aria-hidden size={16} />
+              </TextButton>
             ) : (
               <TextButton
                 disabled={!normalized || verify.phase === 'testing'}

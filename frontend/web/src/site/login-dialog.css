@@ -23,8 +23,15 @@
   border-top: none;
 }
 
-/* 「返回」靠左：footer 默认右对齐，返回是退路动作，与右侧确认/清除
-   分居两端更符合主次 */
+/* 按钮内图标↔文字间距：text-button 基类无 gap，对话框级统一补
+   （同 welcome-page__cta 的局部补法；单内容按钮 gap 无视觉效果，
+   ghost 系列不受影响） */
+.login-dialog .text-button {
+  gap: 6px;
+}
+
+/* 「← 返回主页」靠左：footer 默认右对齐，返回是退路动作，与右侧
+   确认/清除分居两端更符合主次 */
 .login-dialog__back {
   margin-right: auto;
 }
