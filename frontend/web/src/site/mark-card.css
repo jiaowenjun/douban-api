@@ -136,6 +136,14 @@
   justify-content: center;
 }
 
+/* 折叠态左对齐（站点设置 collapsedTitleAlign='left' 时 tsx 追加）：
+   同样必须是行元素自身的简单类，不能写成卡片根 data 属性的后代
+   选择器——FLIP 克隆挂在 body 下、不带卡片根上下文，后代选择器对
+   克隆不生效会让飞行起点的克隆内容错位回居中 */
+.mark-card__title-row--solo-left {
+  justify-content: flex-start;
+}
+
 /* 收起态标题行的外裹容器：0fr/1fr 高度折叠（与折叠区同 280ms 同步）
    ——展开时高度收 0 并以负 margin 吞掉自己的根 1em 行间距、不占位
    （visibility 方案会保留行盒占位、展开后留空行）；opacity/visibility

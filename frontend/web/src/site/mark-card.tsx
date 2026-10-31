@@ -112,7 +112,8 @@ type Flight = {
 /** 书影音标记卡片，四段式一级结构：顶部标记行（日期 看过/读过/听
     过 我的评分星级 + 右侧元信息折叠开关）/ 标题行「标题 (年份) 别
     名」（标题唯一出现处、16px/650 primary，年份/别名弱灰 sm；折叠态
-    水平居中独占一行、展开态居封面右侧信息列首行——两处渲染，由根
+    独占一行、水平对齐随站点设置（默认居中，可左对齐）、展开态居封面
+    右侧信息列首行——两处渲染，由根
     data-expanded 的 CSS 切换）/ 可折叠条目信息区（封面 64px 左，文
     字列右——豆瓣评分「五星 + 数字」+ 单行元信息摘要或 intro 兜底；
     内容全空时整区与开关不渲染；初始态随站点设置，默认收起）/ 评论正文区（WdfRender
@@ -278,7 +279,14 @@ export function MarkCard({ mark }: MarkCardProps) {
   const renderTitleRow = (variant: 'solo' | 'inline') =>
     variant === 'solo' ? (
       <div className="mark-card__title-solo">
-        <div className="mark-card__title-row mark-card__title-row--solo" ref={soloTitleRef}>
+        <div
+          className={
+            settings.collapsedTitleAlign === 'left'
+              ? 'mark-card__title-row mark-card__title-row--solo mark-card__title-row--solo-left'
+              : 'mark-card__title-row mark-card__title-row--solo'
+          }
+          ref={soloTitleRef}
+        >
           {titleRowContent}
         </div>
       </div>
