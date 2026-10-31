@@ -104,21 +104,6 @@
   line-height: 1.7;
 }
 
-/* 页脚：居中弱化小字，链接继承文字色加下划线区分 */
-.welcome-page__footer {
-  max-width: 1080px;
-  width: 100%;
-  margin-inline: auto;
-  padding-block: 16px 8px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  text-align: center;
-}
-
-.welcome-page__footer a {
-  color: inherit;
-}
-
 /* 窄屏：图文行纵排（图上文下、取消交替反序），竖条特写放宽取景高度 */
 @media (max-width: 899px) {
   .welcome-page__feature,
