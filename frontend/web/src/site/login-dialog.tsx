@@ -114,10 +114,12 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
   }
 
   // input 的 Enter 不走隐式提交（部分 webview 不触发），显式处理；
-  // 语义跟随主按钮：已验证=开始备份，否则=验证 ID
+  // 语义跟随主按钮：已验证=开始备份，否则=验证 ID；主按钮隐藏态
+  // （已登录且未改动，见 footer）同样不响应
   function handleInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== 'Enter') return
     event.preventDefault()
+    if (uid && normalized === uid) return
     if (verify.phase === 'verified') {
       confirmSignIn()
     } else if (verify.phase !== 'testing' && normalized) {
@@ -125,9 +127,13 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
     }
   }
 
+  // 清除 ID 后对话框不退出：页面用户内容随 signOut 清空，对话框内
+  // 清空输入与验证态、清除按钮因 uid 置空自然消失，恢复登录前初始
+  // 状态（预览区随收起动画淡出，lastProfile 不重置以保留收起内容）
   function handleSignOut() {
     signOut()
-    onOpenChange(false)
+    setDraft('')
+    setVerify({ phase: 'unverified' })
   }
 
   function handleBack() {
@@ -226,11 +232,14 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
               返回主页
             </TextButton>
             {uid ? (
-              <TextButton onClick={handleSignOut} type="button" variant="ghost">
+              <TextButton onClick={handleSignOut} type="button">
                 清除 ID
               </TextButton>
             ) : null}
-            {verify.phase === 'verified' ? (
+            {/* 已登录且输入未改动（=当前 uid）时无主按钮——身份已知、
+                预览行就在上方，验证/备份都无事可做，只留清除；改成
+                新 ID 即恢复验证→开始备份链（换号流程不断） */}
+            {uid && normalized === uid ? null : verify.phase === 'verified' ? (
               <TextButton type="submit">
                 开始备份
                 <ArrowRight aria-hidden size={16} />
