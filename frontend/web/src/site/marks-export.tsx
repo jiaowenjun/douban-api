@@ -35,7 +35,8 @@ const CSV_HEADER = [
   '我的评分',
   '标记日期',
   '评语',
-  '条目链接',
+  /** 即 subject_url——豆瓣条目页直达链接（movie.douban.com/subject/…） */
+  '豆瓣链接',
 ] as const
 
 /** CSV 单元格转义：统一双引号包裹、内嵌引号翻倍——评语里的逗号/引号/

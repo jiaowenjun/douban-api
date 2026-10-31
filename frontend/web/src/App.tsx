@@ -130,8 +130,8 @@ function SiteShell() {
       sidebar={(api) => <SiteSidebar onClose={api.close} />}
       topBarActions={
         <>
-          <TopBarExport />
           <TopBarSearch />
+          <TopBarExport />
         </>
       }
       topBarLeading={topBarLeading}
