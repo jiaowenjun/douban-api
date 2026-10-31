@@ -347,12 +347,11 @@ fn build_tray(handle: &tauri::AppHandle) -> Result<()> {
         .item(&quit)
         .build()?;
 
-    let icon = handle
-        .default_window_icon()
-        .context("应用图标缺失，无法创建托盘")?
-        .clone();
+    // 托盘图标：菜单栏 NSStatusItem 不像 Dock 有系统圆角蒙版，满出血方形
+    // （default_window_icon = icons/icon.png）直角原样露出，故改用自带 22.5%
+    // 透明圆角的独立资产（icons/tray-icon.png，编译期内嵌），与 App 图标观感一致
     TrayIconBuilder::with_id("main-tray")
-        .icon(icon)
+        .icon(tauri::include_image!("icons/tray-icon.png"))
         .tooltip("微墨·豆瓣")
         .menu(&menu)
         .show_menu_on_left_click(false)

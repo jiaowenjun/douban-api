@@ -15,7 +15,7 @@ clap = { version = "4", features = ["derive", "env"] }
 mime_guess = "2"
 rust-embed = { version = "8", features = ["debug-embed"] }
 serde_json = "1"
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
