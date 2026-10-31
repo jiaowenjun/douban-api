@@ -17,15 +17,15 @@
   color: var(--color-text-primary);
 }
 
-/* App 图标：源稿拷贝自 app/icons/icon.svg（宣纸底 + 墨滴，全出血方形），
- * macOS 切的圆角在这里自切——22.5% 即系统图标的圆角比例；尺寸贴合顶栏
- * 文字（46px 高的 slot 内 22px 图标与 650 字重文字视觉均衡） */
+/* App 图标：黑白双稿随主题切换（app-icon.svg 浓墨 / app-icon-white.svg
+ * 纸白，src 在 tsx 里按 dark 换），双稿均为透明底墨滴、无方形画布，不需
+ * 圆角裁切；尺寸贴合顶栏文字（46px 高的 slot 内 22px 图标与 650 字重文字
+ * 视觉均衡） */
 .welcome-page__brand-icon {
   flex: none;
   display: block;
   width: 22px;
   height: 22px;
-  border-radius: 22.5%;
 }
 
 /* hero 区 CTA 行：居中双实心按钮（进入应用 + dmg 下载真链接，同款样式） */

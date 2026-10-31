@@ -1,17 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="微墨·豆瓣 App 图标">
-  <!-- 微墨·豆瓣 应用图标源稿：宣纸底 + 浓墨滴（全出血方形，macOS 系统自动切圆角）。
-       再生方式：rsvg-convert -w 1024 -h 1024 icon.svg -o app-icon.png 后在 app/ 目录
-       执行 pnpm tauri icon app-icon.png（全套尺寸与 icns/ico 重生成落 icons/） -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="微墨 ink drop logo">
   <defs>
-    <radialGradient id="paper" cx="0.5" cy="0.42" r="0.85">
-      <stop offset="0" stop-color="#f8f4ec"/>
-      <stop offset="0.7" stop-color="#f5f0e6"/>
-      <stop offset="1" stop-color="#efe8da"/>
-    </radialGradient>
-    <linearGradient id="inkTone" x1="0.18" y1="0.08" x2="0.82" y2="0.94">
-      <stop offset="0" stop-color="#1c1e24" stop-opacity="0.96"/>
-      <stop offset="0.58" stop-color="#1c1e24"/>
-      <stop offset="1" stop-color="#1c1e24" stop-opacity="0.82"/>
+    <linearGradient id="dropTone" x1="0.18" y1="0.08" x2="0.82" y2="0.94">
+      <stop offset="0" stop-color="currentColor" stop-opacity="0.96"/>
+      <stop offset="0.58" stop-color="currentColor"/>
+      <stop offset="1" stop-color="currentColor" stop-opacity="0.82"/>
     </linearGradient>
     <linearGradient id="glint" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.92"/>
@@ -19,22 +11,18 @@
       <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.02"/>
     </linearGradient>
   </defs>
-  <rect fill="url(#paper)" height="1024" width="1024" x="0" y="0"/>
-  <!-- 墨滴取自 weimo-logo.svg（512 视框），×1.8 放大后居中 -->
-  <g transform="translate(51.2 42.2) scale(1.8)">
-    <path fill="url(#inkTone)" d="M256 54
-      C241 111 220 153 184 202
-      C148 251 119 291 119 343
-      C119 421 178 468 256 468
-      C334 468 393 421 393 343
-      C393 291 364 251 328 202
-      C292 153 271 111 256 54 Z"/>
-    <path fill="url(#glint)" d="M246 112
-      C233 157 213 192 187 231
-      C163 267 151 295 151 323
-      C151 341 157 354 168 361
-      C179 368 190 357 195 340
-      C204 309 220 279 240 247
-      C259 217 266 181 246 112 Z"/>
-  </g>
+  <path fill="url(#dropTone)" d="M256 54
+    C241 111 220 153 184 202
+    C148 251 119 291 119 343
+    C119 421 178 468 256 468
+    C334 468 393 421 393 343
+    C393 291 364 251 328 202
+    C292 153 271 111 256 54 Z"/>
+  <path fill="url(#glint)" d="M246 112
+    C233 157 213 192 187 231
+    C163 267 151 295 151 323
+    C151 341 157 354 168 361
+    C179 368 190 357 195 340
+    C204 309 220 279 240 247
+    C259 217 266 181 246 112 Z"/>
 </svg>

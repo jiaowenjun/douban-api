@@ -1,24 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="微墨 ink drop logo">
-  <!-- 微墨·豆瓣 墨滴标：currentColor 系单色标，作为 favicon 时由内嵌样式
-       按系统明暗主题落墨——亮色浓墨、暗色纸白，高光在暗色下转为淡墨晕 -->
+  <!-- 微墨·豆瓣 墨滴标：黑白双稿口径（weimo-logo.svg 浓墨 / weimo-logo-white.svg
+       纸白渐变），favicon 无法继承页面文字色，由内嵌 style 按系统明暗主题切换
+       stop 配色——亮色浓墨、暗色 #fff→#f7f7f7→#d8d8d8 纸白，高光双稿同为白色 -->
   <style>
-    svg { color: #1b1d23; }
-    .glint { stop-color: #ffffff; }
+    .tone-a { stop-color: #1b1d23; stop-opacity: 0.96; }
+    .tone-b { stop-color: #1b1d23; }
+    .tone-c { stop-color: #1b1d23; stop-opacity: 0.82; }
     @media (prefers-color-scheme: dark) {
-      svg { color: #e8e8ed; }
-      .glint { stop-color: rgba(23, 25, 31, 0.32); }
+      .tone-a { stop-color: #ffffff; stop-opacity: 1; }
+      .tone-b { stop-color: #f7f7f7; }
+      .tone-c { stop-color: #d8d8d8; stop-opacity: 1; }
     }
   </style>
   <defs>
     <linearGradient id="dropTone" x1="0.18" y1="0.08" x2="0.82" y2="0.94">
-      <stop offset="0" stop-color="currentColor" stop-opacity="0.96"/>
-      <stop offset="0.58" stop-color="currentColor"/>
-      <stop offset="1" stop-color="currentColor" stop-opacity="0.82"/>
+      <stop offset="0" class="tone-a"/>
+      <stop offset="0.58" class="tone-b"/>
+      <stop offset="1" class="tone-c"/>
     </linearGradient>
     <linearGradient id="glint" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" class="glint" stop-opacity="0.92"/>
-      <stop offset="0.55" class="glint" stop-opacity="0.38"/>
-      <stop offset="1" class="glint" stop-opacity="0.02"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.02"/>
     </linearGradient>
   </defs>
   <path fill="url(#dropTone)" d="M256 54
