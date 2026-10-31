@@ -28,7 +28,8 @@
   height: 22px;
 }
 
-/* hero 区 CTA 行：居中双实心按钮（进入应用 + dmg 下载真链接，同款样式） */
+/* hero 区 CTA 行：居中双实心按钮（进入应用 + 按访客平台分流的安装包
+ * 下载真链接，同款样式）+ 平台识别成功时的「其他版本」次级小链接 */
 .welcome-page__cta {
   display: flex;
   flex-wrap: wrap;
@@ -39,9 +40,26 @@
 }
 
 /* 按钮内图标与文字间距：text-button 基类无 gap（左按钮文字↔箭头、
- * 右按钮 Apple 标志↔文字同享此规则） */
+ * 右按钮平台标志↔文字同享此规则）；下载项是真 <a> 借用 button 语义
+ * 组件类，基类无链接 reset，须在此关掉 UA 默认下划线与按钮实心底
+ * 不相称 */
 .welcome-page__cta .text-button {
   gap: 6px;
+  text-decoration-line: none;
+}
+
+/* 「其他版本」次级小链接（误检测与 Intel Mac 的兜底入口）：同排右后
+ * 但不与双实心按钮争视觉——小一号、次级文字色，hover/focus 下划线
+ * 提示可点 */
+.welcome-page__all-downloads {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  text-decoration-line: none;
+}
+
+.welcome-page__all-downloads:hover,
+.welcome-page__all-downloads:focus-visible {
+  text-decoration-line: underline;
 }
 
 /* 截图容器：card-surface 材质 + 小内衬，图片铺满宽、height:auto 原比例呈现 */
