@@ -63,7 +63,8 @@
   border-radius: var(--radius-sm);
   background: var(--color-bg-card);
   color: var(--color-text-primary);
-  font-size: var(--font-size-md);
+  /* 16px 避免 iOS Safari 聚焦输入框时自动放大页面 */
+  font-size: var(--font-size-base);
   line-height: 1.4;
   outline: none;
   transition: border-color 160ms ease;
