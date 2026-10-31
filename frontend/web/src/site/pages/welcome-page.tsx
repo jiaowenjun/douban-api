@@ -158,7 +158,11 @@ export function WelcomePage() {
         </TextButton>
       </div>
 
-      <figure className={getCardSurfaceClassName('welcome-page__shot')}>
+      <figure
+        className={getCardSurfaceClassName(
+          'welcome-page__shot welcome-page__shot--hero',
+        )}
+      >
         <img
           alt="标记列表页全景：侧边栏统计与筛选树、顶栏面包屑、封面与双星评分的标记卡片"
           src={dark ? marksOverviewDark : marksOverviewLight}

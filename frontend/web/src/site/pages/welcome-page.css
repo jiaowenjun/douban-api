@@ -31,6 +31,14 @@
   padding: 8px;
 }
 
+/* hero 主截图：模板内容区不限宽，宽屏上 1280px 原图会被拉伸到糊——
+ * 以 --size-content-max-width（应用内容列宽 token）收拢居中 */
+.welcome-page__shot--hero {
+  max-width: var(--size-content-max-width, 700px);
+  width: 100%;
+  margin-inline: auto;
+}
+
 .welcome-page__shot img {
   display: block;
   width: 100%;
