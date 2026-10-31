@@ -108,9 +108,12 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
   // length 求和，与筛选树类别根/统计区同源——失败/未同步的类别无数据
   // 计 0，合并视图本就只含已同步类别）；评分子节点=键命中数
   // （ratingKeyMatches，精确星级 === 比较与后端口径一致，my_rating 随
-  // dims item 平铺下发）。三类别查询全部 settle 才显示（error 也算
-  // settle），避免加载中途先亮部分和再跳变；useMemo 与 dimsData 同理
-  // 钉住引用，跨类别过滤计数不随无关重渲染重跑
+  // dims item 平铺下发），计数为 0 的档位整行隐藏（如一星差评常空，
+  // 空入口无导航价值；URL 直达 ?rating=N 不受影响——selectedTag 对
+  // 不在树内的 tag 仅不高亮，列表页自身仍渲染筛选结果）。三类别查询
+  // 全部 settle 才显示（error 也算 settle），避免加载中途先亮部分和
+  // 再跳变；settle 前 0 档未知先全显，settle 后随计数一起消失
+  // useMemo 与 dimsData 同理钉住引用，跨类别过滤计数不随无关重渲染重跑
   const navNodes = useMemo<TagTreeNode[]>(
     () => {
       const navItems = MARKS_CATEGORIES.flatMap(
@@ -124,11 +127,12 @@ export function SiteSidebar({ onClose }: { onClose: () => void }) {
           label: '全部标记',
           icon: <Grid2X2 aria-hidden="true" />,
           itemCount: countsReady ? navItems.length : undefined,
-          children: NAV_RATING_STEPS.map(({ key, label }) => ({
-            tag: ratingNavTag(key),
-            label,
-            itemCount: countsReady ? ratingCount(key) : undefined,
-          })),
+          children: NAV_RATING_STEPS.flatMap(({ key, label }) => {
+            const count = countsReady ? ratingCount(key) : undefined
+            return count === 0
+              ? []
+              : [{ tag: ratingNavTag(key), label, itemCount: count }]
+          }),
         },
       ]
     },
