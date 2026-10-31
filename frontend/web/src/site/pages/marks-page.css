@@ -26,12 +26,14 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* 卡片列表容器；条目样式见 mark-card.css（MarkCard 组件）
+/* 卡片列表容器；条目样式见 mark-card.css（MarkCard 组件）。纵向间距取
+   core tokens 的 --space-gutter 两档（<700px 12px / ≥700px 15px，断点
+   由 tokens.css 全局切换），与 biji 笔记列表同一 token 同一机制
    ------------------------------------------------------------------ */
 
 .marks-list {
   display: grid;
-  gap: 10px;
+  gap: var(--space-gutter);
   margin: 0;
   padding: 0;
   list-style: none;
