@@ -7,9 +7,7 @@
 //! 窗口直接加载 http://127.0.0.1:<port>/douban/ ——前后端同源，零 CORS、
 //! 零跨进程。数据落在 ~/Library/Application Support/ink.weimo.douban/。
 //!
-//! 桌面形态三件套：
-//! - 首启种子：本地无 douban_export.db 时从远端服务器拉全库快照（SYNC_SEED=
-//!   ask|auto|off），免去全量重抓；窗口在种子完成后才创建；
+//! 桌面形态两件套：
 //! - 菜单栏常驻：LSUIElement（无 Dock 图标）+ 托盘菜单，关窗=隐藏，
 //!   进程与订阅轮询/富集后台任务持续推进；
 //! - 自动更新：tauri-plugin-updater，manifest 默认走 GitHub Releases
@@ -32,7 +30,6 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 use weimo_douban::server::config::ServerConfig;
-use weimo_douban::server::seed;
 
 /// 前端静态资源挂载前缀（与生产站点 weimo.ink/douban/ 及 vite base 一致）
 const WEB_MOUNT: &str = "/douban";
@@ -41,9 +38,6 @@ const WEB_MOUNT: &str = "/douban";
 /// 公开，免鉴权）；SYNC_UPDATER_URL 可覆盖（自托管 / 本地联调）
 const UPDATER_ENDPOINT: &str =
     "https://github.com/jiaowenjun/weimo-douban/releases/latest/download/latest.json";
-
-/// 首启种子默认源：txy 生产服务器（需服务器 ≥0.3.1 提供 /server/snapshot）
-const SEED_URL_DEFAULT: &str = "https://weimo.ink/douban/api/v1/server/snapshot";
 
 fn env_or(name: &str, default: &str) -> String {
     std::env::var(name)
@@ -86,7 +80,7 @@ fn main() {
             build_tray(app.handle())?;
 
             // 先把回环随机端口绑定到手（backlog 生效，后续连接不会拒绝），
-            // 服务装配/首启种子在后台任务里做，完成后才创建窗口
+            // 服务装配在后台任务里做，完成后才创建窗口
             let listener = tauri::async_runtime::block_on(async {
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
                     .await
@@ -118,15 +112,13 @@ fn main() {
         .expect("运行 weimo-douban app 失败");
 }
 
-/// 装配并运行内嵌服务器：首启种子 → 后台任务 + API 路由 + /douban/ 静态
-/// 资源 → 创建主窗口（服务就绪前开窗只会砸在一个空端口上）
+/// 装配并运行内嵌服务器：后台任务 + API 路由 + /douban/ 静态资源 →
+/// 创建主窗口（服务就绪前开窗只会砸在一个空端口上）
 async fn run_server(handle: tauri::AppHandle, listener: tokio::net::TcpListener) -> Result<()> {
     let data_dir = handle
         .path()
         .app_data_dir()
         .context("获取应用数据目录失败")?;
-
-    maybe_seed(&handle, &data_dir).await;
 
     // 空参数 parse：忽略 Finder 传入的启动参数（clap 对未知参数会报错），
     // 但保留 SYNC_CRAWL_*/SYNC_SUBJECT_* 等环境变量覆盖（从终端启动时可调参）
@@ -278,57 +270,6 @@ fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
-    }
-}
-
-// --------------------------------------------------------------------------- //
-// 首启种子
-// --------------------------------------------------------------------------- //
-
-/// SYNC_SEED=ask（默认，弹窗询问）| auto（直接拉）| off（禁用）；
-/// SYNC_SEED_URL / SYNC_SEED_TOKEN 覆盖默认源（token 亦可在构建期经
-/// SYNC_SEED_TOKEN 注入，语义同 web 端 VITE_API_TOKEN：防滥用不保密）
-async fn maybe_seed(handle: &tauri::AppHandle, data_dir: &Path) {
-    let policy = env_or("SYNC_SEED", "ask");
-    if policy == "off" || !seed::is_cold(data_dir) {
-        return;
-    }
-    let url = env_or("SYNC_SEED_URL", SEED_URL_DEFAULT);
-    if policy != "auto" {
-        let go = dialog_ask(
-            handle,
-            "首次启动",
-            &format!(
-                "本地暂无数据，是否从服务器拉取数据快照？\n\n源：{url}\n\n约 10MB，含已同步用户与条目富集缓存；跳过则首次同步需完整抓取（较慢）。"
-            ),
-        )
-        .await;
-        if !go {
-            tracing::info!("用户跳过首启种子");
-            return;
-        }
-    }
-    tracing::info!("开始拉取首启种子: {url}");
-    let token = env_or(
-        "SYNC_SEED_TOKEN",
-        option_env!("SYNC_SEED_TOKEN").unwrap_or(""),
-    );
-    match seed::fetch_seed(&url, &token, data_dir).await {
-        Ok(true) => {
-            dialog_info(handle, "首启种子完成，服务器数据已导入本地");
-        }
-        Ok(false) => {
-            tracing::warn!("远端未提供快照（服务器需 ≥0.3.1），回落全量抓取");
-            if policy != "auto" {
-                dialog_info(handle, "远端未提供快照（服务器需 ≥0.3.1），将回落全量抓取");
-            }
-        }
-        Err(error) => {
-            tracing::warn!("首启种子失败: {error:#}");
-            if policy != "auto" {
-                dialog_info(handle, &format!("首启种子失败：{error:#}\n将回落全量抓取"));
-            }
-        }
     }
 }
 

@@ -1,7 +1,7 @@
 # 微墨·豆瓣桌面 App（Tauri，macOS / Windows）
 
 方案 B 全栈封装：**Tauri 壳 + 内嵌同步服务器，单进程自足运行**。不依赖
-weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见下）。
+weimo.ink 也可工作。
 
 ## 架构
 
@@ -29,20 +29,9 @@ weimo.ink 也可工作；服务器数据可在首启时一键种子导入（见�
 - **单实例**（tauri-plugin-single-instance）：二次启动聚焦既有窗口，
   避免两个进程写同一 SQLite。
 
-## 桌面形态三件套（v0.4.0）
+## 桌面形态两件套（v0.4.0）
 
-### 1. 首启种子
-
-本地无 `douban_export.db`（从未种子、也从未同步过）时，从远端服务器拉
-全库快照（后端 ≥0.3.1 的 `GET /api/v1/server/snapshot`，VACUUM INTO
-一致性快照）：免去全量重抓（该规模全量抓取+富集以天计），落盘后订阅/
-任务照常增量补差。covers 不随快照走，由本地封面代理按需回源自愈。
-种子完成后才创建主窗口（避免窗口砸在未就绪的端口上）。
-
-默认源 `https://weimo.ink/douban/api/v1/server/snapshot`——**生产服务器
-需先部署 ≥0.3.1 后端**，否则端点 404、App 自动回落全量抓取。
-
-### 2. 菜单栏常驻（LSUIElement）
+### 1. 菜单栏常驻（LSUIElement）
 
 `Info.plist` 置 `LSUIElement=true`（accessory app，无 Dock 图标）+ 状态
 区托盘：**左键托盘开/聚焦主窗口，右键菜单（打开主窗口 / 检查更新… /
@@ -52,7 +41,7 @@ Windows 无 LSUIElement 概念（该 plist 项被忽略）：App 正常显示任
 图标 + 系统托盘，托盘交互/关窗隐藏行为与 macOS 一致（tauri `tray-icon`
 跨平台，`main.rs` 无平台分支）。
 
-### 3. 自动更新（tauri-plugin-updater）
+### 2. 自动更新（tauri-plugin-updater）
 
 - manifest 默认端点 = GitHub Releases 的 latest/download 重定向
   （仓库公开免鉴权）：`releases/latest/download/latest.json`；
@@ -101,9 +90,6 @@ CI 产物资产名全 ASCII（`weimo-douban` 前缀，与 mac 同约定——gh 
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `SYNC_SEED` | `ask` | 首启种子策略：`ask` 询问 / `auto` 直接拉 / `off` 禁用 |
-| `SYNC_SEED_URL` | weimo.ink 生产端点 | 种子源（如 dev：`http://127.0.0.1:8080/api/v1/server/snapshot`） |
-| `SYNC_SEED_TOKEN` | 构建期注入值 | 种子源 Bearer Token（服务器开鉴权时） |
 | `SYNC_UPDATER_URL` | GitHub Releases | 更新 manifest 端点（release 构建仅接受 https；本地联调需临时开 `dangerousInsecureTransportProtocol` 重新构建） |
 | `SYNC_UPDATE_AUTO` | 空 | `1` = 发现新版本不经确认直接装（无人值守） |
 | `SYNC_CRAWL_*` / `SYNC_SUBJECT_*` / `SYNC_DOUBAN_COOKIE` 等 | 后端默认 | 抓取/富集调参，语义与服务器部署一致（见根 README 参数表） |
@@ -115,9 +101,9 @@ CI 产物资产名全 ASCII（`weimo-douban` 前缀，与 mac 同约定——gh 
 
 `~/Library/Application Support/ink.weimo.douban/`（`douban_export.db` +
 `covers/`）；Windows 为 `%APPDATA%\ink.weimo.douban\`。删除该目录即回到
-全新首启状态（可再次触发种子）。
+全新首启状态。
 
-手工种子（跳过下载）：
+手工迁移数据（免全量重抓）：
 
 ```bash
 sqlite3 <源>/douban_export.db ".backup ~/Library/Application Support/ink.weimo.douban/douban_export.db"
@@ -158,10 +144,8 @@ app/
 ├── icons/              # 由 frontend/web/public/favicon.svg 栅格化生成
 ├── scripts/release.sh  # 构建→签名→latest.json→gh release 一条龙
 └── src/
-    ├── main.rs         # 端口绑定/种子/服务拉起/窗口/托盘/更新/单实例
+    ├── main.rs         # 端口绑定/服务拉起/窗口/托盘/更新/单实例
     └── static_files.rs # rust-embed dist + HashRouter 兜底 index.html
 ```
 
-后端侧配套（0.3.1）：`server::build_server`（装配与绑定分离）、
-`GET /api/v1/server/snapshot`（全库快照）、`server::seed`（冷启动判定 +
-拉取校验落盘）。
+后端侧配套（0.3.1）：`server::build_server`（装配与绑定分离）。

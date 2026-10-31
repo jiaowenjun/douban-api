@@ -90,7 +90,6 @@ pub fn build_app(state: AppState) -> Router {
                 .delete(delete_subscription),
         )
         .route("/server/info", get(server_info))
-        .route("/server/snapshot", get(get_server_snapshot))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             super::cache::middleware,
@@ -200,56 +199,6 @@ async fn healthz() -> Json<Value> {
 
 async fn server_info(State(state): State<AppState>) -> AppResult<Json<Value>> {
     Ok(Json(service::server_info(&state).await?))
-}
-
-/// 全库一致性快照（VACUUM INTO 临时文件后回读为字节）。供桌面 App 首启种子
-/// （见仓库 app/ 与 server/seed.rs）：字节级同构 schema，落盘后本地任务/订阅
-/// 照常增量补差；covers 不随快照走，由本地封面代理按需回源缓存自愈。
-/// 全量回读进内存——库为 10MB 量级，不做流式
-async fn get_server_snapshot(State(state): State<AppState>) -> AppResult<Response> {
-    let dir = state.config.data_dir.join("snapshot-tmp");
-    std::fs::create_dir_all(&dir)?;
-    // 尽力清理历史遗留（请求中异常退出来不及删的临时文件）；并发请求各自
-    // 用唯一文件名，这里只清 10 分钟前的旧文件避免误删在途快照
-    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            if entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .is_ok_and(|t| t < cutoff)
-            {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-    let path = dir.join(format!(
-        "snapshot-{}.db",
-        super::config::ServerConfig::now_ms()
-    ));
-    let path_str = path.display().to_string();
-    sqlx::query("VACUUM INTO ?")
-        .bind(&path_str)
-        .execute(&state.pool)
-        .await
-        .map_err(AppError::from)?;
-    let bytes = tokio::fs::read(&path).await?;
-    let _ = std::fs::remove_file(&path);
-    if bytes.is_empty() {
-        return Err(AppError::Internal("快照为空".to_string()));
-    }
-    Ok((
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, "application/octet-stream"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"douban_export.db\"",
-            ),
-        ],
-        bytes,
-    )
-        .into_response())
 }
 
 // --------------------------------------------------------------------------- //
