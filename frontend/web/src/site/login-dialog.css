@@ -7,6 +7,28 @@
   flex-direction: column;
 }
 
+/* 去 header/footer 分隔线：组件默认带上下两条线，但本弹层只有标题 +
+   单输入框 + 按钮行，层级一目了然，加线反而割裂（口径同
+   settings-dialog.css 的 header 覆盖） */
+.login-dialog .coss-dialog__header {
+  border-bottom: none;
+}
+
+/* 标题居中：单行标题 + 单输入框的极简弹层，居中比左对齐更聚焦 */
+.login-dialog .coss-dialog__title {
+  text-align: center;
+}
+
+.login-dialog .coss-dialog__footer {
+  border-top: none;
+}
+
+/* 「返回」靠左：footer 默认右对齐，返回是退路动作，与右侧确认/清除
+   分居两端更符合主次 */
+.login-dialog__back {
+  margin-right: auto;
+}
+
 /* 当前账号行：头像 + 用户名 + @uid（后端未同步过该用户时无头像/用户名，回退 uid） */
 .login-dialog__account {
   display: flex;
@@ -45,15 +67,10 @@
   font-size: var(--font-size-sm);
 }
 
+/* 字段只剩单输入框（标题即提示，label 仅作点击聚焦的命中区包一层）；
+   须用 grid 让 input 拉满轨道宽——block 下 input 回退固有宽度约半宽 */
 .login-dialog__field {
   display: grid;
-  gap: 6px;
-}
-
-.login-dialog__label {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 560;
 }
 
 .login-dialog__input {

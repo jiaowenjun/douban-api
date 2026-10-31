@@ -4,7 +4,6 @@ import { UserRound } from 'lucide-react'
 
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -74,9 +73,6 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
         <form className="login-dialog__form" onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>请输入你的豆瓣 ID</DialogTitle>
-            <DialogDescription>
-              即个人主页地址 people/ 后的那段字符，无需账号密码，仅用于同步并展示你的标记数据。
-            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             {uid ? (
@@ -101,7 +97,6 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
               </div>
             ) : null}
             <label className="login-dialog__field">
-              <span className="login-dialog__label">豆瓣 ID</span>
               <input
                 className="login-dialog__input"
                 name="douban-uid"
@@ -114,7 +109,12 @@ export function LoginDialog({ onOpenChange, open }: LoginDialogProps) {
             </label>
           </DialogPanel>
           <DialogFooter>
-            <TextButton onClick={handleBack} type="button" variant="ghost">
+            <TextButton
+              className="login-dialog__back"
+              onClick={handleBack}
+              type="button"
+              variant="ghost"
+            >
               返回
             </TextButton>
             {uid ? (
