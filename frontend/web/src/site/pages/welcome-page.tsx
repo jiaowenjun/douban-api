@@ -40,8 +40,10 @@ const IN_TAURI_APP =
  *  Windows 家族 UA；iPadOS 13+ 默认「请求桌面网站」把 UA 伪装成
  *  Macintosh，用 maxTouchPoints>1 揭穿（真 Mac 无触摸屏恒 ≤1，iPhone
  *  UA 含的是「like Mac OS X」而非 Macintosh 令牌，天然不误判）。
- *  会话内恒定，模块级求值即可（同 IN_TAURI_APP 范式）；检测失败最坏
- *  结果 = 下错安装包，「其他版本」小链接可救 */
+ *  会话内恒定，模块级求值即可（同 IN_TAURI_APP 范式）；other（Linux/
+ *  移动端/未识别）暂无对应客户端，下载按钮整体不渲染（CTA 行回落单
+ *  按钮），检测失败最坏结果 = 看不到下载按钮，经顶栏 GitHub 仓库的
+ *  releases 页可救 */
 type DownloadPlatform = 'mac' | 'windows' | 'other'
 const DETECTED_PLATFORM: DownloadPlatform = (() => {
   if (typeof window === 'undefined') return 'other'
@@ -130,8 +132,8 @@ function WindowsLogo({ size = 16 }: { size?: number }) {
   )
 }
 
-/** Tux 用途：本站无 Linux 安装包，作「other」兜底态（Linux/移动端/
- *  未识别平台）「其他版本」按钮的图标 */
+/** Tux 用途：other 态（Linux/移动端/未识别）暂无客户端、按钮不渲染，
+ *  组件暂不被触达，留作 Linux 客户端就绪后恢复 */
 function LinuxLogo({ size = 16 }: { size?: number }) {
   return (
     <svg
@@ -147,12 +149,13 @@ function LinuxLogo({ size = 16 }: { size?: number }) {
 }
 
 /** 下载 CTA 按检测平台分流的内容：mac/windows 指向各自安装包直链；
- *  other（Linux/移动端/未识别）无对应安装包，指向 releases 页自选 */
+ *  other（Linux/移动端/未识别）暂无对应安装包、按钮不渲染，条目与
+ *  图标留作相应客户端就绪后恢复（渲染条件见 JSX） */
 const DOWNLOAD_CTA: Record<DownloadPlatform, { href: string; label: string }> =
   {
     mac: { href: APP_DMG_URL, label: 'Mac 客户端' },
     windows: { href: APP_EXE_URL, label: 'Windows 客户端' },
-    other: { href: RELEASES_URL, label: '其他版本' },
+    other: { href: RELEASES_URL, label: '下载客户端' },
   }
 
 /** 各平台按钮图标（与 DOWNLOAD_CTA 同键） */
@@ -217,26 +220,19 @@ export function WelcomePage() {
           {uid ? '进入我的标记' : '进入标记列表'}
           <ArrowRight aria-hidden size={16} />
         </TextButton>
-        {/* 下载 CTA 仅网页端：桌面端已在 App 内，下载按钮无意义（隐藏
-         *  后剩单按钮，flex 居中布局天然成立）。内容按检测平台分流——
-         *  图标/文案/链接三联动（Mac/Windows 安装包直链，其他平台指向
-         *  releases 页）。借用 text-button 组件类渲染真链接：下载需要真实
-         *  href（右键另存/新标签直下），安装包直链由浏览器下载不离开本
-         *  页；无 data-variant 即默认实心，与左侧进入按钮同款 */}
-        {!IN_TAURI_APP && (
-          <>
-            <a className="text-button" href={downloadHref}>
-              <PlatformLogo size={16} />
-              {downloadLabel}
-            </a>
-            {/* 识别出具体平台时另给「其他版本」次级小链接（同排右后）：
-             *  误检测与 Intel Mac（仅出 aarch64 dmg）经此自救 */}
-            {DETECTED_PLATFORM !== 'other' && (
-              <a className="welcome-page__all-downloads" href={RELEASES_URL}>
-                其他版本
-              </a>
-            )}
-          </>
+        {/* 下载 CTA 仅网页端且平台有对应客户端：桌面端已在 App 内、
+         *  other 态（Linux/移动端/未识别）暂无客户端，两态均不渲染
+         *  （隐藏后剩单按钮，flex 居中布局天然成立），待相应客户端
+         *  就绪再放开。内容按检测平台分流——图标/文案/链接三联动；
+         *  误检测/Intel Mac 经顶栏 GitHub 仓库入口的 releases 自救。
+         *  借用 text-button 组件类渲染真链接：下载需要真实 href（右键
+         *  另存/新标签直下），安装包直链由浏览器下载不离开本页；无
+         *  data-variant 即默认实心，与左侧进入按钮同款 */}
+        {!IN_TAURI_APP && DETECTED_PLATFORM !== 'other' && (
+          <a className="text-button" href={downloadHref}>
+            <PlatformLogo size={16} />
+            {downloadLabel}
+          </a>
         )}
       </div>
 
